@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ashford Youth Club — Staff / Volunteer Registration</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy:      #1b2d4f;
+      --navy-dark: #111e36;
+      --teal:      #0096b4;
+      --teal-light:#e0f6fb;
+      --cream:     #f5f3ef;
+      --text:      #1b2d4f;
+      --muted:     #6b7d96;
+      --border:    #dce3ef;
+      --red:       #c53030;
+      --red-bg:    #fff5f5;
+      --green:     #276749;
+      --green-bg:  #f0fff4;
+      --purple:    #7c3aed;
+      --purple-bg: #f5f3ff;
+      --purple-light: #ede9fe;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; }
+
+    .reg-header {
+      background: var(--navy);
+      color: white;
+      padding: 20px 24px;
+      text-align: center;
+    }
+    .reg-header .brand-icon { font-size: 36px; display: block; margin-bottom: 8px; }
+    .reg-header h1 { font-size: 20px; font-weight: 900; line-height: 1.3; }
+    .reg-header p  { font-size: 13.5px; opacity: .75; margin-top: 4px; }
+    .reg-header .back-link {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 13px;
+      color: rgba(255,255,255,.65);
+      text-decoration: none;
+      transition: color .15s;
+    }
+    .reg-header .back-link:hover { color: white; }
+
+    .staff-banner {
+      background: var(--purple-bg);
+      border-bottom: 2px solid var(--purple-light);
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--purple);
+    }
+
+    .form-wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 60px; }
+
+    .form-section {
+      background: white;
+      border-radius: 16px;
+      border: 2px solid var(--border);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .section-title {
+      background: var(--navy);
+      color: white;
+      padding: 12px 18px;
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .09em;
+    }
+    .section-body { padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .field-row.full, .field { grid-column: 1 / -1; }
+
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .field label .req { color: var(--red); margin-left: 2px; }
+    .field input, .field select {
+      width: 100%;
+      padding: 11px 14px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 15px;
+      color: var(--text);
+      background: white;
+      outline: none;
+      transition: border-color .18s;
+    }
+    .field input:focus, .field select:focus { border-color: var(--teal); }
+    .field input.error, .field select.error { border-color: var(--red); }
+
+    .postcode-wrap { display: flex; gap: 8px; }
+    .postcode-wrap input { flex: 1; }
+    .find-btn {
+      padding: 11px 16px;
+      background: var(--teal);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .18s;
+    }
+    .find-btn:hover    { background: #007a94; }
+    .find-btn:disabled { opacity: .55; cursor: default; }
+
+    .lookup-msg {
+      font-size: 13px; font-weight: 700;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-top: -4px;
+    }
+    .lookup-msg.err  { background: var(--red-bg);    color: var(--red);  border: 1.5px solid #fca5a5; }
+    .lookup-msg.info { background: var(--teal-light); color: var(--teal); border: 1.5px solid #a5dce8; }
+
+    .submit-section { padding: 0 0 8px; }
+    .submit-btn {
+      width: 100%;
+      padding: 16px;
+      background: var(--navy);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 17px; font-weight: 900;
+      cursor: pointer;
+      transition: background .18s, transform .1s;
+      letter-spacing: .02em;
+    }
+    .submit-btn:hover  { background: var(--navy-dark); }
+    .submit-btn:active { transform: scale(.99); }
+    .submit-btn:disabled { opacity: .55; cursor: default; transform: none; }
+
+    .form-error {
+      display: none;
+      margin-bottom: 16px;
+      background: var(--red-bg);
+      border: 2px solid #fca5a5;
+      color: var(--red);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 14px; font-weight: 700;
+    }
+    .form-error.show { display: block; }
+
+    #success-screen {
+      display: none;
+      max-width: 500px;
+      margin: 60px auto;
+      padding: 0 16px;
+      text-align: center;
+    }
+    #success-screen.show { display: block; }
+    .success-icon { font-size: 60px; margin-bottom: 20px; }
+    #success-screen h2 { font-size: 26px; font-weight: 900; color: var(--navy); margin-bottom: 10px; }
+    #success-screen p  { font-size: 15px; color: var(--muted); line-height: 1.6; }
+    .success-note {
+      margin-top: 24px;
+      background: var(--teal-light);
+      border-radius: 12px;
+      padding: 16px 20px;
+      font-size: 14px; font-weight: 700;
+      color: var(--teal); line-height: 1.5;
+    }
+
+    @media (max-width: 500px) {
+      .field-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="reg-header">
+  <span class="brand-icon">🏅</span>
+  <h1>Ashford Youth Club<br>Staff / Volunteer Registration</h1>
+  <p>Volunteer, Youth Volunteer &amp; Leader sign-up</p>
+  <a href="/registration" class="back-link">← Back to registration options</a>
+</div>
+
+<div class="staff-banner">
+  🧑‍🤝‍🧑 This form is for <strong>volunteers and leaders only</strong>. If you're registering a young person, please <a href="/registration/member" style="color:var(--purple)">use the member form</a>.
+</div>
+
+<div id="form-wrap" class="form-wrap">
+
+  <!-- Personal Details -->
+  <div class="form-section">
+    <div class="section-title">Personal Details</div>
+    <div class="section-body">
+      <div class="field-row">
+        <div class="field">
+          <label>First Name <span class="req">*</span></label>
+          <input type="text" id="first-name" placeholder="e.g. Sarah" autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label>Surname <span class="req">*</span></label>
+          <input type="text" id="surname" placeholder="e.g. Holloway" autocomplete="family-name">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Date of Birth <span class="req">*</span></label>
+          <input type="date" id="dob">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Address -->
+  <div class="form-section">
+    <div class="section-title">Address</div>
+    <div class="section-body">
+      <div class="field">
+        <label>Postcode <span class="req">*</span></label>
+        <div class="postcode-wrap">
+          <input type="text" id="postcode" placeholder="e.g. TW15 3EL" autocomplete="postal-code"
+            oninput="onPostcodeInput()" style="text-transform:uppercase">
+          <button type="button" class="find-btn" id="find-btn" onclick="lookupPostcode()">Find</button>
+        </div>
+      </div>
+      <div class="lookup-msg" id="lookup-msg" style="display:none"></div>
+      <div class="field" id="address-picker-wrap" style="display:none">
+        <label>Select your address</label>
+        <select id="address-picker" onchange="selectAddress()">
+          <option value="">— Select address —</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Home Address <span class="req">*</span></label>
+        <input type="text" id="address" placeholder="Start typing or use the postcode finder above">
+      </div>
+    </div>
+  </div>
+
+  <!-- Contact Details -->
+  <div class="form-section">
+    <div class="section-title">Contact Details</div>
+    <div class="section-body">
+      <div class="field-row">
+        <div class="field">
+          <label>Mobile Number <span class="req">*</span></label>
+          <input type="tel" id="mobile" placeholder="e.g. 07700 900000" autocomplete="tel">
+        </div>
+        <div class="field">
+          <label>Email Address <span class="req">*</span></label>
+          <input type="email" id="email" placeholder="e.g. sarah@email.com" autocomplete="email">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Role & Session -->
+  <div class="form-section">
+    <div class="section-title">Role &amp; Session Preference</div>
+    <div class="section-body">
+      <div class="field-row">
+        <div class="field">
+          <label>Role <span class="req">*</span></label>
+          <select id="applicant-role">
+            <option value="">— Select role —</option>
+            <option value="Volunteer">Volunteer</option>
+            <option value="Youth Volunteer">Youth Volunteer</option>
+            <option value="Leader">Leader</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Session Preference <span class="req">*</span></label>
+          <select id="session-pref">
+            <option value="">— Select session —</option>
+            <option value="Tuesday">Tuesday</option>
+            <option value="Thursday">Thursday</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div class="submit-section">
+    <div class="form-error" id="form-error">Please complete all required fields before submitting.</div>
+    <button class="submit-btn" id="submit-btn" onclick="submitForm()">Submit Registration</button>
+  </div>
+
+</div><!-- /form-wrap -->
+
+<p style="text-align:center;font-size:11px;color:var(--muted);margin-top:-8px;padding-bottom:24px;opacity:.6;">
+  Ashford Youth Club Staff Registration &nbsp;·&nbsp; {{ version }}
+</p>
+
+<!-- Success screen -->
+<div id="success-screen">
+  <div class="success-icon">✅</div>
+  <h2>Registration submitted!</h2>
+  <p>Thank you for registering with Ashford Youth Club. A leader will review your application shortly and be in touch to confirm your details.</p>
+  <div class="success-note">
+    If you have any questions in the meantime, please contact the club directly.
+  </div>
+</div>
+
+<script>
+/* ── Postcode lookup ─────────────────────────────────────────────────
+   Lookup is proxied through /api/postcode/<postcode> on the server.
+   The API key lives in .env (GETADDRESS_KEY) — not in this file.
+──────────────────────────────────────────────────────────────────── */
+
+/* ── Validation ────────────────────────────────────── */
+function validate() {
+  let ok = true;
+  const required = ["first-name","surname","dob","address","postcode","mobile","email","applicant-role","session-pref"];
+  required.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el.value.trim()) { el.classList.add("error"); ok = false; }
+    else el.classList.remove("error");
+  });
+
+  const emailEl = document.getElementById("email");
+  if (emailEl.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+    emailEl.classList.add("error"); ok = false;
+  }
+
+  return ok;
+}
+
+/* ── Submit ────────────────────────────────────────── */
+async function submitForm() {
+  document.getElementById("form-error").classList.remove("show");
+
+  if (!validate()) {
+    document.getElementById("form-error").classList.add("show");
+    document.querySelector(".field input.error, .field select.error")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+
+  const btn = document.getElementById("submit-btn");
+  btn.disabled    = true;
+  btn.textContent = "Submitting…";
+
+  const payload = {
+    registration_type:  'staff',
+    first_name:         document.getElementById("first-name").value.trim(),
+    surname:            document.getElementById("surname").value.trim(),
+    date_of_birth:      document.getElementById("dob").value,
+    address:            document.getElementById("address").value.trim(),
+    postcode:           document.getElementById("postcode").value.trim().toUpperCase(),
+    mobile:             document.getElementById("mobile").value.trim(),
+    email:              document.getElementById("email").value.trim(),
+    applicant_role:     document.getElementById("applicant-role").value,
+    assigned_session:   document.getElementById("session-pref").value,
+  };
+
+  try {
+    const res  = await fetch('/api/registration', {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body:        JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showSuccess();
+    } else {
+      throw new Error(data.error || 'Submission failed');
+    }
+  } catch (e) {
+    btn.disabled    = false;
+    btn.textContent = "Submit Registration";
+    const errEl = document.getElementById("form-error");
+    errEl.textContent = e.message || "Submission failed — please check your connection and try again.";
+    errEl.classList.add("show");
+  }
+}
+
+function showSuccess() {
+  document.getElementById("form-wrap").style.display = "none";
+  const s = document.getElementById("success-screen");
+  s.classList.add("show");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* ── Postcode lookup (proxied via /api/postcode/) ──── */
+let _postcodeResults = [];
+
+function onPostcodeInput() {
+  document.getElementById("address-picker-wrap").style.display = "none";
+  showLookupMsg("", "");
+  _postcodeResults = [];
+}
+
+function showLookupMsg(text, type) {
+  const el = document.getElementById("lookup-msg");
+  el.textContent   = text;
+  el.className     = `lookup-msg ${type}`;
+  el.style.display = text ? "block" : "none";
+}
+
+async function lookupPostcode() {
+  const rawPostcode = document.getElementById("postcode").value.trim();
+  const postcode    = rawPostcode.replace(/\s+/g, "").toUpperCase();
+  if (postcode.length < 5) {
+    document.getElementById("postcode").classList.add("error");
+    showLookupMsg("Please enter a full postcode first.", "err");
+    return;
+  }
+  document.getElementById("postcode").classList.remove("error");
+  showLookupMsg("", "");
+  document.getElementById("address-picker-wrap").style.display = "none";
+
+  const btn = document.getElementById("find-btn");
+  btn.disabled    = true;
+  btn.textContent = "…";
+
+  try {
+    const res  = await fetch(`/api/postcode/${encodeURIComponent(postcode)}`);
+    let data;
+    try { data = await res.json(); } catch { data = {}; }
+
+    if (res.status === 503) {
+      showLookupMsg("Address lookup is not configured on this server.", "err");
+      return;
+    }
+    if (res.status === 401 || res.status === 403) {
+      showLookupMsg("Address lookup API key is invalid or expired — please contact the club to report this.", "err");
+      return;
+    }
+    if (res.status === 429) {
+      showLookupMsg("Daily address lookup limit reached — please type your address manually below.", "err");
+      return;
+    }
+    if (res.status === 502) {
+      showLookupMsg("Server could not reach the address lookup service — please type your address manually below.", "err");
+      return;
+    }
+    if (!res.ok || !data.addresses || data.addresses.length === 0) {
+      document.getElementById("postcode").classList.add("error");
+      showLookupMsg("Postcode not found — please check and try again, or type your address below.", "err");
+      return;
+    }
+
+    const formatted = postcode.slice(0, -3) + " " + postcode.slice(-3);
+    document.getElementById("postcode").value = formatted;
+    _postcodeResults = data.addresses;
+
+    if (data.addresses.length === 1) {
+      fillAddress(data.addresses[0]);
+      showLookupMsg("Address filled in — please check and correct if needed.", "info");
+    } else {
+      const picker = document.getElementById("address-picker");
+      picker.innerHTML = `<option value="">— ${data.addresses.length} addresses found, select yours —</option>`;
+      data.addresses.forEach((a, i) => {
+        picker.innerHTML += `<option value="${i}">${addrLabel(a)}</option>`;
+      });
+      document.getElementById("address-picker-wrap").style.display = "block";
+      picker.focus();
+    }
+  } catch (e) {
+    showLookupMsg("Could not reach address lookup — check your connection, or type your address below.", "err");
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = "Find";
+  }
+}
+
+function selectAddress() {
+  const picker = document.getElementById("address-picker");
+  if (picker.value === "") return;
+  fillAddress(_postcodeResults[parseInt(picker.value)]);
+  document.getElementById("address-picker-wrap").style.display = "none";
+}
+
+function addrLabel(a) {
+  if (typeof a === "object" && a !== null)
+    return [a.line_1, a.town_or_city].filter(Boolean).join(", ");
+  return String(a).split(",").map(s => s.trim()).filter(Boolean)[0] || String(a);
+}
+
+function fillAddress(a) {
+  let line;
+  if (typeof a === "object" && a !== null) {
+    line = [a.line_1, a.line_2, a.line_3, a.town_or_city]
+      .map(s => (s || "").trim()).filter(Boolean).join(", ");
+  } else {
+    const parts = String(a).split(",").map(s => s.trim()).filter(Boolean);
+    line = parts.slice(0, -1).join(", ");
+  }
+  document.getElementById("address").value = line;
+  document.getElementById("address").classList.remove("error");
+}
+
+
+document.querySelectorAll("input, select").forEach(el => {
+  el.addEventListener("input", () => el.classList.remove("error"));
+  el.addEventListener("change", () => el.classList.remove("error"));
+});
+</script>
+</body>
+</html>

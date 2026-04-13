@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Database & data files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Uploaded documents (runtime data, not source code)
+data/documents/
+
+# Environment / secrets
+.env
+*.env
+config_local.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

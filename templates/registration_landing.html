@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ashford Youth Club — Registration</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy:      #1b2d4f;
+      --navy-dark: #111e36;
+      --teal:      #0096b4;
+      --teal-light:#e0f6fb;
+      --cream:     #f5f3ef;
+      --text:      #1b2d4f;
+      --muted:     #6b7d96;
+      --border:    #dce3ef;
+      --purple:    #7c3aed;
+      --purple-bg: #f5f3ff;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; }
+
+    .reg-header {
+      background: var(--navy);
+      color: white;
+      padding: 28px 24px;
+      text-align: center;
+    }
+    .reg-header .brand-icon { font-size: 42px; display: block; margin-bottom: 10px; }
+    .reg-header h1 { font-size: 22px; font-weight: 900; line-height: 1.3; }
+    .reg-header p  { font-size: 14px; opacity: .75; margin-top: 6px; }
+
+    .landing-wrap {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 36px 16px 60px;
+    }
+
+    .landing-intro {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .landing-intro h2 {
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--navy);
+      margin-bottom: 8px;
+    }
+    .landing-intro p {
+      font-size: 14.5px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .choice-card {
+      display: block;
+      text-decoration: none;
+      background: white;
+      border: 2px solid var(--border);
+      border-radius: 18px;
+      padding: 26px 24px;
+      margin-bottom: 16px;
+      transition: border-color .18s, box-shadow .18s, transform .12s;
+      cursor: pointer;
+    }
+    .choice-card:hover {
+      border-color: var(--teal);
+      box-shadow: 0 6px 24px rgba(0,150,180,.12);
+      transform: translateY(-2px);
+    }
+    .choice-card.staff:hover {
+      border-color: var(--purple);
+      box-shadow: 0 6px 24px rgba(124,58,237,.10);
+    }
+
+    .card-inner {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .card-icon {
+      font-size: 40px;
+      flex-shrink: 0;
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: var(--teal-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .choice-card.staff .card-icon {
+      background: var(--purple-bg);
+    }
+    .card-text { flex: 1; }
+    .card-title {
+      font-size: 17px;
+      font-weight: 900;
+      color: var(--navy);
+      margin-bottom: 4px;
+    }
+    .card-desc {
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .card-arrow {
+      font-size: 22px;
+      color: var(--muted);
+      flex-shrink: 0;
+      transition: color .18s, transform .18s;
+    }
+    .choice-card:hover .card-arrow {
+      color: var(--teal);
+      transform: translateX(4px);
+    }
+    .choice-card.staff:hover .card-arrow {
+      color: var(--purple);
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 4px 0 20px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<div class="reg-header">
+  <span class="brand-icon">🏅</span>
+  <h1>Ashford Youth Club</h1>
+  <p>Please select the registration type below.</p>
+</div>
+
+<div class="landing-wrap">
+
+  <div class="landing-intro">
+    <h2>Who is registering?</h2>
+    <p>Choose the option that applies to you. Both forms are quick to complete and will be reviewed by a leader before your place is confirmed.</p>
+  </div>
+
+  <a href="/registration/member" class="choice-card">
+    <div class="card-inner">
+      <div class="card-icon">👦</div>
+      <div class="card-text">
+        <div class="card-title">Young Person (Member)</div>
+        <div class="card-desc">Registering a child or young person to join Ashford Youth Club sessions.</div>
+      </div>
+      <span class="card-arrow">›</span>
+    </div>
+  </a>
+
+  <div class="divider">or</div>
+
+  <a href="/registration/staff" class="choice-card staff">
+    <div class="card-inner">
+      <div class="card-icon">🧑‍🤝‍🧑</div>
+      <div class="card-text">
+        <div class="card-title">Volunteer / Leader (Staff)</div>
+        <div class="card-desc">Registering as a volunteer, youth volunteer, or leader to help run club sessions.</div>
+      </div>
+      <span class="card-arrow">›</span>
+    </div>
+  </a>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Approvals{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📋 Registration Approvals</h1>
+  <div class="count-pill" id="pending-count" style="cursor:default">—</div>
+</div>
+
+<!-- Tab bar -->
+<div style="display:flex;gap:6px;margin-bottom:20px">
+  <button class="tab-btn active" data-tab="pending"  onclick="switchTab('pending')">⏳ Pending</button>
+  <button class="tab-btn"        data-tab="approved" onclick="switchTab('approved')">✅ Approved</button>
+  <button class="tab-btn"        data-tab="rejected" onclick="switchTab('rejected')">❌ Rejected</button>
+</div>
+
+<div id="approvals-container">
+  <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
+</div>
+
+<!-- ── Approve Modal ────────────────────────────────────────────── -->
+<div class="modal-overlay" id="approve-modal">
+  <div class="modal" style="max-width:480px">
+    <h2 id="approve-modal-title">Approve Registration</h2>
+    <p id="approve-name" style="font-weight:700;margin-bottom:16px;font-size:15px"></p>
+
+    <!-- Member section -->
+    <div id="approve-member-section">
+      <div class="form-group">
+        <label>Assign to Session <span style="color:var(--red)">*</span></label>
+        <select id="approve-session">
+          <option value="">— select session —</option>
+          <option value="Tuesday">Tuesday</option>
+          <option value="Thursday">Thursday</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Staff section -->
+    <div id="approve-staff-section" style="display:none">
+      <div class="form-group">
+        <label>Assign to Session <span style="color:var(--red)">*</span></label>
+        <select id="approve-staff-session">
+          <option value="">— select session —</option>
+          <option value="Tuesday">Tuesday</option>
+          <option value="Thursday">Thursday</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Staff Role <span style="color:var(--red)">*</span></label>
+        <select id="approve-staff-role">
+          <option value="">— select role —</option>
+          <option value="Volunteer">Volunteer</option>
+          <option value="Youth Volunteer">Youth Volunteer</option>
+          <option value="Leader">Leader</option>
+        </select>
+      </div>
+
+      <!-- Portal login section -->
+      <div style="border:2px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:800;font-size:14px;margin-bottom:0">
+          <input type="checkbox" id="create-login-cb" onchange="toggleLoginFields()"
+                 style="width:18px;height:18px;cursor:pointer;accent-color:var(--teal)">
+          Create a portal login for this staff member
+        </label>
+        <div id="login-fields" style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Portal Username <span style="color:var(--red)">*</span></label>
+            <input type="text" id="approve-username" placeholder="e.g. shollow"
+                   style="width:100%;padding:8px 12px;border:2px solid var(--border);
+                          border-radius:8px;font-size:14px;font-family:inherit">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Temporary Password <span style="color:var(--red)">*</span></label>
+            <input type="text" id="approve-temp-pw" placeholder="Temporary password to share with them"
+                   style="width:100%;padding:8px 12px;border:2px solid var(--border);
+                          border-radius:8px;font-size:14px;font-family:inherit">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Portal Role <span style="color:var(--red)">*</span></label>
+            <select id="approve-portal-role"
+                    style="width:100%;padding:8px 12px;border:2px solid var(--border);
+                           border-radius:8px;font-size:14px;font-family:inherit">
+              <option value="readonly">Read Only — register sign-out and public documents only</option>
+              <option value="leader">Leader — view members, manage register, view documents</option>
+              <option value="editor">Core Leader — full member edit, users, comms, documents</option>
+              {% if current_role == 'admin' %}
+              <option value="admin">Admin — full access including audit log and permanent delete</option>
+              {% endif %}
+            </select>
+          </div>
+          <div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;
+                      padding:10px 12px;font-size:12px;color:#0369a1;margin-top:2px">
+            <strong>📍 Session:</strong>
+            <span id="portal-session-label" style="margin-left:4px">—</span>
+            <span style="color:var(--muted);margin-left:6px">(inherited from the session assigned above)</span>
+          </div>
+          <p style="font-size:12px;color:var(--muted);line-height:1.5;margin:0">
+            ℹ️ You will need to share the username and temporary password with this person directly.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeApprovalModals()">Cancel</button>
+      <button class="btn btn-primary" id="approve-save-btn" onclick="confirmApprove()">✅ Approve</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Reject Modal ─────────────────────────────────────────────── -->
+<div class="modal-overlay" id="reject-modal">
+  <div class="modal">
+    <h2>Reject Registration</h2>
+    <p id="reject-name" style="font-weight:600;margin-bottom:16px"></p>
+    <div class="form-group">
+      <label>Reason / Notes (optional)</label>
+      <textarea id="reject-notes" rows="3"
+                placeholder="e.g. Duplicate submission, under age, etc."
+                style="width:100%;padding:8px;border:1px solid var(--border);
+                       border-radius:6px;font-size:14px;resize:vertical;
+                       box-sizing:border-box"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeApprovalModals()">Cancel</button>
+      <button class="btn btn-danger" id="reject-save-btn" onclick="confirmReject()">❌ Reject</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .badge-staff {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #ede9fe;
+    color: #7c3aed;
+    border: 1.5px solid #c4b5fd;
+    border-radius: 6px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-left: 8px;
+  }
+  #login-fields { display: none; }
+  #login-fields.visible { display: flex; }
+</style>
+<script>
+  const USER_ROLE    = "{{ current_role }}";
+  const USER_SESSION = "{{ current_session or '' }}";
+  const IS_SCOPED    = USER_ROLE !== 'admin';
+
+  let currentTab   = 'pending';
+  let pendingRegId = null;
+  let pendingRegType = 'member';
+
+  /* ── Tab switching ────────────────────────────────── */
+  function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.tab === tab));
+    loadApprovals();
+  }
+
+  /* ── Load ─────────────────────────────────────────── */
+  async function loadApprovals() {
+    document.getElementById('approvals-container').innerHTML =
+      `<div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>`;
+    try {
+      const data = await apiFetch(`/api/approvals?status=${currentTab}`);
+      const pill = document.getElementById('pending-count');
+      if (currentTab === 'pending') {
+        pill.textContent = data.length ? `${data.length} pending` : 'none pending';
+        pill.style.display = '';
+      } else {
+        pill.style.display = 'none';
+      }
+      renderApprovals(data);
+    } catch (e) {
+      document.getElementById('approvals-container').innerHTML =
+        `<div class="alert-box err"><strong>⚠️ Could not load registrations</strong> ${esc(e.message)}</div>`;
+    }
+  }
+
+  loadApprovals();
+
+  /* ── Render ───────────────────────────────────────── */
+  function renderApprovals(items) {
+    const container = document.getElementById('approvals-container');
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state">No ${currentTab} registrations.</div>`;
+      return;
+    }
+
+    container.innerHTML = items.map(r => {
+      const isStaff  = (r.registration_type || 'member') === 'staff';
+      const name     = `${esc(r.first_name)} ${esc(r.surname)}`;
+      const dob      = r.date_of_birth ? fmtDate(r.date_of_birth) : '—';
+      const subDate  = r.submitted_at
+        ? new Date(r.submitted_at + 'Z').toLocaleString('en-GB',
+            { dateStyle:'short', timeStyle:'short' })
+        : '—';
+
+      const statusBadge =
+        currentTab === 'approved'
+          ? `<span class="badge badge-active">Approved${r.assigned_session ? ' — ' + esc(r.assigned_session) : ''}</span>`
+        : currentTab === 'rejected'
+          ? `<span class="badge badge-leaver">Rejected</span>`
+          : `<span class="badge badge-ro">Pending</span>`;
+
+      const staffBadge = isStaff
+        ? `<span class="badge-staff">🧑‍🤝‍🧑 Staff${r.applicant_role ? ' — ' + esc(r.applicant_role) : ''}</span>`
+        : '';
+
+      const reviewedLine = (r.reviewed_by_name && r.reviewed_at)
+        ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">
+             Reviewed by <strong>${esc(r.reviewed_by_name)}</strong>
+             on ${new Date(r.reviewed_at + 'Z').toLocaleString('en-GB',
+               {dateStyle:'short', timeStyle:'short'})}
+             ${r.notes ? `— <em>${esc(r.notes)}</em>` : ''}
+           </div>`
+        : '';
+
+      // Detail rows differ by type
+      let detailRows;
+      if (isStaff) {
+        detailRows = `
+          <div>
+            <div class="detail-label">Address</div>
+            <div class="detail-value">${esc(r.address || '—')}${r.postcode ? ', ' + esc(r.postcode) : ''}</div>
+          </div>
+          <div>
+            <div class="detail-label">Mobile</div>
+            <div class="detail-value">${esc(r.mobile || '—')}</div>
+          </div>
+          <div>
+            <div class="detail-label">Email</div>
+            <div class="detail-value">${esc(r.email || '—')}</div>
+          </div>
+          <div>
+            <div class="detail-label">Session Preference</div>
+            <div class="detail-value">${esc(r.assigned_session || '—')}</div>
+          </div>`;
+      } else {
+        const contact1 = r.contact1_name
+          ? `${esc(r.contact1_name)}${r.contact1_phone ? ' · ' + esc(r.contact1_phone) : ''}${r.contact1_email ? ' · ' + esc(r.contact1_email) : ''}`
+          : '—';
+        const contact2 = r.contact2_name
+          ? `${esc(r.contact2_name)}${r.contact2_phone ? ' · ' + esc(r.contact2_phone) : ''}${r.contact2_email ? ' · ' + esc(r.contact2_email) : ''}`
+          : '—';
+        const medicalFlag    = r.medical_sen
+          ? `<span class="flag-badge flag-medical">⚕ ${esc(r.medical_sen)}</span>` : '';
+        const unattendedFlag = r.unattended_exit
+          ? `<span class="flag-badge flag-unattended">🚪 Unattended exit</span>` : '';
+        detailRows = `
+          <div style="grid-column:1/-1">
+            ${medicalFlag}${unattendedFlag}
+          </div>
+          <div>
+            <div class="detail-label">Address</div>
+            <div class="detail-value">${esc(r.address || '—')}${r.postcode ? ', ' + esc(r.postcode) : ''}</div>
+          </div>
+          <div>
+            <div class="detail-label">Ethnicity / Religion</div>
+            <div class="detail-value">${esc(r.ethnicity_religion || '—')}</div>
+          </div>
+          <div>
+            <div class="detail-label">Medical / SEN</div>
+            <div class="detail-value">${esc(r.medical_sen || '—')}</div>
+          </div>
+          <div>
+            <div class="detail-label">GP Contact</div>
+            <div class="detail-value">${esc(r.gp_contact || '—')}</div>
+          </div>
+          <div>
+            <div class="detail-label">Contact 1</div>
+            <div class="detail-value">${contact1}</div>
+          </div>
+          <div>
+            <div class="detail-label">Contact 2</div>
+            <div class="detail-value">${contact2}</div>
+          </div>
+          <div>
+            <div class="detail-label">GDPR Consent</div>
+            <div class="detail-value">${r.gdpr_consent ? '✅ Yes' : '❌ No'}</div>
+          </div>
+          <div>
+            <div class="detail-label">Comms Consent</div>
+            <div class="detail-value">${r.comms_consent ? '✅ Yes' : '❌ No'}</div>
+          </div>`;
+      }
+
+      const actions = currentTab === 'pending'
+        ? `<div class="actions" style="margin-top:16px">
+             <button class="btn btn-primary btn-sm"
+               data-id="${r.id}" data-name="${name}"
+               data-type="${esc(r.registration_type || 'member')}"
+               data-role="${esc(r.applicant_role || '')}"
+               data-session="${esc(r.assigned_session || '')}"
+               onclick="openApproveModal(this.dataset.id, this.dataset.name, this.dataset.type, this.dataset.role, this.dataset.session)">✅ Approve</button>
+             <button class="btn btn-danger btn-sm"
+               data-id="${r.id}" data-name="${name}"
+               onclick="openRejectModal(this.dataset.id, this.dataset.name)">❌ Reject</button>
+           </div>`
+        : '';
+
+      return `
+        <div class="member-card" style="margin-bottom:16px">
+          <div class="card-head" style="display:flex;justify-content:space-between;
+               align-items:flex-start;flex-wrap:wrap;gap:8px">
+            <div>
+              <span class="member-name">${name}</span>
+              <span style="font-size:13px;color:var(--muted);margin-left:8px">DOB: ${dob}</span>
+              ${staffBadge}
+            </div>
+            <div style="text-align:right">
+              ${statusBadge}
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">Submitted ${subDate}</div>
+              ${reviewedLine}
+            </div>
+          </div>
+          <div class="card-body"
+               style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+                      gap:12px;margin-top:12px">
+            ${detailRows}
+          </div>
+          ${actions}
+        </div>`;
+    }).join('');
+  }
+
+  /* ── Approve modal ────────────────────────────────── */
+  function openApproveModal(id, name, regType, applicantRole, sessionPref) {
+    pendingRegId   = id;
+    pendingRegType = regType || 'member';
+
+    document.getElementById('approve-name').textContent = name;
+
+    const isStaff = pendingRegType === 'staff';
+    document.getElementById('approve-member-section').style.display = isStaff ? 'none' : '';
+    document.getElementById('approve-staff-section').style.display  = isStaff ? ''     : 'none';
+    document.getElementById('approve-modal-title').textContent =
+      isStaff ? 'Approve Staff Registration' : 'Approve Registration';
+    document.getElementById('approve-save-btn').textContent =
+      isStaff ? '✅ Approve & Add Staff Member' : '✅ Approve & Create Member';
+
+    // For scoped roles (non-admin), pre-fill and lock the session to their own
+    const memberSessSel = document.getElementById('approve-session');
+    const staffSessSel  = document.getElementById('approve-staff-session');
+
+    if (isStaff) {
+      staffSessSel.value    = IS_SCOPED ? USER_SESSION : (sessionPref || '');
+      staffSessSel.disabled = IS_SCOPED;
+      // Keep the portal session label in sync when the admin changes the session
+      staffSessSel.onchange = () => updatePortalSessionLabel(staffSessSel.value);
+      document.getElementById('approve-staff-role').value   = applicantRole || '';
+      document.getElementById('create-login-cb').checked    = false;
+      document.getElementById('login-fields').classList.remove('visible');
+      document.getElementById('approve-username').value  = '';
+      document.getElementById('approve-temp-pw').value   = '';
+      document.getElementById('approve-portal-role').value = 'readonly';
+      updatePortalSessionLabel(staffSessSel.value);
+    } else {
+      memberSessSel.value    = IS_SCOPED ? USER_SESSION : '';
+      memberSessSel.disabled = IS_SCOPED;
+    }
+
+    document.getElementById('approve-modal').classList.add('open');
+  }
+
+  function updatePortalSessionLabel(val) {
+    const lbl = document.getElementById('portal-session-label');
+    if (lbl) lbl.textContent = val || '— (select a session above first)';
+  }
+
+  function toggleLoginFields() {
+    const show = document.getElementById('create-login-cb').checked;
+    document.getElementById('login-fields').classList.toggle('visible', show);
+  }
+
+  async function confirmApprove() {
+    const btn      = document.getElementById('approve-save-btn');
+    const isStaff  = pendingRegType === 'staff';
+    let payload    = {};
+
+    if (isStaff) {
+      const sess = document.getElementById('approve-staff-session').value;
+      const role = document.getElementById('approve-staff-role').value;
+      if (!sess) { showToast('Please select a session.', true); return; }
+      if (!role) { showToast('Please select a staff role.', true); return; }
+      payload = { session_assigned: sess, staff_role: role };
+
+      const createLogin = document.getElementById('create-login-cb').checked;
+      if (createLogin) {
+        const uname = document.getElementById('approve-username').value.trim();
+        const pw    = document.getElementById('approve-temp-pw').value.trim();
+        const prole = document.getElementById('approve-portal-role').value;
+        if (!uname || !pw) { showToast('Please enter a username and temporary password.', true); return; }
+        payload.create_login  = true;
+        payload.username      = uname;
+        payload.temp_password = pw;
+        payload.portal_role   = prole;
+      }
+    } else {
+      const sess = document.getElementById('approve-session').value;
+      if (!sess) { showToast('Please select a session first.', true); return; }
+      payload = { session_assigned: sess };
+    }
+
+    btn.disabled = true;
+    try {
+      const res = await apiFetch(`/api/approvals/${pendingRegId}/approve`, {
+        method: 'POST',
+        body:   JSON.stringify(payload),
+      });
+      const msg = isStaff
+        ? `Approved — staff member ${res.member_id} created.` + (res.user_created ? ' Portal login created.' : '')
+        : `Approved — member ID ${res.member_id} created.`;
+      showToast(msg);
+      closeApprovalModals();
+      loadApprovals();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Reject modal ─────────────────────────────────── */
+  function openRejectModal(id, name) {
+    pendingRegId = id;
+    document.getElementById('reject-name').textContent = name;
+    document.getElementById('reject-notes').value      = '';
+    document.getElementById('reject-modal').classList.add('open');
+  }
+
+  async function confirmReject() {
+    const notes = document.getElementById('reject-notes').value.trim();
+    const btn   = document.getElementById('reject-save-btn');
+    btn.disabled = true;
+    try {
+      await apiFetch(`/api/approvals/${pendingRegId}/reject`, {
+        method: 'POST',
+        body:   JSON.stringify({ notes }),
+      });
+      showToast('Registration rejected.');
+      closeApprovalModals();
+      loadApprovals();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function closeApprovalModals() {
+    document.querySelectorAll('.modal-overlay').forEach(m =>
+      m.classList.remove('open'));
+  }
+
+  document.querySelectorAll('.modal-overlay').forEach(el =>
+    el.addEventListener('click', e => { if (e.target === el) closeApprovalModals(); }));
+</script>
+{% endblock %}

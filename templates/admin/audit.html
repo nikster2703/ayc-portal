@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Audit Log{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🔍 Audit Log</h1>
+  <div style="display:flex;gap:10px;align-items:center">
+    <select class="session-select" id="action-filter" onchange="filterLog()">
+      <option value="all">All actions</option>
+      <option value="login">Logins</option>
+      <option value="view_member">Member views</option>
+      <option value="edit_member">Member edits</option>
+      <option value="soft_delete_member">Member leavers</option>
+      <option value="mark_at_risk">At Risk flagged</option>
+      <option value="reinstate_member">Members reinstated</option>
+      <option value="auto_leaver">Auto-leavers</option>
+      <option value="approve_registration">Approvals</option>
+      <option value="reject_registration">Rejections</option>
+      <option value="create_user">User created</option>
+      <option value="delete_user">User deleted</option>
+      <option value="change_password">Password changes</option>
+      <option value="add_term_session">Calendar — sessions added</option>
+      <option value="bulk_term_sessions">Calendar — bulk generated</option>
+      <option value="upload_document">Document uploads</option>
+      <option value="view_document">Document views</option>
+      <option value="download_document">Document downloads</option>
+      <option value="send_mailshot">Mailshots sent</option>
+    </select>
+    <div class="count-pill" id="entry-count" style="cursor:default">—</div>
+  </div>
+</div>
+
+<div id="audit-container">
+  <div class="loading-state"><div class="spinner"></div><p>Loading audit log…</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let allEntries = [];
+
+  const ACTION_LABELS = {
+    login:                { icon: '🔑', label: 'Login',               colour: 'var(--teal)'   },
+    view_member:          { icon: '👁',  label: 'Member viewed',       colour: 'var(--muted)'  },
+    edit_member:          { icon: '✏️',  label: 'Member edited',       colour: 'var(--navy)'   },
+    soft_delete_member:       { icon: '👤', label: 'Marked as Leaver',    colour: 'var(--orange)' },
+    permanent_delete_member:  { icon: '🗑️', label: 'Permanently deleted', colour: 'var(--red)'    },
+    mark_at_risk:         { icon: '⚠️', label: 'Flagged At Risk',      colour: '#b45309'       },
+    reinstate_member:     { icon: '✅', label: 'Member reinstated',    colour: 'var(--green)'  },
+    update_settings:      { icon: '⚙️', label: 'Settings updated',     colour: 'var(--muted)'  },
+    auto_leaver:          { icon: '⏱️', label: 'Auto-Leaver (35 days)',colour: 'var(--orange)' },
+    create_user:          { icon: '🧑', label: 'User created',         colour: 'var(--green)'  },
+    approve_registration:  { icon: '✅', label: 'Registration approved', colour: 'var(--green)'  },
+    reject_registration:   { icon: '❌', label: 'Registration rejected', colour: 'var(--red)'    },
+    add_term_session:      { icon: '📅', label: 'Session added',          colour: 'var(--teal)'   },
+    bulk_term_sessions:    { icon: '📅', label: 'Term sessions generated',colour: 'var(--teal)'   },
+    update_term_session:   { icon: '📅', label: 'Session updated',        colour: 'var(--navy)'   },
+    delete_term_session:   { icon: '📅', label: 'Session deleted',        colour: 'var(--red)'    },
+    upload_document:       { icon: '📁', label: 'Document uploaded',     colour: 'var(--teal)'   },
+    view_document:         { icon: '👁', label: 'Document viewed',       colour: 'var(--muted)'  },
+    download_document:     { icon: '⬇️', label: 'Document downloaded',   colour: 'var(--muted)'  },
+    delete_document:       { icon: '🗑️', label: 'Document removed',      colour: 'var(--orange)' },
+    create_email_template: { icon: '✉️',  label: 'Template created',      colour: 'var(--teal)'   },
+    edit_email_template:   { icon: '✏️',  label: 'Template edited',       colour: 'var(--navy)'   },
+    send_mailshot:         { icon: '📤', label: 'Mailshot sent',          colour: 'var(--teal)'   },
+    change_password:       { icon: '🔒', label: 'Password changed',       colour: 'var(--muted)'  },
+    delete_user:           { icon: '🗑️', label: 'User deleted',           colour: 'var(--red)'    },
+    default:               { icon: '📋', label: 'Action',                 colour: 'var(--muted)'  },
+  };
+
+  async function loadLog() {
+    try {
+      allEntries = await apiFetch('/api/admin/audit?limit=200');
+      document.getElementById('entry-count').textContent = `${allEntries.length} entries`;
+      renderLog(allEntries);
+    } catch (e) {
+      document.getElementById('audit-container').innerHTML = `
+        <div class="alert-box err"><strong>⚠️ Could not load audit log</strong>${esc(e.message)}</div>`;
+    }
+  }
+
+  loadLog();
+
+  function filterLog() {
+    const action = document.getElementById('action-filter').value;
+    const filtered = action === 'all'
+      ? allEntries
+      : allEntries.filter(e => e.action === action);
+    document.getElementById('entry-count').textContent = `${filtered.length} entries`;
+    renderLog(filtered);
+  }
+
+  function renderLog(entries) {
+    const container = document.getElementById('audit-container');
+    if (!entries.length) {
+      container.innerHTML = `<div class="empty-state">No audit entries found.</div>`;
+      return;
+    }
+
+    const rows = entries.map(e => {
+      const info    = ACTION_LABELS[e.action] || ACTION_LABELS.default;
+      const details = parseDetails(e.details);
+      const ts      = e.timestamp
+        ? new Date(e.timestamp + 'Z').toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+        : '—';
+
+      return `
+        <tr>
+          <td style="white-space:nowrap;color:var(--muted);font-size:13px">${esc(ts)}</td>
+          <td><strong>${esc(e.username || 'system')}</strong></td>
+          <td>
+            <span style="color:${info.colour};font-weight:800">${info.icon} ${info.label}</span>
+          </td>
+          <td style="font-size:13px;color:var(--muted)">${esc(e.ip_address || '—')}</td>
+          <td style="font-size:12.5px;color:var(--muted);max-width:320px;word-break:break-word">${details}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>IP</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function parseDetails(raw) {
+    if (!raw) return '—';
+    try {
+      const d = JSON.parse(raw);
+      const parts = [];
+      // Always show member name if present
+      if (d.member) parts.push(`<strong>${esc(d.member)}</strong>`);
+      if (d.name)   parts.push(`<strong>${esc(d.name)}</strong>`);
+      if (d.new_member_id) parts.push(`→ ${esc(d.new_member_id)}`);
+      if (d.username) parts.push(`user: <strong>${esc(d.username)}</strong>`);
+      if (d.subject)  parts.push(`subject: <em>${esc(d.subject)}</em>`);
+      if (d.sent !== undefined) parts.push(`${d.sent} sent`);
+      if (d.title)    parts.push(esc(d.title));
+      // For member edits, list each changed field
+      if (d.changes && Object.keys(d.changes).length) {
+        const changes = Object.entries(d.changes).map(([k, v]) =>
+          `${esc(k)}: <span style="color:var(--red)">${esc(String(v.from ?? '—'))}</span>`
+          + ` → <span style="color:var(--green)">${esc(String(v.to ?? '—'))}</span>`
+        ).join('<br>');
+        parts.push(changes);
+      }
+      return parts.length ? parts.join('<br>') : esc(JSON.stringify(d)).slice(0, 120);
+    } catch {
+      return esc(raw).slice(0, 120);
+    }
+  }
+</script>
+{% endblock %}

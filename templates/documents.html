@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Documents{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📁 Document Repository</h1>
+  {% if current_role == 'admin' or current_role == 'editor' %}
+  <button class="btn btn-primary" onclick="openUploadModal()">⬆️ Upload Document</button>
+  {% endif %}
+</div>
+
+{% if current_role in ('readonly', 'leader') %}
+<!-- Readonly and Leader: public documents banner + flat grid (no category tabs) -->
+<div style="background:#f0f9ff;border:2px solid #bae6fd;border-radius:12px;
+            padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
+  <span style="font-size:22px;flex-shrink:0">📢</span>
+  <div>
+    <div style="font-weight:800;font-size:14px;color:#0369a1">Public Documents</div>
+    <div style="font-size:13px;color:#0284c7;margin-top:2px">
+      These documents have been shared with all staff. Contact a core leader if you need access to additional materials.
+    </div>
+  </div>
+</div>
+
+{% else %}
+<!-- Leaders and above: full category filter tabs -->
+<div style="display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap">
+  <button class="tab-btn active" data-cat="all"      onclick="switchCat('all')">All</button>
+  <button class="tab-btn"        data-cat="policy"   onclick="switchCat('policy')">📜 Policies</button>
+  <button class="tab-btn"        data-cat="form"     onclick="switchCat('form')">📋 Forms</button>
+  <button class="tab-btn"        data-cat="template" onclick="switchCat('template')">✉️ Templates</button>
+  <button class="tab-btn"        data-cat="general"  onclick="switchCat('general')">📄 General</button>
+</div>
+{% endif %}
+
+<div id="docs-container">
+  <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
+</div>
+
+<!-- ── Upload Modal ─────────────────────────────────────────── -->
+{% if current_role == 'admin' or current_role == 'editor' %}
+<div class="modal-overlay" id="upload-modal">
+  <div class="modal" style="max-width:460px">
+    <h2>⬆️ Upload Document</h2>
+    <div class="form-group" style="margin-top:16px">
+      <label>File <span style="color:var(--red)">*</span></label>
+      <input type="file" id="upload-file"
+             accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.xlsx,.xls"
+             onchange="onFileSelected(this)"
+             style="border:2px dashed var(--border);border-radius:8px;padding:10px;
+                    width:100%;cursor:pointer;background:var(--cream)">
+    </div>
+    <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="upload-title" placeholder="e.g. Safeguarding Policy 2024">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="upload-category">
+          <option value="general">General</option>
+          <option value="policy">Policy</option>
+          <option value="form">Form</option>
+          <option value="template">Template</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Visible to</label>
+        <select id="upload-access">
+          <option value="readonly">All staff</option>
+          <option value="leader">Leaders+</option>
+          <option value="editor">Editors+</option>
+          <option value="admin">Admin only</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeUploadModal()">Cancel</button>
+      <button class="btn btn-primary" id="upload-save-btn" onclick="uploadDocument()">Upload</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const CAN_MANAGE  = "{{ current_role }}" === 'admin' || "{{ current_role }}" === 'editor';
+  const IS_READONLY = "{{ current_role }}" === 'readonly';
+  let allDocs    = [];
+  let currentCat = 'all';
+
+  const CAT_ICONS = { policy:'📜', form:'📋', template:'✉️', general:'📄' };
+  const EXT_ICONS = {
+    pdf:'🔴', docx:'🔵', doc:'🔵', xlsx:'🟢', xls:'🟢',
+    jpg:'🟡', jpeg:'🟡', png:'🟡',
+  };
+
+  /* ── Load ───────────────────────────────────────── */
+  async function loadDocs() {
+    try {
+      allDocs = await apiFetch('/api/documents');
+      renderDocs();
+    } catch (e) {
+      document.getElementById('docs-container').innerHTML =
+        `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+    }
+  }
+  loadDocs();
+
+  function switchCat(cat) {
+    currentCat = cat;
+    document.querySelectorAll('.tab-btn[data-cat]').forEach(b =>
+      b.classList.toggle('active', b.dataset.cat === cat));
+    renderDocs();
+  }
+
+  /* ── Render ─────────────────────────────────────── */
+  function renderDocs() {
+    const filtered = currentCat === 'all'
+      ? allDocs
+      : allDocs.filter(d => d.category === currentCat);
+
+    const container = document.getElementById('docs-container');
+    if (!filtered.length) {
+      container.innerHTML = `<div class="empty-state">No documents in this category yet.</div>`;
+      return;
+    }
+
+    // Group by category
+    const groups = {};
+    filtered.forEach(d => {
+      if (!groups[d.category]) groups[d.category] = [];
+      groups[d.category].push(d);
+    });
+
+    container.innerHTML = Object.entries(groups).map(([cat, docs]) => `
+      <div style="margin-bottom:28px">
+        <div class="dash-section-title">${CAT_ICONS[cat] || '📄'} ${cap(cat)}</div>
+        <div class="doc-grid">
+          ${docs.map(docCard).join('')}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function docCard(d) {
+    const ext     = (d.filename || '').split('.').pop().toLowerCase();
+    const icon    = EXT_ICONS[ext] || '📄';
+    const upDate  = d.created_at
+      ? new Date(d.created_at + 'Z').toLocaleDateString('en-GB')
+      : '—';
+    const accessLabel = { readonly:'All staff', leader:'Leaders+', editor:'Editors+', admin:'Admin only' };
+
+    return `
+      <div class="doc-card">
+        <div class="doc-icon">${icon}</div>
+        <div class="doc-info">
+          <div class="doc-title">${esc(d.title)}</div>
+          <div class="doc-meta">
+            <span class="badge badge-ro" style="font-size:11px">${cap(d.category)}</span>
+            <span style="color:var(--muted);font-size:12px">${upDate}</span>
+            <span style="color:var(--muted);font-size:12px">👁 ${accessLabel[d.access_role] || d.access_role}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">
+            ${esc(d.uploaded_by_name || '—')}
+          </div>
+        </div>
+        <div class="doc-actions">
+          <a href="/api/documents/${d.id}/view"
+             class="btn btn-ghost btn-sm" target="_blank" rel="noopener">👁 View</a>
+          <a href="/api/documents/${d.id}/download"
+             class="btn btn-ghost btn-sm" download>⬇️</a>
+          ${CAN_MANAGE
+            ? `<button class="btn btn-danger btn-sm"
+                 data-id="${d.id}" data-title="${esc(d.title)}"
+                 onclick="deleteDoc(this.dataset.id, this.dataset.title)">🗑</button>`
+            : ''}
+        </div>
+      </div>`;
+  }
+
+  /* ── Upload ─────────────────────────────────────── */
+  function openUploadModal() {
+    document.getElementById('upload-file').value     = '';
+    document.getElementById('upload-title').value    = '';
+    document.getElementById('upload-category').value = 'general';
+    document.getElementById('upload-access').value   = 'readonly';
+    document.getElementById('upload-modal').classList.add('open');
+  }
+
+  function closeUploadModal() {
+    document.getElementById('upload-modal').classList.remove('open');
+  }
+
+  function onFileSelected(input) {
+    const name  = input.files[0]?.name || '';
+    const title = document.getElementById('upload-title');
+    if (!title.value && name) {
+      // Auto-fill title from filename (strip extension)
+      title.value = name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+    }
+  }
+
+  async function uploadDocument() {
+    const fileInput = document.getElementById('upload-file');
+    if (!fileInput.files.length) { showToast('Please select a file.', true); return; }
+
+    const btn = document.getElementById('upload-save-btn');
+    btn.disabled = true;
+
+    const fd = new FormData();
+    fd.append('file',        fileInput.files[0]);
+    fd.append('title',       document.getElementById('upload-title').value.trim());
+    fd.append('category',    document.getElementById('upload-category').value);
+    fd.append('access_role', document.getElementById('upload-access').value);
+
+    try {
+      await apiFetch('/api/documents', {
+        method: 'POST',
+        body:   fd,   // FormData — apiFetch auto-skips Content-Type header
+      });
+      showToast('Document uploaded.');
+      closeUploadModal();
+      loadDocs();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Delete ─────────────────────────────────────── */
+  async function deleteDoc(id, title) {
+    if (!confirm(`Remove "${title}" from the repository?`)) return;
+    try {
+      await apiFetch(`/api/documents/${id}`, { method: 'DELETE' });
+      showToast('Document removed.');
+      loadDocs();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
+
+  document.getElementById('upload-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) closeUploadModal();
+  });
+</script>
+
+<style>
+  .doc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .doc-card {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    transition: border-color .18s;
+  }
+  .doc-card:hover { border-color: var(--teal); }
+  .doc-icon  { font-size: 30px; flex-shrink: 0; line-height: 1; margin-top: 2px; }
+  .doc-info  { flex: 1; min-width: 0; }
+  .doc-title { font-size: 15px; font-weight: 800; color: var(--navy);
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-meta  { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+  .doc-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+</style>
+{% endblock %}

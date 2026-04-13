@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — User Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>⚙️ User Management</h1>
+  <button class="btn btn-primary" onclick="openAddModal()">+ Add User</button>
+</div>
+
+<div id="users-container">
+  <div class="loading-state"><div class="spinner"></div><p>Loading users…</p></div>
+</div>
+
+<!-- ── Permanent Delete User Modal ───────────────────────────────── -->
+<div class="modal-overlay" id="perm-delete-user-modal">
+  <div class="modal" style="max-width:460px">
+
+    <!-- Step 1 -->
+    <div id="udel-step1">
+      <h2 style="color:var(--red)">⚠️ Permanently Delete User</h2>
+      <div style="background:var(--red-bg);border:1.5px solid #fca5a5;border-radius:10px;
+                  padding:14px 16px;margin:16px 0">
+        <p style="font-weight:800;color:var(--red);margin-bottom:8px" id="udel-warning"></p>
+        <p style="font-size:13px;color:var(--red)">
+          This will permanently remove the user account. All audit log entries created by
+          this user will be retained, but the user link will be cleared.
+          <strong>This cannot be undone.</strong>
+        </p>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+        If this person is a staff member, their <strong>member record</strong> is not affected
+        — only their portal login will be removed.
+      </p>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closePermDeleteUserModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="udel_nextStep()">I understand — continue</button>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="udel-step2" style="display:none">
+      <h2 style="color:var(--red)">🗑 Confirm Deletion</h2>
+      <p style="font-size:14px;margin:16px 0 8px">
+        Type <strong id="udel-name-hint" style="color:var(--red)"></strong> below to confirm:
+      </p>
+      <div class="form-group">
+        <input id="udel-confirm-input" type="text" placeholder="Type the username…"
+               oninput="udel_checkInput()" autocomplete="off">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closePermDeleteUserModal()">Cancel</button>
+        <button class="btn btn-danger" id="udel-confirm-btn"
+                onclick="confirmPermDeleteUser()" disabled>
+          Delete permanently
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Add / Edit User Modal ─────────────────────── -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <h2 id="modal-title">Add User</h2>
+
+    <div class="form-group">
+      <label>Username</label>
+      <input id="f-username" type="text" placeholder="e.g. marnold" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label>Email (optional)</label>
+      <input id="f-email" type="email" placeholder="name@example.com">
+    </div>
+    <div class="form-group">
+      <label>Role</label>
+      <select id="f-role" onchange="handleRoleChange()">
+        <option value="readonly">Read-only — register sign-out and public documents only</option>
+        <option value="leader">Leader — view members, manage register, read documents, view calendar</option>
+        <option value="editor">Core Leader — full member edit, users, comms, documents</option>
+        {% if current_role == 'admin' %}
+        <option value="admin">Admin — full access including audit log and permanent delete</option>
+        {% endif %}
+      </select>
+    </div>
+    <div class="form-group" id="session-group" style="display:none">
+      <label>Session assigned <span style="color:var(--red)">*</span></label>
+      <select id="f-session">
+        <option value="">— select session —</option>
+        <option value="Tuesday">Tuesday</option>
+        <option value="Thursday">Thursday</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label id="pw-label">Password</label>
+      <input id="f-password" type="password" placeholder="Minimum 8 characters" autocomplete="new-password">
+      <small id="pw-hint" style="color:var(--muted);font-size:12px;margin-top:4px;display:block"></small>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn" onclick="saveUser()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const USER_ROLE    = "{{ current_role }}";
+  const USER_SESSION = "{{ current_session or '' }}";
+  const IS_ADMIN     = USER_ROLE === 'admin';
+  const IS_SCOPED    = USER_ROLE !== 'admin';
+  let editingId = null;
+
+  /* ── Load users ───────────────────────────────── */
+  async function loadUsers() {
+    try {
+      const users = await apiFetch('/api/admin/users');
+      renderTable(users);
+    } catch (e) {
+      document.getElementById('users-container').innerHTML = `
+        <div class="alert-box err"><strong>⚠️ Could not load users</strong>${esc(e.message)}</div>`;
+    }
+  }
+
+  loadUsers();
+
+  function roleBadge(role) {
+    const map = {
+      admin:    '<span class="badge badge-admin">Admin</span>',
+      editor:   '<span class="badge badge-editor">Core Leader</span>',
+      leader:   '<span class="badge badge-leader">Leader</span>',
+      readonly: '<span class="badge badge-ro">Read-only</span>',
+    };
+    return map[role] || esc(role);
+  }
+
+  function renderTable(users) {
+    if (!users.length) {
+      document.getElementById('users-container').innerHTML =
+        `<div class="empty-state">No users found.</div>`;
+      return;
+    }
+    const rows = users.map(u => `
+      <tr class="${u.active ? '' : 'opacity-50'}" style="opacity:${u.active ? 1 : .45}">
+        <td>${esc(u.username)}</td>
+        <td>${esc(u.email || '—')}</td>
+        <td>${roleBadge(u.role)}</td>
+        <td>${esc(u.session_assigned || '—')}</td>
+        <td>${u.last_login ? fmtDate(u.last_login.slice(0,10)) : '—'}</td>
+        <td>
+          <span class="badge ${u.active ? 'badge-active' : 'badge-leaver'}">
+            ${u.active ? 'Active' : 'Inactive'}
+          </span>
+        </td>
+        <td>
+          <div class="actions">
+            <button class="btn btn-ghost btn-sm" onclick='openEditModal(${JSON.stringify(u)})'>Edit</button>
+            <button class="btn btn-${u.active ? 'danger' : 'ghost'} btn-sm"
+                    onclick="toggleActive(${u.id}, ${u.active})">
+              ${u.active ? 'Deactivate' : 'Reactivate'}
+            </button>
+            ${IS_ADMIN ? `<button class="btn btn-ghost btn-sm"
+                    style="color:var(--red);opacity:.7;font-size:11px"
+                    onclick="openPermDeleteUserModal(${u.id}, '${esc(u.username)}')">
+              🗑 Delete
+            </button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    document.getElementById('users-container').innerHTML = `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Username</th><th>Email</th><th>Role</th>
+            <th>Session</th><th>Last Login</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  /* ── Modal helpers ─────────────────────────────── */
+  function openAddModal() {
+    editingId = null;
+    document.getElementById('modal-title').textContent = 'Add User';
+    document.getElementById('modal-save-btn').textContent = 'Create User';
+    document.getElementById('f-username').value    = '';
+    document.getElementById('f-username').disabled = false;
+    document.getElementById('f-email').value       = '';
+    document.getElementById('f-role').value        = 'readonly';
+    // Scoped editors can only create users for their own session
+    const sessEl = document.getElementById('f-session');
+    sessEl.value    = IS_SCOPED ? USER_SESSION : '';
+    sessEl.disabled = IS_SCOPED;
+    document.getElementById('f-password').value  = '';
+    document.getElementById('pw-label').textContent = 'Password';
+    document.getElementById('pw-hint').textContent  = '';
+    handleRoleChange();
+    document.getElementById('user-modal').classList.add('open');
+    document.getElementById('f-username').focus();
+  }
+
+  function openEditModal(u) {
+    editingId = u.id;
+    document.getElementById('modal-title').textContent = `Edit — ${u.username}`;
+    document.getElementById('modal-save-btn').textContent = 'Save Changes';
+    document.getElementById('f-username').value   = u.username;
+    document.getElementById('f-username').disabled = true;  // username is immutable
+    document.getElementById('f-email').value      = u.email || '';
+    document.getElementById('f-role').value       = u.role;
+    const sessEl2 = document.getElementById('f-session');
+    sessEl2.value    = u.session_assigned || '';
+    sessEl2.disabled = IS_SCOPED;  // editors cannot change session assignment
+    document.getElementById('f-password').value   = '';
+    document.getElementById('pw-label').textContent = 'New Password';
+    document.getElementById('pw-hint').textContent  = 'Leave blank to keep current password.';
+    handleRoleChange();
+    document.getElementById('user-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('user-modal').classList.remove('open');
+  }
+
+  function handleRoleChange() {
+    const role    = document.getElementById('f-role').value;
+    const sessGrp = document.getElementById('session-group');
+    // All non-admin roles require a session assignment
+    sessGrp.style.display = (role !== 'admin' && role !== '') ? 'block' : 'none';
+  }
+
+  /* ── Save ─────────────────────────────────────── */
+  async function saveUser() {
+    const btn      = document.getElementById('modal-save-btn');
+    const username = document.getElementById('f-username').value.trim();
+    const email    = document.getElementById('f-email').value.trim();
+    const role     = document.getElementById('f-role').value;
+    const sess     = document.getElementById('f-session').value;
+    const password = document.getElementById('f-password').value;
+
+    if (!editingId && !username) { showToast('Username is required.', true); return; }
+    if (!editingId && !password) { showToast('Password is required for new users.', true); return; }
+    if (role !== 'admin' && !sess) { showToast('A session must be selected for this role.', true); return; }
+
+    btn.disabled = true;
+
+    try {
+      if (editingId) {
+        const payload = { email, role, session_assigned: sess };
+        if (password) payload.password = password;
+        await apiFetch(`/api/admin/users/${editingId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        showToast('User updated.');
+      } else {
+        await apiFetch('/api/admin/users', {
+          method: 'POST',
+          body: JSON.stringify({ username, email, role, session_assigned: sess, password }),
+        });
+        showToast('User created.');
+      }
+      closeModal();
+      loadUsers();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Toggle active ─────────────────────────────── */
+  async function toggleActive(id, currentlyActive) {
+    const action = currentlyActive ? 'deactivate' : 'reactivate';
+    if (!confirm(`Are you sure you want to ${action} this user?`)) return;
+    try {
+      await apiFetch(`/api/admin/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ active: !currentlyActive }),
+      });
+      showToast(`User ${action}d.`);
+      loadUsers();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* Close modal on backdrop click */
+  document.getElementById('user-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  /* ── Permanent delete user ──────────────────────── */
+  let _udelId   = null;
+  let _udelName = null;
+
+  function openPermDeleteUserModal(userId, username) {
+    _udelId   = userId;
+    _udelName = username;
+    document.getElementById('udel-warning').textContent =
+      `You are about to permanently delete user: ${username}`;
+    document.getElementById('udel-step1').style.display = '';
+    document.getElementById('udel-step2').style.display = 'none';
+    document.getElementById('udel-confirm-input').value = '';
+    document.getElementById('udel-confirm-btn').disabled = true;
+    document.getElementById('perm-delete-user-modal').classList.add('open');
+  }
+
+  function closePermDeleteUserModal() {
+    document.getElementById('perm-delete-user-modal').classList.remove('open');
+    _udelId = _udelName = null;
+  }
+
+  function udel_nextStep() {
+    document.getElementById('udel-step1').style.display = 'none';
+    document.getElementById('udel-step2').style.display = '';
+    document.getElementById('udel-name-hint').textContent = _udelName;
+    document.getElementById('udel-confirm-input').focus();
+  }
+
+  function udel_checkInput() {
+    const val = document.getElementById('udel-confirm-input').value.trim();
+    document.getElementById('udel-confirm-btn').disabled =
+      val.toLowerCase() !== _udelName.toLowerCase();
+  }
+
+  async function confirmPermDeleteUser() {
+    const btn = document.getElementById('udel-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    try {
+      const res = await apiFetch(`/api/admin/users/${_udelId}/permanent`, {
+        method: 'DELETE',
+        body:   JSON.stringify({ confirm_username: _udelName }),
+      });
+      showToast(`User "${res.deleted}" has been permanently deleted.`);
+      closePermDeleteUserModal();
+      loadUsers();
+    } catch (e) {
+      showToast(e.message, true);
+      btn.disabled = false;
+      btn.textContent = 'Delete permanently';
+    }
+  }
+
+  document.getElementById('perm-delete-user-modal').addEventListener('click', function(e) {
+    if (e.target === this) closePermDeleteUserModal();
+  });
+</script>
+{% endblock %}

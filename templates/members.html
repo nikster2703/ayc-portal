@@ -1,0 +1,697 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Members{% endblock %}
+
+{% block content %}
+<div class="toolbar">
+  <div class="search-wrap">
+    <svg class="search-icon" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input class="search-input" id="search" type="search"
+           placeholder="Search by name…" oninput="filterMembers()">
+  </div>
+
+  {% if current_role == 'admin' %}
+  {# Admin: can switch between all sessions #}
+  <select class="session-select" id="session-filter" onchange="filterMembers()">
+    <option value="all">All Sessions</option>
+    <option value="Tuesday">Tuesday</option>
+    <option value="Thursday">Thursday</option>
+    <option value="__staff__">Staff / Volunteers</option>
+  </select>
+  {% elif current_role == 'editor' %}
+  {# Core Leader: locked to their own session, but can switch to Staff / Volunteers view #}
+  <select class="session-select" id="session-filter" onchange="filterMembers()">
+    <option value="{{ current_session }}">{{ current_session }} Session</option>
+    <option value="__staff__">Staff / Volunteers</option>
+  </select>
+  {% elif current_role == 'leader' %}
+  {# Leader: fixed to their session, no dropdown needed #}
+  <span class="session-select" style="display:inline-flex;align-items:center;
+        padding:0 14px;background:var(--navy);color:white;border-radius:8px;
+        font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
+    {{ current_session or 'Your session' }}
+  </span>
+  <input type="hidden" id="session-filter" value="{{ current_session }}">
+  {% else %}
+  {# Readonly: fixed label #}
+  <span class="session-select" style="display:inline-flex;align-items:center;
+        padding:0 14px;background:var(--navy);color:white;border-radius:8px;
+        font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
+    {{ current_session or 'Your session' }}
+  </span>
+  <input type="hidden" id="session-filter" value="all">
+  {% endif %}
+
+  {% if current_role in ('admin', 'editor') %}
+  <label class="leaver-toggle" id="leaver-toggle" onclick="toggleLeavers()">
+    <input type="checkbox" id="show-leavers">
+    <span>👤 Leavers only</span>
+  </label>
+  {% else %}
+  {# Hidden placeholder so JS references to show-leavers don't break #}
+  <input type="hidden" id="show-leavers" value="">
+  {% endif %}
+
+  <div class="count-pill" id="count-pill" onclick="showAll()">Loading…</div>
+</div>
+
+<div id="members-container">
+  <div class="loading-state"><div class="spinner"></div><p>Loading members…</p></div>
+</div>
+
+<!-- ── Edit Member Modal ─────────────────────────────── -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal" style="max-width:580px">
+    <h2>✏️ Edit Member</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label>First Name</label>
+        <input id="e-first_name" type="text">
+      </div>
+      <div class="form-group">
+        <label>Surname</label>
+        <input id="e-surname" type="text">
+      </div>
+      <div class="form-group">
+        <label>Date of Birth</label>
+        <input id="e-date_of_birth" type="date">
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="e-status">
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+          <option value="Leaver">Leaver</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Session</label>
+        <select id="e-session">
+          <option value="">— not set —</option>
+          <option value="Tuesday">Tuesday</option>
+          <option value="Thursday">Thursday</option>
+        </select>
+      </div>
+      <div class="form-group" style="align-self:end;padding-bottom:4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0">
+          <input id="e-unattended_exit" type="checkbox" style="width:18px;height:18px">
+          Unattended Exit
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Address</label>
+      <input id="e-address" type="text">
+    </div>
+    <div class="form-group">
+      <label>Postcode</label>
+      <input id="e-postcode" type="text" style="max-width:160px">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Medical / SEN Notes</label>
+        <textarea id="e-medical_sen" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label>GP Contact</label>
+        <input id="e-gp_contact" type="text">
+      </div>
+      <div class="form-group">
+        <label>Ethnicity / Religion</label>
+        <input id="e-ethnicity_religion" type="text">
+      </div>
+    </div>
+
+    <div style="border-top:2px solid var(--border);margin:14px 0 16px;padding-top:14px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 1</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Name</label><input id="e-c1-name" type="text"></div>
+        <div class="form-group"><label>Phone</label><input id="e-c1-phone" type="tel"></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Email</label><input id="e-c1-email" type="email"></div>
+      </div>
+    </div>
+
+    <div style="border-top:2px solid var(--border);margin:0 0 16px;padding-top:14px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Name</label><input id="e-c2-name" type="text"></div>
+        <div class="form-group"><label>Phone</label><input id="e-c2-phone" type="tel"></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Email</label><input id="e-c2-email" type="email"></div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Comments</label>
+      <textarea id="e-comments" rows="2"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary" id="edit-save-btn" onclick="saveEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Permanent delete modal (admin only) ───────────────────────────── -->
+{% if current_role == 'admin' %}
+<div class="modal-overlay" id="perm-delete-modal">
+  <div class="modal" style="max-width:480px">
+
+    <!-- Step 1: summary -->
+    <div id="pdel-step1">
+      <h2 style="color:var(--red)">⚠️ Permanently Delete Record</h2>
+      <div style="background:var(--red-bg);border:1.5px solid #fca5a5;border-radius:10px;
+                  padding:14px 16px;margin:16px 0">
+        <p style="font-weight:800;color:var(--red);margin-bottom:8px" id="pdel-warning"></p>
+        <p style="font-size:13px;color:var(--red)">
+          This will permanently erase <strong>all</strong> associated data including contacts,
+          attendance history, and DoE records. <strong>This cannot be undone.</strong>
+        </p>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+        The audit log will retain a record that this deletion was performed.
+      </p>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closePermDeleteModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="pdel_nextStep()">I understand — continue</button>
+      </div>
+    </div>
+
+    <!-- Step 2: type-to-confirm -->
+    <div id="pdel-step2" style="display:none">
+      <h2 style="color:var(--red)">🗑 Confirm Deletion</h2>
+      <p style="font-size:14px;margin:16px 0 8px">
+        Type <strong id="pdel-name-hint" style="color:var(--red)"></strong> below to confirm:
+      </p>
+      <div class="form-group">
+        <input id="pdel-confirm-input" type="text" placeholder="Type the member's full name…"
+               oninput="pdel_checkInput()" autocomplete="off">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closePermDeleteModal()">Cancel</button>
+        <button class="btn btn-danger" id="pdel-confirm-btn"
+                onclick="confirmPermDelete()" disabled>
+          Delete permanently
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* ── Role awareness ────────────────────────────────── */
+  const USER_ROLE    = "{{ current_role }}";
+  const CAN_EDIT     = USER_ROLE === 'admin' || USER_ROLE === 'editor';
+  const CAN_DELETE   = USER_ROLE === 'admin';
+  const IS_ADMIN     = USER_ROLE === 'admin';
+
+  /* ── Data ──────────────────────────────────────────── */
+  let allMembers  = [];
+  let editingId   = null;
+
+  async function loadMembers() {
+    try {
+      allMembers = await apiFetch('/api/members?status=all');
+      const pool = getPool();
+      document.getElementById('count-pill').textContent =
+        `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+      showSearchPrompt();
+    } catch (e) {
+      document.getElementById('members-container').innerHTML = `
+        <div class="alert-box err">
+          <strong>⚠️ Could not load member data</strong>${esc(e.message)}
+        </div>`;
+    }
+  }
+
+  // Pre-select dropdown if arriving from a dashboard card link (e.g. ?view=staff)
+  (function applyViewParam() {
+    const view = new URLSearchParams(window.location.search).get('view');
+    if (!view) return;
+    const sel = document.getElementById('session-filter');
+    if (!sel) return;
+    if (view === 'staff' && [...sel.options].some(o => o.value === '__staff__')) {
+      sel.value = '__staff__';
+    }
+    // Clean the URL without triggering a reload
+    history.replaceState(null, '', window.location.pathname);
+  })();
+
+  loadMembers();
+
+  /* ── Filters ───────────────────────────────────────── */
+  function getPool() {
+    const sessionVal = document.getElementById('session-filter').value;
+    const leaversOn  = document.getElementById('show-leavers').checked;
+    return allMembers.filter(m => {
+      const status   = (m.status || '').toLowerCase();
+      const sess     = (m.session || '').trim();
+      const mtype    = (m.member_type || 'member');
+      const statusOk = leaversOn ? status === 'leaver' : status !== 'leaver';
+      let   sessOk;
+      if (sessionVal === 'all') {
+        sessOk = true;
+      } else if (sessionVal === '__staff__') {
+        sessOk = mtype === 'staff';
+      } else {
+        // Only show non-staff members when filtering by session night
+        sessOk = mtype !== 'staff' && sess === sessionVal;
+      }
+      return statusOk && sessOk;
+    });
+  }
+
+  function toggleLeavers() {
+    const cb     = document.getElementById('show-leavers');
+    const toggle = document.getElementById('leaver-toggle');
+    cb.checked   = !cb.checked;
+    toggle.classList.toggle('active', cb.checked);
+    document.getElementById('count-pill').classList.remove('showing-all');
+    const pool = getPool();
+    document.getElementById('count-pill').textContent =
+      `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+    showSearchPrompt();
+    document.getElementById('search').value = '';
+  }
+
+  function filterMembers() {
+    document.getElementById('count-pill').classList.remove('showing-all');
+    const q    = document.getElementById('search').value.trim().toLowerCase();
+    const pool = getPool();
+    document.getElementById('count-pill').textContent =
+      `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+    if (!q) { showSearchPrompt(); return; }
+    const filtered = pool.filter(m =>
+      `${m.first_name || ''} ${m.surname || ''}`.toLowerCase().includes(q)
+    );
+    document.getElementById('count-pill').textContent =
+      `${filtered.length} result${filtered.length !== 1 ? 's' : ''}`;
+    renderMembers(filtered);
+  }
+
+  function showAll() {
+    const pill = document.getElementById('count-pill');
+    if (pill.classList.contains('showing-all')) {
+      pill.classList.remove('showing-all');
+      document.getElementById('search').value = '';
+      const pool = getPool();
+      pill.textContent = `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+      showSearchPrompt();
+      return;
+    }
+    document.getElementById('search').value = '';
+    const pool = getPool();
+    pill.textContent = `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+    pill.classList.add('showing-all');
+    renderMembers(pool);
+  }
+
+  function showSearchPrompt() {
+    document.getElementById('members-container').innerHTML = `
+      <div class="prompt-state">
+        <div class="prompt-icon">🔍</div>
+        <h3>Search for a member</h3>
+        <p>Type a name above, or click the member count to show all.</p>
+      </div>`;
+  }
+
+  function renderMembers(list) {
+    const container = document.getElementById('members-container');
+    if (!list.length) {
+      container.innerHTML = `<div class="empty-state">No members match your search.</div>`;
+      return;
+    }
+    const sorted = [...list].sort((a, b) =>
+      (a.first_name || '').toLowerCase().localeCompare((b.first_name || '').toLowerCase())
+    );
+    cardIdx = 0;
+    container.innerHTML = `<div class="members-grid">${sorted.map(memberCard).join('')}</div>`;
+  }
+
+  /* ── Card rendering ────────────────────────────────── */
+  const COLOURS = ['#1b2d4f','#0096b4','#2d6a4f','#6d3fa0','#b5451b','#155e8a','#7c6e00'];
+  let cardIdx = 0;
+
+  function memberCard(m) {
+    const idx    = cardIdx++;
+    const fn     = m.first_name || '';
+    const sn     = m.surname    || '';
+    const full   = `${fn} ${sn}`.trim() || 'Unknown';
+    const init   = ((fn[0] || '?') + (sn[0] || '?')).toUpperCase();
+    const colour = COLOURS[init.charCodeAt(0) % COLOURS.length];
+    const isLeaver = (m.status || '').toLowerCase() === 'leaver';
+
+    const unattBadge = m.unattended_exit
+      ? `<span class="badge badge-yes">Yes</span>`
+      : `<span class="badge badge-no">No</span>`;
+
+    const isStaff   = (m.member_type || 'member') === 'staff';
+    const staffBadge = isStaff
+      ? `<span style="display:inline-flex;align-items:center;gap:3px;background:#ede9fe;color:#7c3aed;
+                      border:1.5px solid #c4b5fd;border-radius:6px;padding:1px 8px;
+                      font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+                      margin-left:6px">🧑‍🤝‍🧑 ${esc(m.staff_role || 'Staff')}</span>`
+      : '';
+
+    const addr     = [m.address, m.postcode].filter(Boolean).join(', ') || '—';
+    const hasC2    = m.contact2_name || m.contact2_phone;
+    const comments = m.comments
+      ? `<div class="di full"><div class="lbl">Comments</div><div class="val">${esc(m.comments)}</div></div>` : '';
+
+    // Action buttons — shown to editors/admins only, rendered below the name row
+    const actionBtns = (CAN_EDIT && !isLeaver) ? `
+      <div class="card-actions" onclick="event.stopPropagation()">
+        ${CAN_EDIT ? `<button class="btn btn-ghost btn-sm" onclick="openEditModal(${m.id})">✏️ Edit</button>` : ''}
+        ${CAN_DELETE ? `<button class="btn btn-danger btn-sm" onclick="softDelete(${m.id},'${esc(full)}')">Mark Leaver</button>` : ''}
+      </div>` : '';
+
+    return `
+<div class="member-card${isLeaver ? ' leaver-card' : ''}" id="mc${idx}" onclick="toggleCard(${idx})">
+  <div class="card-head">
+    <div class="avatar" style="background:${colour}">${esc(init)}</div>
+    <div class="card-name-wrap">
+      <h3>${esc(full)}${staffBadge}</h3>
+      <p>${isStaff ? (esc(v(m.session)) + ' sessions') : esc(v(m.session))} · <span class="badge ${isLeaver ? 'badge-leaver' : 'badge-active'}" style="font-size:11px">${esc(m.status || 'Active')}</span></p>
+    </div>
+    <div class="chevron">▼</div>
+  </div>
+  ${actionBtns}
+  <div class="card-body">
+
+    <div class="detail-section">
+      <div class="sec-title">📍 Address</div>
+      <div class="di"><div class="val">${esc(addr)}</div></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="sec-title">📞 Contact 1</div>
+      <div class="dg">
+        <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact1_name))}</div></div>
+        <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact1_phone))}</div></div>
+        <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact1_email))}</div></div>
+      </div>
+    </div>
+
+    ${hasC2 ? `
+    <div class="detail-section">
+      <div class="sec-title">📞 Contact 2</div>
+      <div class="dg">
+        <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact2_name))}</div></div>
+        <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact2_phone))}</div></div>
+        <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact2_email))}</div></div>
+      </div>
+    </div>` : ''}
+
+    <div class="detail-section">
+      <div class="sec-title">🏥 Health &amp; Safeguarding</div>
+      <div class="dg">
+        <div class="di full"><div class="lbl">Medical / SEN Notes</div><div class="val">${esc(v(m.medical_sen))}</div></div>
+        <div class="di"><div class="lbl">GP Contact</div><div class="val">${esc(v(m.gp_contact))}</div></div>
+        <div class="di"><div class="lbl">Unattended Exit</div><div class="val">${unattBadge}</div></div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="sec-title">📋 Registration</div>
+      <div class="dg">
+        <div class="di"><div class="lbl">Date of Birth</div><div class="val">${esc(fmtDate(m.date_of_birth))}</div></div>
+        <div class="di"><div class="lbl">Date Registered</div><div class="val">${esc(fmtDate(m.date_registered))}</div></div>
+        <div class="di"><div class="lbl">Ethnicity / Religion</div><div class="val">${esc(v(m.ethnicity_religion))}</div></div>
+        <div class="di"><div class="lbl">Member ID</div><div class="val">${esc(v(m.member_id))}</div></div>
+        ${comments}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="sec-title">📅 Attendance History</div>
+      <div id="att-${m.id}" class="att-history">
+        <span style="font-size:13px;color:var(--muted)">Loading…</span>
+      </div>
+    </div>
+
+    ${IS_ADMIN ? `
+    <div style="border-top:1px dashed var(--border);margin-top:18px;padding-top:12px;
+                display:flex;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm"
+              style="color:var(--red);opacity:.6;font-size:12px"
+              onclick="event.stopPropagation();openPermDeleteModal(${m.id},'${esc(full)}',${m.session ? `'${esc(m.session)}'` : 'null'})">
+        🗑 Permanently delete record
+      </button>
+    </div>` : ''}
+
+  </div>
+</div>`;
+  }
+
+  function toggleCard(idx) {
+    const card = document.getElementById('mc' + idx);
+    card.classList.toggle('expanded');
+    if (card.classList.contains('expanded')) {
+      const attDiv = card.querySelector('[id^="att-"]');
+      if (attDiv) {
+        const memberId = attDiv.id.replace('att-', '');
+        // Log every view — repeated opens within a session are intentionally recorded
+        // as they may be relevant evidence of data access patterns.
+        apiFetch(`/api/members/${memberId}/viewed`, { method: 'POST' }).catch(() => {});
+        // Lazy-load attendance history on first open only
+        if (attDiv.textContent.trim() === 'Loading…') {
+          loadAttendanceHistory(memberId, attDiv);
+        }
+      }
+    }
+  }
+
+  async function loadAttendanceHistory(memberId, el) {
+    try {
+      const rows = await apiFetch(`/api/attendance/history/${memberId}`);
+      if (!rows.length) {
+        el.innerHTML = `<span style="font-size:13px;color:var(--muted)">No attendance recorded yet.</span>`;
+        return;
+      }
+      el.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:4px 8px 4px 0;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Date</th>
+              <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Session</th>
+              <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">In</th>
+              <th style="text-align:left;padding:4px 0 4px 8px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Out</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td style="padding:5px 8px 5px 0;border-bottom:1px solid var(--border)">${fmtDate(r.session_date)}</td>
+                <td style="padding:5px 8px;border-bottom:1px solid var(--border)">${esc(r.session_type)}</td>
+                <td style="padding:5px 8px;border-bottom:1px solid var(--border)">${r.signed_in_at  || '—'}</td>
+                <td style="padding:5px 0 5px 8px;border-bottom:1px solid var(--border)">${r.signed_out_at || '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) {
+      el.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load attendance.</span>`;
+    }
+  }
+
+  /* ── Edit modal ────────────────────────────────────── */
+  function openEditModal(memberId) {
+    const m = allMembers.find(x => x.id === memberId);
+    if (!m) return;
+    editingId = memberId;
+
+    document.getElementById('e-first_name').value       = m.first_name || '';
+    document.getElementById('e-surname').value          = m.surname || '';
+    document.getElementById('e-date_of_birth').value    = m.date_of_birth || '';
+    document.getElementById('e-status').value           = m.status || 'Active';
+    document.getElementById('e-session').value          = m.session || '';
+    document.getElementById('e-unattended_exit').checked = !!m.unattended_exit;
+    document.getElementById('e-address').value          = m.address || '';
+    document.getElementById('e-postcode').value         = m.postcode || '';
+    document.getElementById('e-medical_sen').value      = m.medical_sen || '';
+    document.getElementById('e-gp_contact').value       = m.gp_contact || '';
+    document.getElementById('e-ethnicity_religion').value = m.ethnicity_religion || '';
+    document.getElementById('e-comments').value         = m.comments || '';
+
+    document.getElementById('e-c1-name').value  = m.contact1_name  || '';
+    document.getElementById('e-c1-phone').value = m.contact1_phone || '';
+    document.getElementById('e-c1-email').value = m.contact1_email || '';
+    document.getElementById('e-c2-name').value  = m.contact2_name  || '';
+    document.getElementById('e-c2-phone').value = m.contact2_phone || '';
+    document.getElementById('e-c2-email').value = m.contact2_email || '';
+
+    document.getElementById('edit-modal').classList.add('open');
+    document.getElementById('e-first_name').focus();
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+    editingId = null;
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    const btn = document.getElementById('edit-save-btn');
+    btn.disabled = true;
+
+    const payload = {
+      first_name:         document.getElementById('e-first_name').value.trim(),
+      surname:            document.getElementById('e-surname').value.trim(),
+      date_of_birth:      document.getElementById('e-date_of_birth').value,
+      status:             document.getElementById('e-status').value,
+      session:            document.getElementById('e-session').value,
+      unattended_exit:    document.getElementById('e-unattended_exit').checked,
+      address:            document.getElementById('e-address').value.trim(),
+      postcode:           document.getElementById('e-postcode').value.trim().toUpperCase(),
+      medical_sen:        document.getElementById('e-medical_sen').value.trim(),
+      gp_contact:         document.getElementById('e-gp_contact').value.trim(),
+      ethnicity_religion: document.getElementById('e-ethnicity_religion').value.trim(),
+      comments:           document.getElementById('e-comments').value.trim(),
+      contacts: [
+        {
+          contact_order: 1,
+          contact_name:  document.getElementById('e-c1-name').value.trim(),
+          contact_phone: document.getElementById('e-c1-phone').value.trim(),
+          contact_email: document.getElementById('e-c1-email').value.trim(),
+        },
+        {
+          contact_order: 2,
+          contact_name:  document.getElementById('e-c2-name').value.trim(),
+          contact_phone: document.getElementById('e-c2-phone').value.trim(),
+          contact_email: document.getElementById('e-c2-email').value.trim(),
+        },
+      ],
+    };
+
+    try {
+      await apiFetch(`/api/members/${editingId}`, {
+        method: 'PUT',
+        body:   JSON.stringify(payload),
+      });
+      closeEditModal();
+      showToast('Member updated.');
+      // Preserve any active search query across the reload
+      const prevSearch = document.getElementById('search').value.trim();
+      await loadMembers();
+      if (prevSearch) {
+        document.getElementById('search').value = prevSearch;
+        filterMembers();
+      } else {
+        showAll();
+      }
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Soft delete ───────────────────────────────────── */
+  async function softDelete(memberId, fullName) {
+    if (!confirm(`Mark ${fullName} as a Leaver?\n\nThis will move them to the Leavers list. The record is kept and can be found using the Leavers toggle.`)) return;
+    try {
+      await apiFetch(`/api/members/${memberId}`, { method: 'DELETE' });
+      showToast(`${fullName} marked as Leaver.`);
+      const prevSearch = document.getElementById('search').value.trim();
+      await loadMembers();
+      if (prevSearch) {
+        document.getElementById('search').value = prevSearch;
+        filterMembers();
+      } else {
+        showAll();
+      }
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* Close edit modal on backdrop click */
+  document.getElementById('edit-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditModal();
+  });
+
+  /* ── Permanent delete ──────────────────────────────── */
+  {% if current_role == 'admin' %}
+  let _pdelId   = null;
+  let _pdelName = null;
+
+  function openPermDeleteModal(memberId, fullName, session) {
+    _pdelId   = memberId;
+    _pdelName = fullName;
+
+    // Step 1: populate warning
+    document.getElementById('pdel-warning').textContent =
+      `You are about to permanently delete: ${fullName}`;
+    // Reset to step 1
+    document.getElementById('pdel-step1').style.display = '';
+    document.getElementById('pdel-step2').style.display = 'none';
+    document.getElementById('pdel-confirm-input').value = '';
+    document.getElementById('pdel-confirm-btn').disabled = true;
+
+    document.getElementById('perm-delete-modal').classList.add('open');
+  }
+
+  function closePermDeleteModal() {
+    document.getElementById('perm-delete-modal').classList.remove('open');
+    _pdelId = _pdelName = null;
+  }
+
+  function pdel_nextStep() {
+    document.getElementById('pdel-step1').style.display = 'none';
+    document.getElementById('pdel-step2').style.display = '';
+    document.getElementById('pdel-name-hint').textContent = _pdelName;
+    document.getElementById('pdel-confirm-input').focus();
+  }
+
+  function pdel_checkInput() {
+    const val = document.getElementById('pdel-confirm-input').value.trim();
+    document.getElementById('pdel-confirm-btn').disabled =
+      val.toLowerCase() !== _pdelName.toLowerCase();
+  }
+
+  async function confirmPermDelete() {
+    const btn = document.getElementById('pdel-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    try {
+      const res = await apiFetch(`/api/members/${_pdelId}/permanent`, {
+        method: 'DELETE',
+        body:   JSON.stringify({ confirm_name: _pdelName }),
+      });
+      showToast(`${res.deleted} has been permanently deleted.`);
+      closePermDeleteModal();
+      await loadMembers();
+      showAll();
+    } catch (e) {
+      showToast(e.message, true);
+      btn.disabled = false;
+      btn.textContent = 'Delete permanently';
+    }
+  }
+
+  document.getElementById('perm-delete-modal').addEventListener('click', function(e) {
+    if (e.target === this) closePermDeleteModal();
+  });
+  {% endif %}
+</script>
+
+<style>
+  /* Leaver cards are slightly muted */
+  .leaver-card { opacity: .72; }
+  .leaver-card .card-head { background: var(--cream); }
+  /* Action buttons sit below the name row so long names always have full width */
+  .card-actions {
+    display: flex;
+    gap: 6px;
+    padding: 0 14px 11px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ashford Youth Club — Session Display</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* ── Reset & base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:       #1b2d4f;
+      --navy-dark:  #111e36;
+      --teal:       #0096b4;
+      --teal-light: #e0f6fb;
+      --gold:       #f5c842;
+      --green:      #22c55e;
+      --orange:     #fb923c;
+      --text:       #ffffff;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: var(--navy-dark);
+      font-family: 'Nunito', sans-serif;
+      color: var(--text);
+    }
+
+    /* ── Layout ───────────────────────────────────────── */
+    .screen {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 28px 40px 20px;
+      gap: 16px;
+    }
+
+    /* ── Header ───────────────────────────────────────── */
+    .hdr {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-shrink: 0;
+      gap: 24px;
+    }
+
+    /* Left block: brand + leaders */
+    .hdr-left {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-logo {
+      font-size: 52px;
+      line-height: 1;
+    }
+    .brand-text h1 {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -.5px;
+    }
+    .brand-text p {
+      font-size: 16px;
+      color: rgba(255,255,255,.55);
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    /* Leaders row */
+    .leaders-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-left: 4px;
+      min-height: 36px;
+    }
+    .leaders-label {
+      font-size: 13px;
+      font-weight: 800;
+      color: rgba(255,255,255,.4);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .leader-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 24px;
+      padding: 5px 14px 5px 8px;
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .leader-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--teal);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    /* Right block: clock */
+    .hdr-right {
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .clock {
+      font-size: 52px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      line-height: 1;
+      color: var(--gold);
+    }
+    .clock-sep {
+      display: inline-block;
+      transition: opacity .1s;
+    }
+    .clock-sep.hidden { opacity: 0; }
+    .date-line {
+      font-size: 16px;
+      color: rgba(255,255,255,.55);
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    /* ── Activities ticker ────────────────────────────── */
+    .activities-strip {
+      flex-shrink: 0;
+      background: rgba(251,146,60,.1);
+      border: 1px solid rgba(251,146,60,.22);
+      border-radius: 14px;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      overflow: hidden;
+      min-height: 48px;
+    }
+    .activities-strip.hidden {
+      display: none;
+    }
+    .activities-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .ticker-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+    .ticker-track {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      white-space: nowrap;
+      will-change: transform;
+    }
+    .ticker-track.static {
+      animation: none !important;
+    }
+    @keyframes ticker-scroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(var(--ticker-shift)); }
+    }
+    .ticker-item {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--orange);
+      padding-right: 60px;
+    }
+    .ticker-sep {
+      color: rgba(251,146,60,.4);
+      padding-right: 60px;
+      font-size: 18px;
+    }
+
+    /* ── Session bar ──────────────────────────────────── */
+    .session-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 16px;
+      padding: 14px 28px;
+      flex-shrink: 0;
+    }
+    .session-name {
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      color: var(--teal-light);
+    }
+    .headcount {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--green);
+      background: rgba(34,197,94,.12);
+      border: 1px solid rgba(34,197,94,.3);
+      border-radius: 12px;
+      padding: 8px 20px;
+    }
+
+    /* ── Name grid ────────────────────────────────────── */
+    .grid-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .empty-display {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      opacity: .35;
+    }
+    .empty-display .big-icon { font-size: 80px; }
+    .empty-display p { font-size: 24px; font-weight: 800; }
+
+    .names-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      align-content: start;
+      height: 100%;
+      overflow-y: auto;
+      scrollbar-width: none;
+      padding-bottom: 4px;
+    }
+    .names-grid::-webkit-scrollbar { display: none; }
+
+    .name-card {
+      background: rgba(255,255,255,.07);
+      border: 1.5px solid rgba(255,255,255,.12);
+      border-radius: 18px;
+      padding: 20px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      animation: fadeSlideIn .4s ease both;
+    }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 900;
+      flex-shrink: 0;
+      border: 3px solid rgba(255,255,255,.2);
+    }
+
+    .name-text { min-width: 0; }
+    .first-name {
+      font-size: 26px;
+      font-weight: 900;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .surname {
+      font-size: 16px;
+      font-weight: 700;
+      color: rgba(255,255,255,.5);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .time-in {
+      font-size: 12px;
+      color: var(--green);
+      font-weight: 700;
+      margin-top: 3px;
+    }
+
+    /* ── Footer ───────────────────────────────────────── */
+    .footer {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 13px;
+      color: rgba(255,255,255,.25);
+      font-weight: 700;
+    }
+    .pulse-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+  </style>
+</head>
+<body>
+<div class="screen">
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="brand">
+        <div class="brand-logo">🏅</div>
+        <div class="brand-text">
+          <h1>Ashford Youth Club</h1>
+          <p>Who's here tonight?</p>
+        </div>
+      </div>
+      <!-- Leaders on duty -->
+      <div class="leaders-row" id="leaders-row">
+        <!-- populated by JS -->
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="clock" id="clock">
+        <span id="clock-h">--</span><span class="clock-sep" id="clock-sep">:</span><span id="clock-m">--</span>
+      </div>
+      <div class="date-line" id="dateline"></div>
+    </div>
+  </div>
+
+  <!-- Activities strip -->
+  <div class="activities-strip hidden" id="activities-strip">
+    <div class="activities-icon">🎯</div>
+    <div class="ticker-wrap">
+      <div class="ticker-track" id="ticker-track">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Session bar -->
+  <div class="session-bar">
+    <div class="session-name" id="session-label">Loading…</div>
+    <div class="headcount" id="headcount">0 signed in</div>
+  </div>
+
+  <!-- Name grid -->
+  <div class="grid-wrap">
+    <div class="names-grid" id="names-grid">
+      <div class="empty-display">
+        <div class="big-icon">🎉</div>
+        <p>Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="pulse-dot"></div>
+    <span>Live · updates every 30 seconds</span>
+  </div>
+
+</div>
+
+<script>
+  /* ── Avatar colours ───────────────────────────────── */
+  const COLOURS = [
+    '#0096b4', '#2d6a4f', '#6d3fa0', '#b5451b',
+    '#155e8a', '#7c6e00', '#9b2335', '#1b6b56',
+    '#7a3b0f', '#2c4a8a',
+  ];
+
+  function avatarColour(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xfffffff;
+    return COLOURS[h % COLOURS.length];
+  }
+
+  /* ── Session — use the logged-in user's assigned session;
+       fall back to day-of-week detection for admin (unscoped) ── */
+  const dayNames   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const monthNames = ['January','February','March','April','May','June',
+                      'July','August','September','October','November','December'];
+
+  const currentSession = (() => {
+    const assigned = '{{ current_session }}';
+    if (assigned === 'Tuesday' || assigned === 'Thursday') return assigned;
+    // Admin / no assignment — fall back to day of week
+    return new Date().getDay() === 4 ? 'Thursday' : 'Tuesday';
+  })();
+
+  // Set the session label once on load
+  document.getElementById('session-label').textContent = currentSession + ' Session';
+
+  /* ── Clock with flashing colon ────────────────────── */
+  let colonVisible = true;
+
+  function updateClock() {
+    const now = new Date();
+    const hh  = String(now.getHours()).padStart(2, '0');
+    const mm  = String(now.getMinutes()).padStart(2, '0');
+
+    document.getElementById('clock-h').textContent = hh;
+    document.getElementById('clock-m').textContent = mm;
+
+    // Flash colon every second
+    colonVisible = !colonVisible;
+    document.getElementById('clock-sep').classList.toggle('hidden', !colonVisible);
+
+    document.getElementById('dateline').textContent =
+      `${dayNames[now.getDay()]} ${now.getDate()} ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  /* ── Leaders strip ───────────────────────────────── */
+  function formatLeaderName(username) {
+    // Convert "marnold" / "michelle_arnold" / "michelle.arnold" → "Michelle Arnold"
+    return username
+      .replace(/[._-]/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(' ')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
+  function renderLeaders(leaders) {
+    const row = document.getElementById('leaders-row');
+    if (!leaders || !leaders.length) {
+      row.innerHTML = '';
+      return;
+    }
+    const label = `<span class="leaders-label">On duty:</span>`;
+    const pills = leaders.map(l => {
+      const name     = l.name || '';
+      const initials = name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0,2).toUpperCase() || '?';
+      const colour   = avatarColour(name);
+      const roleStr  = l.role ? `<span style="font-size:12px;opacity:.65;margin-left:4px">(${esc(l.role)})</span>` : '';
+      return `<span class="leader-pill">
+                <span class="leader-avatar" style="background:${colour}">${esc(initials)}</span>
+                ${esc(name)}${roleStr}
+              </span>`;
+    }).join('');
+    row.innerHTML = label + pills;
+  }
+
+  /* ── Activities ticker ───────────────────────────── */
+  let tickerAnimFrame = null;
+
+  function renderActivities(activities) {
+    const strip = document.getElementById('activities-strip');
+    const track = document.getElementById('ticker-track');
+
+    if (!activities || !activities.length) {
+      strip.classList.add('hidden');
+      track.innerHTML = '';
+      return;
+    }
+
+    strip.classList.remove('hidden');
+
+    // Build ticker content — duplicate for seamless loop if scrolling
+    const items = activities.map(a =>
+      `<span class="ticker-item">${esc(a.activity)}</span><span class="ticker-sep">·</span>`
+    ).join('');
+
+    // We'll duplicate so the ticker can scroll seamlessly
+    track.innerHTML = items + items;
+
+    // Start CSS animation after measuring width
+    requestAnimationFrame(() => {
+      const halfWidth = track.scrollWidth / 2;
+      track.style.setProperty('--ticker-shift', `-${halfWidth}px`);
+
+      const wrapWidth = track.parentElement.offsetWidth;
+      if (halfWidth <= wrapWidth) {
+        // Content fits — no scrolling needed
+        track.style.animation = 'none';
+        track.innerHTML = items; // single copy is fine
+      } else {
+        // Scroll duration: ~80px/s
+        const duration = Math.round(halfWidth / 80);
+        track.style.animation = `ticker-scroll ${duration}s linear infinite`;
+      }
+    });
+  }
+
+  /* ── Load data ───────────────────────────────────── */
+  let prevIds = new Set();
+
+  async function loadDisplay() {
+    try {
+      const res = await fetch(`/api/display/${currentSession}`, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error('Server error');
+      const data = await res.json();
+      renderNames(data.members);
+      renderLeaders(data.leaders);
+      renderActivities(data.activities);
+    } catch (e) {
+      console.error('Display refresh failed:', e);
+    }
+  }
+
+  function renderNames(members) {
+    const grid   = document.getElementById('names-grid');
+    const headEl = document.getElementById('headcount');
+    const count  = members.length;
+
+    headEl.textContent = count === 0
+      ? 'No one yet'
+      : `${count} signed in`;
+
+    if (count === 0) {
+      prevIds = new Set();
+      grid.innerHTML = `
+        <div class="empty-display">
+          <div class="big-icon">🎉</div>
+          <p>No one signed in yet — be the first!</p>
+        </div>`;
+      return;
+    }
+
+    const newIds = new Set(members.map(m => m.first_name + m.surname));
+
+    grid.innerHTML = members.map(m => {
+      const key    = m.first_name + m.surname;
+      const init   = ((m.first_name[0] || '?') + (m.surname[0] || '?')).toUpperCase();
+      const colour = avatarColour(key);
+      const isNew  = !prevIds.has(key);
+      return `
+        <div class="name-card" style="${isNew ? '' : 'animation:none'}">
+          <div class="avatar" style="background:${colour}">${init}</div>
+          <div class="name-text">
+            <div class="first-name">${esc(m.first_name)}</div>
+            <div class="surname">${esc(m.surname)}</div>
+            ${m.signed_in_at ? `<div class="time-in">✓ in at ${esc(m.signed_in_at)}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    prevIds = newIds;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ── Initialise ──────────────────────────────────── */
+  loadDisplay();
+
+  /* Real-time updates via Server-Sent Events */
+  const evtSource = new EventSource('/api/display/stream');
+  evtSource.onmessage = () => loadDisplay();
+  evtSource.onerror   = () => { /* browser reconnects automatically */ };
+</script>
+</body>
+</html>

@@ -1,0 +1,935 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Session Register{% endblock %}
+
+{% block content %}
+<div class="page-header" style="margin-bottom:12px">
+  <h1>✅ Session Register</h1>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <select class="session-select" id="session-picker" onchange="onSessionChange()">
+      <option value="Tuesday">Tuesday</option>
+      <option value="Thursday">Thursday</option>
+    </select>
+    <input type="date" id="date-picker" class="session-select"
+           style="width:auto" onchange="loadRegister()">
+    <button class="btn btn-ghost btn-sm" id="at-risk-check-btn"
+            onclick="checkAtRisk()" title="Check for members who have missed their session threshold"
+            style="display:none">
+      ⚠️ Check attendance
+    </button>
+  </div>
+</div>
+
+<!-- ── Tab bar ─────────────────────────────────────────────────── -->
+<div style="display:flex;gap:6px;margin-bottom:16px">
+  <button class="reg-tab-btn active" id="tab-btn-members" onclick="switchRegTab('members')">
+    👦 Members
+  </button>
+  <button class="reg-tab-btn" id="tab-btn-staff" onclick="switchRegTab('staff')">
+    🧑‍🤝‍🧑 Staff
+  </button>
+</div>
+
+<!-- ── Members tab ─────────────────────────────────────────────── -->
+<div id="reg-tab-members">
+
+<!-- ── Summary strip ──────────────────────────────────────────── -->
+<div id="reg-summary" class="reg-summary" style="display:none">
+  <div class="reg-summary-tile reg-summary-in">
+    <span id="sum-in">0</span>
+    <small>Signed In</small>
+  </div>
+  <div class="reg-summary-tile reg-summary-waiting">
+    <span id="sum-waiting">0</span>
+    <small>Not Arrived</small>
+  </div>
+  <div class="reg-summary-tile reg-summary-out">
+    <span id="sum-out">0</span>
+    <small>Signed Out</small>
+  </div>
+</div>
+
+<!-- ── Register grid ──────────────────────────────────────────── -->
+<div id="register-container">
+  <div class="loading-state"><div class="spinner"></div><p>Loading register…</p></div>
+</div>
+
+<!-- ── At Risk modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="at-risk-modal">
+  <div class="modal" style="max-width:540px">
+    <h2>⚠️ Attendance Check</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:4px">
+      These members have missed their consecutive session threshold and may need follow-up.
+      Select the ones to flag as <strong>At Risk</strong> and add a note for the record.
+    </p>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+      <em>Members who attend a future session will be automatically reinstated to Active.</em>
+    </p>
+    <div id="at-risk-list" style="max-height:280px;overflow-y:auto;margin-bottom:14px"></div>
+    <div id="at-risk-note-wrap" style="display:none;margin-bottom:14px">
+      <label class="form-label" style="margin-bottom:4px">
+        Note / reason <span style="color:var(--red)">*</span>
+        <span style="font-weight:400;color:var(--muted)">(required — saved to member record)</span>
+      </label>
+      <textarea id="at-risk-note" class="form-input" rows="2"
+                placeholder="e.g. No contact made, parent notified, holiday period…"
+                style="resize:vertical"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAtRiskModal()">Cancel</button>
+      <button class="btn btn-warning" id="at-risk-save-btn" onclick="markAtRisk()"
+              style="display:none;background:#b45309;color:#fff;border:none">
+        Flag Selected as At Risk
+      </button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /reg-tab-members -->
+
+<!-- ── Staff tab ──────────────────────────────────────────────── -->
+<div id="reg-tab-staff" style="display:none">
+  <div id="staff-reg-summary" class="reg-summary" style="display:none">
+    <div class="reg-summary-tile reg-summary-in">
+      <span id="staff-sum-in">0</span>
+      <small>Signed In</small>
+    </div>
+    <div class="reg-summary-tile reg-summary-waiting">
+      <span id="staff-sum-waiting">0</span>
+      <small>Not Arrived</small>
+    </div>
+    <div class="reg-summary-tile reg-summary-out">
+      <span id="staff-sum-out">0</span>
+      <small>Signed Out</small>
+    </div>
+  </div>
+  <div id="staff-register-container">
+    <div class="loading-state"><div class="spinner"></div><p>Loading staff register…</p></div>
+  </div>
+</div>
+
+<!-- ── Activities board panel ────────────────────────────────── -->
+{% if current_role in ('admin', 'editor', 'leader') %}
+<div style="margin-top:32px;border-top:2px solid var(--border);padding-top:24px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div>
+      <h2 style="font-size:18px;font-weight:800;color:var(--navy)">
+        🎯 TV Display — Activities Board
+      </h2>
+      <p style="font-size:13px;color:var(--muted);margin-top:3px">
+        Activities appear as a scrolling ticker on the reception display screen.
+      </p>
+    </div>
+    <a href="/display" target="_blank" class="btn btn-ghost btn-sm">
+      👁 Open display
+    </a>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:16px">
+    <input id="activity-input" type="text" class="search-input"
+           style="flex:1;max-width:460px"
+           placeholder="e.g. Bobby in the kitchen making Chocolate Rice Crispy Cakes"
+           maxlength="120"
+           onkeydown="if(event.key==='Enter') addActivity()">
+    <button class="btn btn-primary btn-sm" onclick="addActivity()">+ Add</button>
+  </div>
+  <div id="activities-list">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading activities…</p>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+  /* ── Summary strip ──────────────────────────────── */
+  .reg-summary {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .reg-summary-tile {
+    flex: 1;
+    max-width: 160px;
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .reg-summary-tile span {
+    font-size: 28px;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .reg-summary-tile small {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    opacity: .75;
+  }
+  .reg-summary-in      { background: #dcfce7; color: #166534; }
+  .reg-summary-waiting { background: #f1f5f9; color: #475569; }
+  .reg-summary-out     { background: #fef9c3; color: #854d0e; }
+
+  /* ── Card grid ──────────────────────────────────── */
+  .reg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    gap: 10px;
+  }
+
+  .reg-card {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 13px 13px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color .15s, background .15s, opacity .15s;
+    position: relative;
+  }
+
+  /* State: signed in */
+  .reg-card.state-in {
+    background: #f0fdf4;
+    border-color: #86efac;
+  }
+
+  /* State: signed out */
+  .reg-card.state-out {
+    background: var(--cream);
+    border-color: #e2e8f0;
+    opacity: .65;
+  }
+
+  .reg-card__name {
+    font-size: 14px;
+    font-weight: 900;
+    color: var(--navy);
+    line-height: 1.3;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .reg-card__flags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .reg-card__time {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    min-height: 18px;
+  }
+  .reg-card.state-in  .reg-card__time { color: #166534; }
+  .reg-card.state-out .reg-card__time { color: #854d0e; }
+
+  .reg-card__btn {
+    margin-top: auto;
+    padding-top: 4px;
+    width: 100%;
+    padding: 11px 8px;
+    border-radius: 9px;
+    border: none;
+    font-family: 'Nunito', sans-serif;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background .15s, transform .1s;
+    letter-spacing: .01em;
+  }
+  .reg-card__btn:active { transform: scale(.97); }
+
+  .reg-card__btn.btn-signin {
+    background: var(--navy);
+    color: white;
+  }
+  .reg-card__btn.btn-signin:hover  { background: var(--navy-dark, #111e36); }
+
+  .reg-card__btn.btn-signout {
+    background: #16a34a;
+    color: white;
+  }
+  .reg-card__btn.btn-signout:hover { background: #15803d; }
+
+  .reg-card__btn.btn-undo {
+    background: none;
+    border: 1.5px dashed #cbd5e1;
+    color: #94a3b8;
+    font-size: 12px;
+    padding: 8px;
+    font-weight: 700;
+  }
+  .reg-card__btn.btn-undo:hover { border-color: var(--muted); color: var(--muted); }
+
+  /* group dividers */
+  .reg-group-header {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--muted);
+    padding: 4px 2px 2px;
+    border-bottom: 1.5px solid var(--border);
+    margin-top: 6px;
+  }
+  .reg-group-header:first-child { margin-top: 0; }
+
+  /* ── Inline confirmation ────────────────────────────── */
+  .reg-card--confirming {
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px rgba(0,150,180,.15);
+    z-index: 1;
+  }
+
+  .reg-card__confirm-wrap {
+    display: flex;
+    gap: 6px;
+    margin-top: auto;
+  }
+  .reg-card__confirm-wrap .reg-card__btn {
+    flex: 1;
+    font-size: 12px;
+    padding: 10px 4px;
+  }
+
+  /* Yes — defaults to teal; overrides per action */
+  .btn-confirm-yes         { background: var(--teal);  color: white; }
+  .btn-confirm-signout     { background: #16a34a;       color: white; }
+  .btn-confirm-undo        { background: #64748b;       color: white; }
+  .btn-confirm-no {
+    background: none;
+    border: 1.5px solid #cbd5e1;
+    color: #64748b;
+  }
+  .btn-confirm-no:hover { background: #f1f5f9; }
+
+  @media (max-width: 600px) {
+    .reg-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 8px; }
+  }
+
+  /* ── Register tabs ──────────────────────────────── */
+  .reg-tab-btn {
+    padding: 9px 20px;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    background: white;
+    font-family: 'Nunito', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .reg-tab-btn:hover  { border-color: var(--teal); color: var(--teal); }
+  .reg-tab-btn.active { background: var(--navy); border-color: var(--navy); color: white; }
+
+  /* Staff cards — purple accent */
+  .reg-card.staff-card.state-in  { background: #f5f3ff; border-color: #c4b5fd; }
+  .reg-card.staff-card .reg-card__role {
+    font-size: 11px;
+    font-weight: 700;
+    color: #7c3aed;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  .reg-card.staff-card .reg-card__btn.btn-signin  { background: #7c3aed; }
+  .reg-card.staff-card .reg-card__btn.btn-signin:hover { background: #6d28d9; }
+</style>
+
+<script>
+  const USER_ROLE       = "{{ current_role }}";
+  const CAN_MANAGE      = USER_ROLE === 'admin' || USER_ROLE === 'editor' || USER_ROLE === 'leader';
+  // Readonly users (youth volunteers) may sign kids OUT but not IN
+  const CAN_SIGNIN      = CAN_MANAGE;
+  const CAN_SIGNOUT     = CAN_MANAGE || USER_ROLE === 'readonly';
+  const CAN_MARK_LEAVER = USER_ROLE === 'admin';
+
+  /* ── Initialise ─────────────────────────────────────── */
+  (function init() {
+    const today = new Date();
+    document.getElementById('date-picker').value = today.toISOString().slice(0, 10);
+
+    const dayOfWeek = today.getDay();
+    const picker    = document.getElementById('session-picker');
+    if (dayOfWeek === 4) picker.value = 'Thursday';
+    else                 picker.value = 'Tuesday';
+
+    const userSession = "{{ current_session }}";
+    if (userSession) {
+      picker.value    = userSession;
+      picker.disabled = true;
+    }
+
+    if (CAN_MARK_LEAVER) {
+      document.getElementById('at-risk-check-btn').style.display = '';
+    }
+
+    loadRegister();
+  })();
+
+  function onSessionChange() { _reloadActiveTab(); }
+
+  /* ── Load register ──────────────────────────────────── */
+  async function loadRegister() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    if (!date) return;
+
+    document.getElementById('register-container').innerHTML =
+      `<div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>`;
+
+    try {
+      const members = await apiFetch(`/api/attendance/${sess}/${date}`);
+      renderRegister(members, sess, date);
+    } catch (e) {
+      document.getElementById('register-container').innerHTML =
+        `<div class="alert-box err"><strong>⚠️ Could not load register</strong> ${esc(e.message)}</div>`;
+    }
+  }
+
+  /* ── Render grid ────────────────────────────────────── */
+  function renderRegister(members, sess, date) {
+    const container = document.getElementById('register-container');
+
+    if (!members.length) {
+      container.innerHTML =
+        `<div class="empty-state">No members found for the ${esc(sess)} session.</div>`;
+      document.getElementById('reg-summary').style.display = 'none';
+      return;
+    }
+
+    // Partition into groups: in → not arrived → out
+    const groupIn      = members.filter(m => m.signed_in_at && !m.signed_out_at);
+    const groupWaiting = members.filter(m => !m.signed_in_at);
+    const groupOut     = members.filter(m => m.signed_out_at);
+
+    // Sort each group alphabetically
+    const alpha = (a, b) =>
+      `${a.first_name} ${a.surname}`.localeCompare(`${b.first_name} ${b.surname}`);
+    groupIn.sort(alpha);
+    groupWaiting.sort(alpha);
+    groupOut.sort(alpha);
+
+    // Update summary strip
+    document.getElementById('sum-in').textContent      = groupIn.length;
+    document.getElementById('sum-waiting').textContent = groupWaiting.length;
+    document.getElementById('sum-out').textContent     = groupOut.length;
+    document.getElementById('reg-summary').style.display = 'flex';
+    // Keep legacy headcount pill if present
+    const hc = document.getElementById('headcount');
+    if (hc) hc.textContent = `${groupIn.length} in`;
+
+    // Build HTML
+    let html = '<div class="reg-grid">';
+
+    if (groupWaiting.length) {
+      html += `<div class="reg-group-header">⏳ Not Yet Arrived (${groupWaiting.length})</div>`;
+      html += groupWaiting.map(m => memberCard(m, sess, date)).join('');
+    }
+    if (groupIn.length) {
+      html += `<div class="reg-group-header">✅ Signed In (${groupIn.length})</div>`;
+      html += groupIn.map(m => memberCard(m, sess, date)).join('');
+    }
+    if (groupOut.length) {
+      html += `<div class="reg-group-header">🚪 Signed Out (${groupOut.length})</div>`;
+      html += groupOut.map(m => memberCard(m, sess, date)).join('');
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  function memberCard(m, sess, date) {
+    const isIn  = !!m.signed_in_at && !m.signed_out_at;
+    const isOut = !!m.signed_out_at;
+
+    const stateClass = isIn ? 'state-in' : isOut ? 'state-out' : '';
+
+    const medFlag = m.medical_sen
+      ? `<span class="flag-badge flag-medical" title="${esc(m.medical_sen)}">⚕</span>` : '';
+    const unaFlag = m.unattended_exit
+      ? `<span class="flag-badge flag-unattended" title="Unattended exit permitted">🚪</span>` : '';
+
+    let timeText = '';
+    let btnHtml  = '';
+
+    if (isOut) {
+      timeText = `Out at ${esc(m.signed_out_at)}`;
+      btnHtml  = CAN_SIGNOUT
+        ? `<button class="reg-card__btn btn-undo"
+             onclick="requestUndoSignout(${m.id},'${esc(sess)}','${esc(date)}')">
+             ↩ Undo sign-out
+           </button>`
+        : '';
+    } else if (isIn) {
+      timeText = `In since ${esc(m.signed_in_at)}`;
+      btnHtml  = CAN_SIGNOUT
+        ? `<button class="reg-card__btn btn-signout"
+             onclick="requestSignOut(${m.id},'${esc(sess)}','${esc(date)}')">
+             Sign Out
+           </button>`
+        : '';
+    } else {
+      timeText = '';
+      btnHtml  = CAN_SIGNIN
+        ? `<button class="reg-card__btn btn-signin"
+             onclick="requestSignIn(${m.id},'${esc(sess)}','${esc(date)}')">
+             Sign In
+           </button>`
+        : '';
+    }
+
+    return `
+      <div class="reg-card ${stateClass}" id="card-${m.id}">
+        <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
+        <div class="reg-card__flags">${medFlag}${unaFlag}</div>
+        <div class="reg-card__time">${timeText}</div>
+        ${btnHtml}
+      </div>`;
+  }
+
+  /* ── Inline confirmation ────────────────────────────── */
+  let _confirmCardId   = null;
+  let _confirmOrigHTML = null;
+
+  function _showConfirm(memberId, confirmInnerHTML) {
+    // Cancel any other open confirmation first
+    if (_confirmCardId !== null && _confirmCardId !== memberId) {
+      _cancelConfirm(_confirmCardId, false);
+    }
+    _confirmCardId = memberId;
+
+    const card = document.getElementById(`card-${memberId}`);
+    if (!card) return;
+
+    const btn = card.querySelector('.reg-card__btn');
+    if (!btn) return;
+
+    _confirmOrigHTML = btn.outerHTML;
+    btn.outerHTML = `<div id="cw-${memberId}" class="reg-card__confirm-wrap">${confirmInnerHTML}</div>`;
+    card.classList.add('reg-card--confirming');
+  }
+
+  function _cancelConfirm(memberId, restoreHTML = true) {
+    const card = document.getElementById(`card-${memberId}`);
+    if (card) {
+      card.classList.remove('reg-card--confirming');
+      if (restoreHTML && _confirmOrigHTML) {
+        const wrap = document.getElementById(`cw-${memberId}`);
+        if (wrap) wrap.outerHTML = _confirmOrigHTML;
+      }
+    }
+    _confirmCardId   = null;
+    _confirmOrigHTML = null;
+  }
+
+  // Tap anywhere outside a card cancels pending confirmation
+  document.addEventListener('click', e => {
+    if (_confirmCardId === null) return;
+    if (!e.target.closest('.reg-card')) {
+      // Use the right cancel function depending on whether it's a staff card (sc-) or member card
+      if (String(_confirmCardId).startsWith('sc-')) _cancelConfirmById(_confirmCardId);
+      else _cancelConfirm(_confirmCardId);
+    }
+  }, true);
+
+  function requestSignIn(memberId, sess, date, isStaff = false) {
+    _showConfirm(memberId, `
+      <button class="reg-card__btn btn-confirm-yes"
+              onclick="_cancelConfirm(${memberId});signIn(${memberId},'${esc(sess)}','${esc(date)}',${isStaff})">
+        ✓ Sign In
+      </button>
+      <button class="reg-card__btn btn-confirm-no"
+              onclick="_cancelConfirm(${memberId})">
+        ✕ Cancel
+      </button>`);
+  }
+
+  function requestSignOut(memberId, sess, date, isStaff = false) {
+    _showConfirm(memberId, `
+      <button class="reg-card__btn btn-confirm-yes btn-confirm-signout"
+              onclick="_cancelConfirm(${memberId});signOut(${memberId},'${esc(sess)}','${esc(date)}',${isStaff})">
+        ✓ Sign Out
+      </button>
+      <button class="reg-card__btn btn-confirm-no"
+              onclick="_cancelConfirm(${memberId})">
+        ✕ Cancel
+      </button>`);
+  }
+
+  function requestUndoSignout(memberId, sess, date, isStaff = false) {
+    _showConfirm(memberId, `
+      <button class="reg-card__btn btn-confirm-yes btn-confirm-undo"
+              onclick="_cancelConfirm(${memberId});undoSignout(${memberId},'${esc(sess)}','${esc(date)}',${isStaff})">
+        ✓ Undo
+      </button>
+      <button class="reg-card__btn btn-confirm-no"
+              onclick="_cancelConfirm(${memberId})">
+        ✕ Cancel
+      </button>`);
+  }
+
+  /* ── Sign in / out ──────────────────────────────────── */
+  function _reloadActiveTab() {
+    if (activeRegTab === 'staff') loadStaffRegister();
+    else loadRegister();
+  }
+
+  async function signIn(memberId, sessionType, date, isStaff = false) {
+    try {
+      await apiFetch('/api/attendance/signin', {
+        method: 'POST',
+        body:   JSON.stringify({ member_id: memberId, session_type: sessionType, date }),
+      });
+      _reloadActiveTab();
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  async function signOut(memberId, sessionType, date, isStaff = false) {
+    try {
+      await apiFetch('/api/attendance/signout', {
+        method: 'POST',
+        body:   JSON.stringify({ member_id: memberId, session_type: sessionType, date }),
+      });
+      _reloadActiveTab();
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  async function undoSignout(memberId, sessionType, date, isStaff = false) {
+    try {
+      await apiFetch('/api/attendance/signout', {
+        method: 'POST',
+        body:   JSON.stringify({ member_id: memberId, session_type: sessionType, date, clear: true }),
+      });
+      _reloadActiveTab();
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  /* ── At Risk check ──────────────────────────────────── */
+  let atRiskCandidates = [];
+
+  async function checkAtRisk() {
+    try {
+      atRiskCandidates = await apiFetch('/api/attendance/check-at-risk');
+      renderAtRiskList();
+      document.getElementById('at-risk-modal').classList.add('open');
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  function renderAtRiskList() {
+    const list    = document.getElementById('at-risk-list');
+    const noteWrap = document.getElementById('at-risk-note-wrap');
+    const saveBtn  = document.getElementById('at-risk-save-btn');
+    if (!atRiskCandidates.length) {
+      list.innerHTML = '<p style="color:var(--muted);font-size:14px">All members are within their attendance threshold — no action needed.</p>';
+      noteWrap.style.display = 'none';
+      saveBtn.style.display  = 'none';
+      return;
+    }
+    noteWrap.style.display = '';
+    saveBtn.style.display  = '';
+    list.innerHTML = atRiskCandidates.map(m => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 0;
+                    border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="checkbox" value="${m.id}" checked style="width:16px;height:16px">
+        <span>
+          <strong>${esc(m.first_name)} ${esc(m.surname)}</strong>
+          <span style="font-size:12px;color:var(--muted)">
+            (${esc(m.trigger_session || m.session || '?')} — missed ${m.missed_sessions} sessions)
+            — last attended: ${m.last_attendance ? fmtDate(m.last_attendance) : 'never'}
+          </span>
+        </span>
+      </label>
+    `).join('');
+  }
+
+  async function markAtRisk() {
+    const checked = [...document.querySelectorAll('#at-risk-list input[type=checkbox]:checked')]
+      .map(cb => parseInt(cb.value));
+    const note = document.getElementById('at-risk-note').value.trim();
+    if (!checked.length) { showToast('No members selected.', true); return; }
+    if (!note) { showToast('A note is required before flagging members.', true); return; }
+    const btn = document.getElementById('at-risk-save-btn');
+    btn.disabled = true;
+    try {
+      const res = await apiFetch('/api/attendance/mark-at-risk', {
+        method: 'POST',
+        body:   JSON.stringify({ member_ids: checked, note }),
+      });
+      showToast(`${res.marked_count} member${res.marked_count !== 1 ? 's' : ''} flagged as At Risk.`);
+      closeAtRiskModal();
+      loadRegister();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function closeAtRiskModal() {
+    document.getElementById('at-risk-modal').classList.remove('open');
+    document.getElementById('at-risk-note').value = '';
+  }
+
+  document.getElementById('at-risk-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('at-risk-modal')) closeAtRiskModal();
+  });
+
+  /* ── Staff confirm helper (uses full card ID, not numeric member ID) ── */
+  function requestConfirm(cardId, action, sess, date) {
+    // Cancel any other open confirmation first
+    if (_confirmCardId !== null && _confirmCardId !== cardId) {
+      _cancelConfirmById(_confirmCardId, false);
+    }
+    _confirmCardId = cardId;
+
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const btn = card.querySelector('.reg-card__btn');
+    if (!btn) return;
+
+    // Extract the numeric DB id from the card ID (e.g. "sc-81" → "81")
+    const memberId = cardId.replace(/^[a-z]+-/, '');
+
+    let confirmHTML;
+    if (action === 'signin') {
+      confirmHTML = `
+        <button class="reg-card__btn btn-confirm-yes"
+                onclick="_cancelConfirmById('${cardId}');signIn(${memberId},'${esc(sess)}','${esc(date)}',true)">
+          ✓ Sign In
+        </button>
+        <button class="reg-card__btn btn-confirm-no"
+                onclick="_cancelConfirmById('${cardId}')">
+          ✕ Cancel
+        </button>`;
+    } else if (action === 'signout') {
+      confirmHTML = `
+        <button class="reg-card__btn btn-confirm-yes btn-confirm-signout"
+                onclick="_cancelConfirmById('${cardId}');signOut(${memberId},'${esc(sess)}','${esc(date)}',true)">
+          ✓ Sign Out
+        </button>
+        <button class="reg-card__btn btn-confirm-no"
+                onclick="_cancelConfirmById('${cardId}')">
+          ✕ Cancel
+        </button>`;
+    } else {
+      confirmHTML = `
+        <button class="reg-card__btn btn-confirm-yes btn-confirm-undo"
+                onclick="_cancelConfirmById('${cardId}');undoSignout(${memberId},'${esc(sess)}','${esc(date)}',true)">
+          ✓ Undo
+        </button>
+        <button class="reg-card__btn btn-confirm-no"
+                onclick="_cancelConfirmById('${cardId}')">
+          ✕ Cancel
+        </button>`;
+    }
+
+    _confirmOrigHTML = btn.outerHTML;
+    btn.outerHTML = `<div id="cw-${cardId}" class="reg-card__confirm-wrap">${confirmHTML}</div>`;
+    card.classList.add('reg-card--confirming');
+  }
+
+  function _cancelConfirmById(cardId, restoreHTML = true) {
+    const card = document.getElementById(cardId);
+    if (card) {
+      card.classList.remove('reg-card--confirming');
+      if (restoreHTML && _confirmOrigHTML) {
+        const wrap = document.getElementById(`cw-${cardId}`);
+        if (wrap) wrap.outerHTML = _confirmOrigHTML;
+      }
+    }
+    _confirmCardId   = null;
+    _confirmOrigHTML = null;
+  }
+
+  /* ── Register tab switching ─────────────────────────── */
+  let activeRegTab = 'members';
+
+  function switchRegTab(tab) {
+    activeRegTab = tab;
+    document.getElementById('reg-tab-members').style.display = tab === 'members' ? '' : 'none';
+    document.getElementById('reg-tab-staff').style.display   = tab === 'staff'   ? '' : 'none';
+    document.querySelectorAll('.reg-tab-btn').forEach(b =>
+      b.classList.toggle('active', b.id === `tab-btn-${tab}`)
+    );
+    if (tab === 'staff') loadStaffRegister();
+  }
+
+  /* ── Staff register ──────────────────────────────────── */
+  async function loadStaffRegister() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    if (!date) return;
+
+    document.getElementById('staff-register-container').innerHTML =
+      `<div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>`;
+
+    try {
+      const staff = await apiFetch(`/api/attendance/staff/${sess}/${date}`);
+      renderStaffRegister(staff, sess, date);
+    } catch (e) {
+      document.getElementById('staff-register-container').innerHTML =
+        `<div class="alert-box err"><strong>⚠️ Could not load staff register</strong> ${esc(e.message)}</div>`;
+    }
+  }
+
+  function renderStaffRegister(staff, sess, date) {
+    const container = document.getElementById('staff-register-container');
+
+    if (!staff.length) {
+      container.innerHTML =
+        `<div class="empty-state">No staff members found for the ${esc(sess)} session.</div>`;
+      document.getElementById('staff-reg-summary').style.display = 'none';
+      return;
+    }
+
+    const groupIn      = staff.filter(m => m.signed_in_at && !m.signed_out_at);
+    const groupWaiting = staff.filter(m => !m.signed_in_at);
+    const groupOut     = staff.filter(m => m.signed_out_at);
+    const alpha = (a, b) =>
+      `${a.first_name} ${a.surname}`.localeCompare(`${b.first_name} ${b.surname}`);
+    groupIn.sort(alpha); groupWaiting.sort(alpha); groupOut.sort(alpha);
+
+    document.getElementById('staff-sum-in').textContent      = groupIn.length;
+    document.getElementById('staff-sum-waiting').textContent = groupWaiting.length;
+    document.getElementById('staff-sum-out').textContent     = groupOut.length;
+    document.getElementById('staff-reg-summary').style.display = 'flex';
+
+    let html = '<div class="reg-grid">';
+    if (groupWaiting.length) {
+      html += `<div class="reg-group-header">⏳ Not Yet Arrived (${groupWaiting.length})</div>`;
+      html += groupWaiting.map(m => staffCard(m, sess, date)).join('');
+    }
+    if (groupIn.length) {
+      html += `<div class="reg-group-header">✅ Signed In (${groupIn.length})</div>`;
+      html += groupIn.map(m => staffCard(m, sess, date)).join('');
+    }
+    if (groupOut.length) {
+      html += `<div class="reg-group-header">🚪 Signed Out (${groupOut.length})</div>`;
+      html += groupOut.map(m => staffCard(m, sess, date)).join('');
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  function staffCard(m, sess, date) {
+    const isIn  = !!m.signed_in_at && !m.signed_out_at;
+    const isOut = !!m.signed_out_at;
+    const stateClass = isIn ? 'state-in' : isOut ? 'state-out' : '';
+
+    let timeText = '';
+    let btnHtml  = '';
+    const cid = `sc-${m.id}`;   // distinct prefix avoids ID clash with member cards
+
+    if (isOut) {
+      timeText = `Out at ${esc(m.signed_out_at)}`;
+      btnHtml  = CAN_SIGNOUT
+        ? `<button class="reg-card__btn btn-undo"
+             onclick="requestConfirm('${cid}','undo','${esc(sess)}','${esc(date)}')">
+             ↩ Undo sign-out
+           </button>` : '';
+    } else if (isIn) {
+      timeText = `In since ${esc(m.signed_in_at)}`;
+      btnHtml  = CAN_SIGNOUT
+        ? `<button class="reg-card__btn btn-signout"
+             onclick="requestConfirm('${cid}','signout','${esc(sess)}','${esc(date)}')">
+             Sign Out
+           </button>` : '';
+    } else {
+      btnHtml  = CAN_SIGNIN
+        ? `<button class="reg-card__btn btn-signin"
+             onclick="requestConfirm('${cid}','signin','${esc(sess)}','${esc(date)}')">
+             Sign In
+           </button>` : '';
+    }
+
+    return `
+      <div class="reg-card staff-card ${stateClass}" id="${cid}">
+        <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
+        <div class="reg-card__role">${esc(m.staff_role || 'Staff')}</div>
+        <div class="reg-card__time">${timeText}</div>
+        ${btnHtml}
+      </div>`;
+  }
+
+  /* ── Activities board ───────────────────────────────── */
+  {% if current_role in ('admin', 'editor', 'leader') %}
+  async function loadActivities() {
+    const sess = document.getElementById('session-picker').value;
+    const el   = document.getElementById('activities-list');
+    if (!el) return;
+    try {
+      const items = await apiFetch(`/api/activities/${sess}`);
+      renderActivities(items, sess);
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--muted);font-size:13px">Could not load activities.</p>`;
+    }
+  }
+
+  function renderActivities(items, sess) {
+    const el = document.getElementById('activities-list');
+    if (!items.length) {
+      el.innerHTML = `<p style="color:var(--muted);font-size:13px;padding:6px 0">
+        No activities yet — add one above to show it on the display screen.
+      </p>`;
+      return;
+    }
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">` +
+      items.map(a => `
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    background:var(--cream);border:1px solid var(--border);
+                    border-radius:10px;padding:10px 14px">
+          <span style="font-size:14px;font-weight:700">🎯 ${esc(a.activity)}</span>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                  onclick="deleteActivity(${a.id})">✕ Remove</button>
+        </div>`
+      ).join('') + `</div>`;
+  }
+
+  async function addActivity() {
+    const input = document.getElementById('activity-input');
+    const sess  = document.getElementById('session-picker').value;
+    const text  = input.value.trim();
+    if (!text) { showToast('Please enter an activity.', true); return; }
+    try {
+      await apiFetch('/api/activities', {
+        method: 'POST',
+        body:   JSON.stringify({ session_type: sess, activity: text }),
+      });
+      input.value = '';
+      loadActivities();
+      showToast('Activity added to display.');
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function deleteActivity(id) {
+    try {
+      await apiFetch(`/api/activities/${id}`, { method: 'DELETE' });
+      loadActivities();
+      showToast('Activity removed from display.');
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  const _origOnSessionChange = onSessionChange;
+  onSessionChange = function() { _origOnSessionChange(); loadActivities(); };
+
+
+  loadActivities();
+  {% endif %}
+</script>
+{% endblock %}

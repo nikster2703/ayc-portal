@@ -1,0 +1,608 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Communications{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>✉️ Communications</h1>
+</div>
+
+<!-- Tab bar -->
+<div style="display:flex;gap:6px;margin-bottom:24px">
+  <button class="tab-btn active" data-tab="send"      onclick="switchTab('send')">📤 Send Mailshot</button>
+  <button class="tab-btn"        data-tab="templates" onclick="switchTab('templates')">📝 Templates</button>
+  <button class="tab-btn"        data-tab="history"   onclick="switchTab('history')">📬 Sent History</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     TAB: Send Mailshot
+     ═════════════════════════════════════════════════════ -->
+<div id="tab-send">
+
+  <div style="display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start">
+
+    <!-- Compose panel -->
+    <div class="comms-panel">
+      <div class="comms-panel-title">Compose</div>
+
+      <div class="form-group">
+        <label>Load a template <span style="color:var(--muted);font-weight:600">(optional)</span></label>
+        <select id="s-template" onchange="loadTemplate()">
+          <option value="">— start from scratch —</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Subject <span style="color:var(--red)">*</span></label>
+        <input type="text" id="s-subject" placeholder="e.g. AYC Session Update — this week">
+      </div>
+
+      <div class="form-group">
+        <label>Message <span style="color:var(--red)">*</span></label>
+        <textarea id="s-body" rows="12"
+                  placeholder="Write your message here. You can use basic HTML if needed."
+                  style="font-family:monospace;font-size:13px;resize:vertical;
+                         width:100%;padding:10px;border:1.5px solid var(--border);
+                         border-radius:8px;line-height:1.5"></textarea>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          HTML is supported — use &lt;b&gt;, &lt;p&gt;, &lt;a href=""&gt; etc.
+          Recipients see their own email only (BCC-style).
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>
+          <span>Message Preview</span>
+          <button class="btn btn-ghost btn-sm" style="margin-left:8px"
+                  onclick="togglePreview()">👁 Toggle preview</button>
+        </label>
+        <div id="s-preview"
+             style="display:none;border:1.5px solid var(--border);border-radius:8px;
+                    padding:16px;background:white;min-height:80px;font-size:14px;
+                    line-height:1.6"></div>
+      </div>
+
+      <div class="form-group">
+        <label>Attachments <span style="color:var(--muted);font-weight:600">(optional — from document repository)</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="s-doc-picker" style="flex:1">
+            <option value="">— select a document —</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="addAttachment()" style="flex-shrink:0">＋ Add</button>
+        </div>
+        <div id="attachment-list" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+
+      <button class="btn btn-primary" style="width:100%;padding:13px"
+              id="send-btn" onclick="sendMailshot()">
+        📤 Send to Recipients
+      </button>
+    </div>
+
+    <!-- Recipients panel -->
+    <div class="comms-panel">
+      <div class="comms-panel-title">Recipients</div>
+
+      <div class="form-group">
+        <label>Session</label>
+        {% if current_role == 'admin' %}
+        <select id="s-session" onchange="previewRecipients()">
+          <option value="all">All sessions</option>
+          <option value="Tuesday">Tuesday only</option>
+          <option value="Thursday">Thursday only</option>
+        </select>
+        {% else %}
+        {# Editors are automatically scoped to their session server-side #}
+        <input type="hidden" id="s-session" value="{{ current_session }}">
+        <div style="padding:8px 12px;background:#f0f9ff;border:2px solid #bae6fd;
+                    border-radius:8px;font-size:14px;font-weight:700;color:#0369a1">
+          📍 {{ current_session }} session only
+        </div>
+        {% endif %}
+      </div>
+
+      <div id="recipient-preview"
+           style="background:var(--teal-light);border:1.5px solid var(--teal);
+                  border-radius:10px;padding:14px 16px;margin-top:4px">
+        <div id="recipient-count"
+             style="font-size:22px;font-weight:900;color:var(--teal)">—</div>
+        <div style="font-size:13px;color:var(--muted);font-weight:700">selected recipients</div>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="selectAll()">✅ Select All</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="deselectAll()">☐ Deselect All</button>
+      </div>
+
+      <div id="recipient-list"
+           style="margin-top:8px;max-height:320px;overflow-y:auto;
+                  font-size:13px;border:1.5px solid var(--border);
+                  border-radius:8px;background:white"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     TAB: Templates
+     ═════════════════════════════════════════════════════ -->
+<div id="tab-templates" style="display:none">
+  <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+    <button class="btn btn-primary" onclick="openTmplModal()">＋ New Template</button>
+  </div>
+  <div id="templates-container">
+    <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     TAB: History
+     ═════════════════════════════════════════════════════ -->
+<div id="tab-history" style="display:none">
+  <div id="history-container">
+    <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
+  </div>
+</div>
+
+<!-- ── Template modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="tmpl-modal">
+  <div class="modal" style="max-width:580px">
+    <h2 id="tmpl-modal-title">New Template</h2>
+    <div class="form-group" style="margin-top:16px">
+      <label>Template Name</label>
+      <input type="text" id="t-name" placeholder="e.g. Session cancellation notice">
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <input type="text" id="t-subject" placeholder="e.g. AYC — Session Cancelled">
+    </div>
+    <div class="form-group">
+      <label>Message Body (HTML supported)</label>
+      <textarea id="t-body" rows="10"
+                style="font-family:monospace;font-size:13px;resize:vertical;
+                       width:100%;padding:10px;border:1.5px solid var(--border);
+                       border-radius:8px;line-height:1.5"
+                placeholder="Write your reusable message here…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTmplModal()">Cancel</button>
+      <button class="btn btn-primary" id="tmpl-save-btn" onclick="saveTemplate()">Save Template</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let allTemplates  = [];
+  let editingTmplId = null;
+  let allDocs       = [];        // [{id, title, filename, category}, ...]
+  let selectedDocs  = [];        // [{id, title, filename}, ...]
+
+  const CATEGORY_LABELS = { policy:'Policy', template:'Template', form:'Form', general:'General' };
+
+  /* ── Document picker ─────────────────────────────── */
+  async function loadDocumentPicker() {
+    try {
+      allDocs = await apiFetch('/api/documents');
+      const sel = document.getElementById('s-doc-picker');
+      // Clear existing options except placeholder
+      while (sel.options.length > 1) sel.remove(1);
+      // Group by category
+      const groups = {};
+      allDocs.forEach(d => {
+        const cat = d.category || 'general';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(d);
+      });
+      Object.entries(groups).forEach(([cat, docs]) => {
+        const grp = document.createElement('optgroup');
+        grp.label = CATEGORY_LABELS[cat] || cat;
+        docs.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.id;
+          opt.text  = d.title;
+          grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+      });
+    } catch (_) {}
+  }
+
+  function addAttachment() {
+    const sel = document.getElementById('s-doc-picker');
+    const id  = parseInt(sel.value);
+    if (!id) return;
+    if (selectedDocs.find(d => d.id === id)) {
+      showToast('That document is already added.', true);
+      return;
+    }
+    const doc = allDocs.find(d => d.id === id);
+    if (!doc) return;
+    selectedDocs.push({ id: doc.id, title: doc.title, filename: doc.filename });
+    sel.value = '';
+    renderAttachments();
+  }
+
+  function removeAttachment(id) {
+    selectedDocs = selectedDocs.filter(d => d.id !== id);
+    renderAttachments();
+  }
+
+  function renderAttachments() {
+    const container = document.getElementById('attachment-list');
+    if (!selectedDocs.length) { container.innerHTML = ''; return; }
+    container.innerHTML = selectedDocs.map(d => `
+      <div class="attachment-chip">
+        <span class="attachment-icon">📎</span>
+        <span class="attachment-title">${esc(d.title)}</span>
+        <span class="attachment-filename">${esc(d.filename)}</span>
+        <button class="attachment-remove" onclick="removeAttachment(${d.id})" title="Remove">✕</button>
+      </div>`).join('');
+  }
+
+  /* ── Tab switching ───────────────────────────────── */
+  function switchTab(tab) {
+    ['send', 'templates', 'history'].forEach(t => {
+      document.getElementById('tab-' + t).style.display = t === tab ? '' : 'none';
+    });
+    document.querySelectorAll('.tab-btn[data-tab]').forEach(b =>
+      b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab === 'templates') loadTemplates();
+    if (tab === 'history')   loadHistory();
+  }
+
+  /* ── Init ────────────────────────────────────────── */
+  (async function init() {
+    await Promise.all([loadTemplateDropdown(), loadDocumentPicker()]);
+    previewRecipients();
+  })();
+
+  async function loadTemplateDropdown() {
+    try {
+      allTemplates = await apiFetch('/api/email-templates');
+      const sel = document.getElementById('s-template');
+      // Keep the placeholder option, replace the rest
+      while (sel.options.length > 1) sel.remove(1);
+      allTemplates.forEach(t => {
+        const opt   = document.createElement('option');
+        opt.value   = t.id;
+        opt.text    = t.name;
+        sel.add(opt);
+      });
+    } catch (_) {}
+  }
+
+  function loadTemplate() {
+    const id   = document.getElementById('s-template').value;
+    const tmpl = allTemplates.find(t => String(t.id) === id);
+    if (!tmpl) return;
+    document.getElementById('s-subject').value = tmpl.subject;
+    document.getElementById('s-body').value    = tmpl.body_html;
+    updatePreview();
+  }
+
+  /* ── Recipients checklist ───────────────────────── */
+  let allRecipients = [];   // [{email, name}, ...]
+
+  function updateCount() {
+    const checked = document.querySelectorAll('.recip-chk:checked').length;
+    document.getElementById('recipient-count').textContent = checked || '—';
+  }
+
+  function selectAll()   { document.querySelectorAll('.recip-chk').forEach(c => c.checked = true);  updateCount(); }
+  function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c => c.checked = false); updateCount(); }
+
+  async function previewRecipients() {
+    const sess = document.getElementById('s-session').value;
+    const listEl = document.getElementById('recipient-list');
+    listEl.innerHTML = '<div style="padding:12px;color:var(--muted)">Loading…</div>';
+    document.getElementById('recipient-count').textContent = '—';
+    try {
+      const res = await apiFetch('/api/mailshots/preview', {
+        method: 'POST',
+        body:   JSON.stringify({ session_filter: sess, status_filter: 'Active' }),
+      });
+      allRecipients = res.recipients;
+      if (!allRecipients.length) {
+        listEl.innerHTML = `<div style="padding:12px;color:var(--muted)">No active members with emails found.</div>`;
+        updateCount();
+        return;
+      }
+      listEl.innerHTML = allRecipients.map((r, i) => `
+        <label class="recip-row" for="chk-${i}">
+          <input type="checkbox" class="recip-chk" id="chk-${i}"
+                 data-email="${esc(r.email)}" data-name="${esc(r.name)}"
+                 checked onchange="updateCount()">
+          <span class="recip-name">${esc(r.name)}</span>
+          <span class="recip-email">${esc(r.email)}</span>
+        </label>`).join('');
+      updateCount();
+    } catch (_) {
+      listEl.innerHTML = `<div style="padding:12px;color:var(--muted)">Could not load recipients.</div>`;
+    }
+  }
+
+  /* ── Preview toggle ──────────────────────────────── */
+  function togglePreview() {
+    const el = document.getElementById('s-preview');
+    if (el.style.display === 'none') { updatePreview(); el.style.display = ''; }
+    else                              { el.style.display = 'none'; }
+  }
+  function updatePreview() {
+    document.getElementById('s-preview').innerHTML =
+      document.getElementById('s-body').value || '<em style="color:var(--muted)">Nothing yet.</em>';
+  }
+
+  /* ── Send mailshot ───────────────────────────────── */
+  async function sendMailshot() {
+    const subject = document.getElementById('s-subject').value.trim();
+    const body    = document.getElementById('s-body').value.trim();
+    const tmplId  = document.getElementById('s-template').value || null;
+
+    // Collect checked recipients
+    const checked = [...document.querySelectorAll('.recip-chk:checked')];
+    const recipients = checked.map(c => ({ email: c.dataset.email, name: c.dataset.name }));
+    const count = recipients.length;
+
+    if (!subject)  { showToast('Please enter a subject.', true); return; }
+    if (!body)     { showToast('Please write a message.', true); return; }
+    if (!count)    { showToast('No recipients selected — tick at least one.', true); return; }
+
+    if (!confirm(`Send to ${count} recipient${count !== 1 ? 's' : ''}?\n\nSubject: ${subject}`)) return;
+
+    const btn = document.getElementById('send-btn');
+    btn.disabled    = true;
+    btn.textContent = '⏳ Sending…';
+
+    try {
+      const res = await apiFetch('/api/mailshots/send', {
+        method: 'POST',
+        body:   JSON.stringify({
+          subject, body_html: body,
+          recipients,
+          document_ids: selectedDocs.map(d => d.id),
+          template_id: tmplId ? parseInt(tmplId) : null,
+        }),
+      });
+      let msg = `✅ Sent to ${res.sent} recipient${res.sent !== 1 ? 's' : ''}.`;
+      if (res.errors?.length) msg += ` (${res.errors.length} failed)`;
+      showToast(msg);
+      if (res.errors?.length) console.warn('Mailshot errors:', res.errors);
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = '📤 Send to Recipients';
+    }
+  }
+
+  /* ── Templates tab ───────────────────────────────── */
+  async function loadTemplates() {
+    const container = document.getElementById('templates-container');
+    try {
+      allTemplates = await apiFetch('/api/email-templates');
+      if (!allTemplates.length) {
+        container.innerHTML = `<div class="empty-state">No templates yet. Create one above.</div>`;
+        return;
+      }
+      container.innerHTML = `
+        <table class="data-table">
+          <thead><tr>
+            <th>Name</th><th>Subject</th><th>Created by</th><th style="width:130px"></th>
+          </tr></thead>
+          <tbody>
+            ${allTemplates.map(t => `
+              <tr>
+                <td><strong>${esc(t.name)}</strong></td>
+                <td style="color:var(--muted)">${esc(t.subject)}</td>
+                <td style="color:var(--muted)">${esc(t.created_by_name || '—')}</td>
+                <td>
+                  <button class="btn btn-ghost btn-sm"
+                    data-id="${t.id}" data-name="${esc(t.name)}"
+                    data-subject="${esc(t.subject)}" data-body="${esc(t.body_html)}"
+                    onclick="editTmpl(this)">✏️ Edit</button>
+                  <button class="btn btn-danger btn-sm"
+                    data-id="${t.id}" data-name="${esc(t.name)}"
+                    onclick="deleteTmpl(this.dataset.id, this.dataset.name)">🗑</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+      // Refresh dropdown too
+      loadTemplateDropdown();
+    } catch (e) {
+      container.innerHTML = `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+    }
+  }
+
+  function openTmplModal(id, name, subject, body) {
+    editingTmplId = id || null;
+    document.getElementById('tmpl-modal-title').textContent = id ? 'Edit Template' : 'New Template';
+    document.getElementById('t-name').value    = name    || '';
+    document.getElementById('t-subject').value = subject || '';
+    document.getElementById('t-body').value    = body    || '';
+    document.getElementById('tmpl-modal').classList.add('open');
+  }
+
+  function editTmpl(btn) {
+    // Retrieve the raw body from the template array (not the escaped dataset)
+    const t = allTemplates.find(x => String(x.id) === btn.dataset.id);
+    if (!t) return;
+    openTmplModal(t.id, t.name, t.subject, t.body_html);
+  }
+
+  function closeTmplModal() {
+    document.getElementById('tmpl-modal').classList.remove('open');
+    editingTmplId = null;
+  }
+
+  async function saveTemplate() {
+    const name    = document.getElementById('t-name').value.trim();
+    const subject = document.getElementById('t-subject').value.trim();
+    const body    = document.getElementById('t-body').value.trim();
+    if (!name || !subject || !body) { showToast('All fields are required.', true); return; }
+
+    const btn = document.getElementById('tmpl-save-btn');
+    btn.disabled = true;
+    try {
+      if (editingTmplId) {
+        await apiFetch(`/api/email-templates/${editingTmplId}`, {
+          method: 'PUT',
+          body:   JSON.stringify({ name, subject, body_html: body }),
+        });
+        showToast('Template updated.');
+      } else {
+        await apiFetch('/api/email-templates', {
+          method: 'POST',
+          body:   JSON.stringify({ name, subject, body_html: body }),
+        });
+        showToast('Template saved.');
+      }
+      closeTmplModal();
+      loadTemplates();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteTmpl(id, name) {
+    if (!confirm(`Delete template "${name}"?`)) return;
+    try {
+      await apiFetch(`/api/email-templates/${id}`, { method: 'DELETE' });
+      showToast('Template deleted.');
+      loadTemplates();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── History tab ─────────────────────────────────── */
+  async function loadHistory() {
+    const container = document.getElementById('history-container');
+    try {
+      const rows = await apiFetch('/api/mailshots');
+      if (!rows.length) {
+        container.innerHTML = `<div class="empty-state">No mailshots sent yet.</div>`;
+        return;
+      }
+      container.innerHTML = `
+        <table class="data-table">
+          <thead><tr>
+            <th>Subject</th><th>Sent</th><th>Recipients</th><th>Sent by</th><th>Notes</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              // Parse filter_criteria for attachment info
+              const attachedTitles = (() => {
+                try {
+                  const f = JSON.parse(r.filter_criteria || '{}');
+                  const ids = f.document_ids || [];
+                  if (!ids.length) return [];
+                  return ids.map(id => {
+                    const doc = allDocs.find(d => d.id === id);
+                    return doc ? doc.title : `Document #${id}`;
+                  });
+                } catch { return []; }
+              })();
+              const sent = r.sent_at
+                ? new Date(r.sent_at + 'Z').toLocaleString('en-GB',
+                    { dateStyle:'short', timeStyle:'short' })
+                : '—';
+              return `
+                <tr>
+                  <td>
+                    <strong>${esc(r.subject)}</strong>
+                    ${r.template_name ? `<div style="font-size:12px;color:var(--muted)">Template: ${esc(r.template_name)}</div>` : ''}
+                    ${attachedTitles.length ? `
+                      <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+                        ${attachedTitles.map(t =>
+                          `<span class="history-attachment-chip">📎 ${esc(t)}</span>`
+                        ).join('')}
+                      </div>` : ''}
+                  </td>
+                  <td style="white-space:nowrap;color:var(--muted)">${sent}</td>
+                  <td><strong>${r.recipient_count || 0}</strong></td>
+                  <td style="color:var(--muted)">${esc(r.sent_by_name || '—')}</td>
+                  <td style="color:var(--muted);font-size:12px">${esc(r.notes || '')}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) {
+      container.innerHTML = `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('tmpl-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeTmplModal();
+  });
+</script>
+
+<style>
+  .comms-panel {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .comms-panel-title {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .recip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .recip-row:last-child { border-bottom: none; }
+  .recip-row:hover { background: var(--teal-light); }
+  .recip-chk { width: 15px; height: 15px; accent-color: var(--teal); flex-shrink: 0; cursor: pointer; }
+  .recip-name { font-weight: 700; flex-shrink: 0; }
+  .recip-email { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Attachment chips — compose panel */
+  .attachment-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: #f0f9ff;
+    border: 1.5px solid #bae6fd;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .attachment-icon { flex-shrink: 0; }
+  .attachment-title { font-weight: 700; flex: 1; }
+  .attachment-filename { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  .attachment-remove {
+    background: none; border: none; cursor: pointer; color: var(--muted);
+    font-size: 14px; padding: 0 2px; line-height: 1; flex-shrink: 0;
+  }
+  .attachment-remove:hover { color: var(--red); }
+
+  /* Attachment chips — history tab */
+  .history-attachment-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 20px;
+    font-size: 11px;
+    color: #0369a1;
+    font-weight: 600;
+  }
+  @media (max-width: 768px) {
+    #tab-send > div { grid-template-columns: 1fr !important; }
+  }
+</style>
+{% endblock %}

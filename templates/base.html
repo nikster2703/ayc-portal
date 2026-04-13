@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}AYC Portal{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/shared.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <a href="/dashboard">
+        <span class="brand-icon">🏅</span>
+        <span class="brand-label">Ashford Youth Club</span>
+      </a>
+    </div>
+    <div class="header-right">
+      <div class="user-pill" onclick="openPwModal()" title="Change password" style="cursor:pointer">
+        {{ current_user }} <span style="opacity:.6;font-size:11px">▾</span>
+      </div>
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- Change Password Modal -->
+  <div class="modal-overlay" id="pw-modal">
+    <div class="modal" style="max-width:400px">
+      <h2>🔒 Change Password</h2>
+      <div class="form-group" style="margin-top:16px">
+        <label>Current Password</label>
+        <input id="pw-current" type="password" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>New Password</label>
+        <input id="pw-new" type="password" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Confirm New Password</label>
+        <input id="pw-confirm" type="password" autocomplete="new-password">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closePwModal()">Cancel</button>
+        <button class="btn btn-primary" id="pw-save-btn" onclick="savePassword()">Update Password</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="app-nav">
+    <a href="/dashboard"
+       class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">Dashboard</span>
+    </a>
+
+    {% if current_role != 'readonly' %}
+    <a href="/members"
+       class="nav-link{% if active_page == 'members' %} active{% endif %}">
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">Members</span>
+    </a>
+    {% endif %}
+
+    {% if current_role in ('admin', 'editor') %}
+    <a href="/approvals"
+       class="nav-link{% if active_page == 'approvals' %} active{% endif %}">
+      <span class="nav-icon">📋</span>
+      <span class="nav-label">Approvals</span>
+    </a>
+    {% endif %}
+
+    <a href="/register"
+       class="nav-link{% if active_page == 'register' %} active{% endif %}">
+      <span class="nav-icon">✅</span>
+      <span class="nav-label">Register</span>
+    </a>
+
+    <a href="/calendar"
+       class="nav-link{% if active_page == 'calendar' %} active{% endif %}">
+      <span class="nav-icon">📅</span>
+      <span class="nav-label">Calendar</span>
+    </a>
+
+    <a href="/documents"
+       class="nav-link{% if active_page == 'documents' %} active{% endif %}">
+      <span class="nav-icon">📁</span>
+      <span class="nav-label">Documents</span>
+    </a>
+
+    {% if current_role == 'admin' or current_role == 'editor' %}
+    <a href="/communications"
+       class="nav-link{% if active_page == 'communications' %} active{% endif %}">
+      <span class="nav-icon">✉️</span>
+      <span class="nav-label">Comms</span>
+    </a>
+    {% endif %}
+
+    {% if current_role in ('admin', 'editor') %}
+    <a href="/admin/users"
+       class="nav-link{% if active_page == 'users' %} active{% endif %}">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Users</span>
+    </a>
+    {% endif %}
+    {% if current_role in ('admin', 'editor') %}
+    <a href="/admin/audit"
+       class="nav-link{% if active_page == 'audit' %} active{% endif %}">
+      <span class="nav-icon">🔍</span>
+      <span class="nav-label">Audit Log</span>
+    </a>
+    {% endif %}
+    {% if current_role in ('admin', 'editor') %}
+    <a href="/admin/settings"
+       class="nav-link{% if active_page == 'settings' %} active{% endif %}">
+      <span class="nav-icon">🛠️</span>
+      <span class="nav-label">Settings</span>
+    </a>
+    {% endif %}
+  </nav>
+
+  <!-- Page content -->
+  <div class="page-content">
+    {% block content %}{% endblock %}
+  </div>
+
+  <!-- Version footer -->
+  <footer class="app-footer">
+    <span>Ashford Youth Club Portal</span>
+    <span class="footer-version">{{ app_version }}</span>
+  </footer>
+
+  <script src="/static/js/utils.js"></script>
+  <script>
+    /* ── Change password modal ─────────────────────── */
+    function openPwModal() {
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value     = '';
+      document.getElementById('pw-confirm').value = '';
+      document.getElementById('pw-modal').classList.add('open');
+      document.getElementById('pw-current').focus();
+    }
+    function closePwModal() {
+      document.getElementById('pw-modal').classList.remove('open');
+    }
+    async function savePassword() {
+      const current  = document.getElementById('pw-current').value;
+      const newPw    = document.getElementById('pw-new').value;
+      const confirm  = document.getElementById('pw-confirm').value;
+      if (!current || !newPw) { showToast('Please fill in all fields.', true); return; }
+      if (newPw !== confirm)  { showToast('New passwords do not match.', true); return; }
+      if (newPw.length < 8)   { showToast('New password must be at least 8 characters.', true); return; }
+      const btn = document.getElementById('pw-save-btn');
+      btn.disabled = true;
+      try {
+        await apiFetch('/api/auth/change-password', {
+          method: 'POST',
+          body:   JSON.stringify({ current_password: current, new_password: newPw }),
+        });
+        showToast('Password updated successfully.');
+        closePwModal();
+      } catch (e) {
+        showToast(e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+    document.getElementById('pw-modal').addEventListener('click', function(e) {
+      if (e.target === this) closePwModal();
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+
+</body>
+</html>
