@@ -15,8 +15,8 @@
   {# Admin: can switch between all sessions #}
   <select class="session-select" id="session-filter" onchange="filterMembers()">
     <option value="all">All Sessions</option>
-    <option value="Tuesday">Tuesday</option>
-    <option value="Thursday">Thursday</option>
+    {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+    {% endfor %}
     <option value="__staff__">Staff / Volunteers</option>
   </select>
   {% elif current_role == 'editor' %}
@@ -90,8 +90,8 @@
         <label>Session</label>
         <select id="e-session">
           <option value="">— not set —</option>
-          <option value="Tuesday">Tuesday</option>
-          <option value="Thursday">Thursday</option>
+          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+          {% endfor %}
         </select>
       </div>
       <div class="form-group" style="align-self:end;padding-bottom:4px">

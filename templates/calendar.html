@@ -42,8 +42,8 @@
       <span class="cal-legend planned">● Planned</span>
       <span class="cal-legend special">● Special</span>
       <span class="cal-legend cancelled">● Cancelled</span>
-      <span class="cal-legend tuesday">● Tuesday</span>
-      <span class="cal-legend thursday">● Thursday</span>
+      {% for st in session_types %}<span class="cal-legend {{ st.name | lower | replace(' ', '-') }}">● {{ st.name }}</span>
+      {% endfor %}
     </div>
   </div>
 
@@ -73,8 +73,8 @@
     <div class="form-group">
       <label>Session</label>
       <select id="add-type">
-        <option value="Tuesday">Tuesday</option>
-        <option value="Thursday">Thursday</option>
+        {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+        {% endfor %}
       </select>
     </div>
     <div class="form-group">
@@ -107,8 +107,7 @@
   <div class="modal" style="max-width:500px">
     <h2>⚡ Generate Term Sessions</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:18px">
-      Automatically create sessions for every Tuesday and/or Thursday within a date range.
-      Any sessions that already exist will be skipped.
+      Automatically create sessions within a date range. Any sessions that already exist will be skipped.
     </p>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -124,15 +123,14 @@
 
     <div class="form-group">
       <label>Days to include</label>
-      <div style="display:flex;gap:16px;margin-top:6px">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
+        {% for st in session_types %}
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">
-          <input type="checkbox" id="bulk-tue" checked style="width:16px;height:16px">
-          Tuesday
+          <input type="checkbox" class="bulk-day-chk" value="{{ st.name }}" checked
+                 style="width:16px;height:16px">
+          {{ st.name }}
         </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">
-          <input type="checkbox" id="bulk-thu" checked style="width:16px;height:16px">
-          Thursday
-        </label>
+        {% endfor %}
       </div>
     </div>
 
@@ -312,9 +310,12 @@
 
 {% block scripts %}
 <script>
-  const CAN_EDIT     = {{ 'true' if current_role in ('admin', 'editor') else 'false' }};
-  const USER_SESSION = "{{ current_session or '' }}";
-  const IS_SCOPED    = {{ 'true' if current_role != 'admin' else 'false' }};
+  const CAN_EDIT      = {{ 'true' if current_role in ('admin', 'editor') else 'false' }};
+  const USER_SESSION  = "{{ current_session or '' }}";
+  const IS_SCOPED     = {{ 'true' if current_role != 'admin' else 'false' }};
+  const SESSION_TYPES = {{ session_types | tojson }};
+  // weekday (Python 0=Mon…6=Sun) → session name
+  const WDAY_TO_SESSION = Object.fromEntries(SESSION_TYPES.map(s => [s.weekday, s.name]));
   const MONTHS   = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
   const DAYS_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -333,29 +334,23 @@
 
     // Lock session type selectors for scoped users (Core Leaders)
     if (IS_SCOPED && USER_SESSION) {
-      // Add modal — fix to their session and hide the other option
+      // Add modal — fix to their session
       const addType = document.getElementById('add-type');
       addType.value    = USER_SESSION;
       addType.disabled = true;
 
-      // Bulk modal — check only their day, hide and disable the other
-      const bulkTue = document.getElementById('bulk-tue');
-      const bulkThu = document.getElementById('bulk-thu');
-      if (USER_SESSION === 'Tuesday') {
-        bulkTue.checked  = true;
-        bulkTue.disabled = true;
-        bulkThu.checked  = false;
-        bulkThu.disabled = true;
-        bulkThu.closest('label').style.opacity = '.4';
-        bulkThu.closest('label').style.pointerEvents = 'none';
-      } else {
-        bulkThu.checked  = true;
-        bulkThu.disabled = true;
-        bulkTue.checked  = false;
-        bulkTue.disabled = true;
-        bulkTue.closest('label').style.opacity = '.4';
-        bulkTue.closest('label').style.pointerEvents = 'none';
-      }
+      // Bulk modal — check only their day, disable all others
+      document.querySelectorAll('.bulk-day-chk').forEach(chk => {
+        if (chk.value === USER_SESSION) {
+          chk.checked  = true;
+          chk.disabled = true;
+        } else {
+          chk.checked  = false;
+          chk.disabled = true;
+          chk.closest('label').style.opacity = '.4';
+          chk.closest('label').style.pointerEvents = 'none';
+        }
+      });
     }
   })();
 
@@ -496,11 +491,13 @@
       document.getElementById('add-type').value = USER_SESSION;
     } else {
       // Admin: auto-select day from date if provided
-      document.getElementById('add-type').value = 'Tuesday';
+      const firstSession = SESSION_TYPES[0]?.name || '';
+      document.getElementById('add-type').value = firstSession;
       if (dateStr) {
-        const dow = new Date(dateStr + 'T00:00:00').getDay();
-        if (dow === 2) document.getElementById('add-type').value = 'Tuesday';
-        if (dow === 4) document.getElementById('add-type').value = 'Thursday';
+        const jsDay  = new Date(dateStr + 'T00:00:00').getDay();
+        const pyWday = (jsDay + 6) % 7;
+        const match  = WDAY_TO_SESSION[pyWday];
+        if (match) document.getElementById('add-type').value = match;
       }
     }
     document.getElementById('add-modal').classList.add('open');
@@ -623,8 +620,7 @@
 
   function buildBulkPayload() {
     const days = [];
-    if (document.getElementById('bulk-tue').checked) days.push('Tuesday');
-    if (document.getElementById('bulk-thu').checked) days.push('Thursday');
+    document.querySelectorAll('.bulk-day-chk:checked').forEach(chk => days.push(chk.value));
     return {
       start_date:    document.getElementById('bulk-start').value,
       end_date:      document.getElementById('bulk-end').value,
@@ -645,7 +641,12 @@
     // Client-side preview count (no server call needed)
     const start = new Date(payload.start_date + 'T00:00:00');
     const end   = new Date(payload.end_date   + 'T00:00:00');
-    const targetDays = new Set(payload.days.map(d => d === 'Tuesday' ? 2 : 4));
+    // Build JS day-of-week set (JS getDay(): Sun=0…Sat=6); pyWday=(jsDay+6)%7
+    const sessionToWday = Object.fromEntries(SESSION_TYPES.map(s => [s.name, s.weekday]));
+    const targetDays = new Set(payload.days.map(d => {
+      const pyWday = sessionToWday[d];
+      return pyWday !== undefined ? (pyWday + 1) % 7 : -1;  // convert Python→JS weekday
+    }));
     const excluded   = new Set(payload.exclude_dates);
     let count = 0;
     const cur = new Date(start);

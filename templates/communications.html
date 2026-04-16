@@ -87,8 +87,8 @@
         {% if current_role == 'admin' %}
         <select id="s-session" onchange="previewRecipients()">
           <option value="all">All sessions</option>
-          <option value="Tuesday">Tuesday only</option>
-          <option value="Thursday">Thursday only</option>
+          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }} only</option>
+          {% endfor %}
         </select>
         {% else %}
         {# Editors are automatically scoped to their session server-side #}

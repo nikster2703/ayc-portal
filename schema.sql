@@ -137,6 +137,26 @@ CREATE TABLE IF NOT EXISTS attendance (
     recorded_by   INTEGER REFERENCES users(id)
 );
 
+-- ── Session types (configurable) ────────────────────────
+CREATE TABLE IF NOT EXISTS session_types (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    weekday    INTEGER NOT NULL,  -- Python weekday(): Mon=0 … Sun=6
+    active     INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- ── Session register completions ────────────────────────
+CREATE TABLE IF NOT EXISTS session_completions (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date       TEXT    NOT NULL,
+    session_type       TEXT    NOT NULL,   -- Tuesday | Thursday
+    completed_by       INTEGER REFERENCES users(id),
+    completed_at       TEXT    DEFAULT (datetime('now')),
+    auto_signout_count INTEGER DEFAULT 0,
+    UNIQUE(session_date, session_type)
+);
+
 -- ── Term calendar (Phase 5) ───────────────────────────────
 CREATE TABLE IF NOT EXISTS term_sessions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

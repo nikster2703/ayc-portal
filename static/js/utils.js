@@ -32,7 +32,16 @@ async function apiFetch(url, options = {}) {
     window.location.href = '/';
     return;
   }
-  const body = await res.json();
+  // Guard against non-JSON responses (e.g. Flask 500 HTML error pages).
+  // res.json() throws a parse error in some browsers with a cryptic message
+  // ("The string did not match the expected pattern" in Safari) — catch it
+  // and surface a cleaner HTTP status message instead.
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(`Server error (HTTP ${res.status}) — check the app logs`);
+  }
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 }

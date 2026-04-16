@@ -64,7 +64,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v4.7'  # Full responsive overhaul: 5-tier breakpoints (desktop / tablet-landscape / tablet-portrait / mobile-landscape / mobile-portrait); scrollable nav on iPad portrait
+APP_VERSION = 'v5.0'  # Split sign-in/sign-out permissions (settings-driven); alphabetical FLIP animation on live display; reset session register (admin only); fix maintenance clear buttons
 
 # ── Postcode lookup (getaddress.io) ──────────────────────────────────────────
 GETADDRESS_KEY = os.environ.get('GETADDRESS_KEY', '')
@@ -152,6 +152,22 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_term_sessions_date ON term_sessions(session_date);
         CREATE INDEX IF NOT EXISTS idx_audit_timestamp    ON audit_log(timestamp);
+        CREATE TABLE IF NOT EXISTS session_completions (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_date       TEXT    NOT NULL,
+            session_type       TEXT    NOT NULL,
+            completed_by       INTEGER REFERENCES users(id),
+            completed_at       TEXT    DEFAULT (datetime('now')),
+            auto_signout_count INTEGER DEFAULT 0,
+            UNIQUE(session_date, session_type)
+        );
+        CREATE TABLE IF NOT EXISTS session_types (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL UNIQUE,
+            weekday    INTEGER NOT NULL,
+            active     INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS settings (
             key        TEXT PRIMARY KEY,
             value      TEXT NOT NULL,
@@ -162,12 +178,30 @@ def ensure_tables():
     # Seed default settings if they don't exist yet
     settings_db = sqlite3.connect(DATABASE)
     settings_db.row_factory = sqlite3.Row
-    for key, val in [('at_risk_threshold_tuesday', '5'), ('at_risk_threshold_thursday', '5')]:
+    for key, val in [
+        ('at_risk_threshold_tuesday',  '5'),
+        ('at_risk_threshold_thursday', '5'),
+        ('register_can_signin',        'admin,editor,leader'),
+        ('register_can_signout',       'admin,editor,leader,readonly'),
+    ]:
         existing = settings_db.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone()
         if not existing:
             settings_db.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
     settings_db.commit()
     settings_db.close()
+    # Seed default session types (Tuesday=weekday 1, Thursday=weekday 3)
+    seed_db = sqlite3.connect(DATABASE)
+    for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
+        existing = seed_db.execute(
+            'SELECT id FROM session_types WHERE name = ?', (name,)
+        ).fetchone()
+        if not existing:
+            seed_db.execute(
+                'INSERT INTO session_types (name, weekday, active, sort_order) VALUES (?,?,1,?)',
+                (name, weekday, sort_order)
+            )
+    seed_db.commit()
+    seed_db.close()
     # ALTER TABLE migrations — each wrapped individually so existing columns don't abort the rest
     alter_stmts = [
         "ALTER TABLE members ADD COLUMN member_type TEXT NOT NULL DEFAULT 'member'",
@@ -221,11 +255,19 @@ def role_required(*roles):
 
 def tpl_ctx():
     """Inject current user info into every protected template."""
+    def _roles(key, default):
+        val = get_setting(key, default)
+        return [r.strip() for r in val.split(',') if r.strip()]
+
     return {
         'current_user':    session.get('username', ''),
         'current_role':    session.get('role', ''),
         'current_session': session.get('session_assigned', ''),
         'app_version':     APP_VERSION,
+        'session_types':   get_session_types(),  # [{id, name, weekday}, ...]
+        # Register permission lists — used by register.html JS
+        'signin_roles':    _roles('register_can_signin',  'admin,editor,leader'),
+        'signout_roles':   _roles('register_can_signout', 'admin,editor,leader,readonly'),
     }
 
 # ── Page routes ────────────────────────────────────────────────────────────────
@@ -269,7 +311,7 @@ def registration_member_page():
 @app.route('/registration/staff')
 def registration_staff_page():
     """Simplified staff/volunteer registration form — no login required."""
-    return render_template('registration_staff.html', version=APP_VERSION)
+    return render_template('registration_staff.html', version=APP_VERSION, session_types=get_session_types())
 
 @app.route('/documents')
 @role_required('admin', 'editor', 'leader', 'readonly')
@@ -729,13 +771,16 @@ def api_dashboard():
                 SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS active,
                 SUM(CASE WHEN member_type = "member" AND status  = "Leaver" THEN 1 ELSE 0 END) AS leavers,
                 SUM(CASE WHEN member_type = "member" AND status  = "At Risk" THEN 1 ELSE 0 END) AS at_risk,
-                SUM(CASE WHEN member_type = "member" AND status != "Leaver" AND session = "Tuesday"  THEN 1 ELSE 0 END) AS tuesday,
-                SUM(CASE WHEN member_type = "member" AND status != "Leaver" AND session = "Thursday" THEN 1 ELSE 0 END) AS thursday,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" AND session = "Tuesday"  THEN 1 ELSE 0 END) AS staff_tuesday,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" AND session = "Thursday" THEN 1 ELSE 0 END) AS staff_thursday
+                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
             FROM members
         ''').fetchone()
+        # Per-session counts (dynamic)
+        session_rows = db.execute('''
+            SELECT session,
+                   SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff
+            FROM members GROUP BY session
+        ''').fetchall()
         pending = db.execute(
             'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
         ).fetchone()['n']
@@ -747,19 +792,25 @@ def api_dashboard():
                 SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS active,
                 SUM(CASE WHEN member_type = "member" AND status  = "Leaver" THEN 1 ELSE 0 END) AS leavers,
                 SUM(CASE WHEN member_type = "member" AND status  = "At Risk" THEN 1 ELSE 0 END) AS at_risk,
-                SUM(CASE WHEN member_type = "member" AND status != "Leaver" AND session = "Tuesday"  THEN 1 ELSE 0 END) AS tuesday,
-                SUM(CASE WHEN member_type = "member" AND status != "Leaver" AND session = "Thursday" THEN 1 ELSE 0 END) AS thursday,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" AND session = "Tuesday"  THEN 1 ELSE 0 END) AS staff_tuesday,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" AND session = "Thursday" THEN 1 ELSE 0 END) AS staff_thursday
-            FROM members
-            WHERE session = ?
+                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
+            FROM members WHERE session = ?
         ''', (scoped,)).fetchone()
+        # Per-session counts (scoped — only the user's session)
+        session_rows = db.execute('''
+            SELECT session,
+                   SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff
+            FROM members WHERE session = ? GROUP BY session
+        ''', (scoped,)).fetchall()
         pending = db.execute(
             'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
             ' AND (assigned_session = ? OR assigned_session IS NULL OR assigned_session = "")',
             (scoped,)
         ).fetchone()['n']
+
+    # Build per-session dict: {session_name: {members: N, staff: N}}
+    session_counts = {r['session']: {'members': r['members'], 'staff': r['staff']}
+                      for r in session_rows}
 
     # Today's attendance (scoped where applicable)
     if scoped is None:
@@ -792,10 +843,11 @@ def api_dashboard():
 
     return jsonify({
         'members':          dict(counts),
+        'session_counts':   session_counts,   # {session_name: {members, staff}}
         'pending_approvals': pending,
         'today_attendance': [dict(r) for r in today_att],
         'recent_activity':  [dict(r) for r in recent],
-        'scoped_session':   scoped,   # lets the frontend know which session tile to highlight
+        'scoped_session':   scoped,
     })
 
 
@@ -864,7 +916,7 @@ def api_registration():
         if applicant_role not in ('Volunteer', 'Youth Volunteer', 'Leader'):
             return jsonify({'error': 'Invalid role'}), 400
         session_pref = data.get('assigned_session', '').strip()
-        if session_pref not in ('Tuesday', 'Thursday'):
+        if session_pref not in get_valid_session_names():
             return jsonify({'error': 'Invalid session preference'}), 400
 
         db.execute('''
@@ -924,6 +976,138 @@ def api_registration():
 
 VALID_ROLES = ('admin', 'editor', 'leader', 'readonly')
 
+
+# ── Session types API ──────────────────────────────────────────────────────────
+
+@app.route('/api/session-types')
+@login_required
+def api_session_types_list():
+    """Public read endpoint — returns active session types for dropdowns/JS."""
+    return jsonify(get_session_types())
+
+
+@app.route('/api/admin/session-types', methods=['GET'])
+@role_required('admin')
+def api_admin_session_types_get():
+    """Admin: return all session types (including inactive)."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, weekday, active, sort_order FROM session_types ORDER BY sort_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/session-types', methods=['POST'])
+@role_required('admin')
+def api_admin_session_types_create():
+    """Admin: create a new session type."""
+    data    = request.get_json() or {}
+    name    = data.get('name', '').strip()
+    weekday = data.get('weekday')
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if weekday is None or not isinstance(weekday, int) or weekday < 0 or weekday > 6:
+        return jsonify({'error': 'weekday must be an integer 0–6 (Mon=0)'}), 400
+
+    db = get_db()
+    max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM session_types').fetchone()[0]
+    try:
+        cur = db.execute(
+            'INSERT INTO session_types (name, weekday, active, sort_order) VALUES (?,?,1,?)',
+            (name, weekday, max_order + 1)
+        )
+        db.commit()
+        log_action('create_session_type', 'session_types', cur.lastrowid, {'name': name, 'weekday': weekday})
+        row = db.execute('SELECT * FROM session_types WHERE id = ?', (cur.lastrowid,)).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A session type named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/session-types/<int:st_id>', methods=['PUT'])
+@role_required('admin')
+def api_admin_session_types_update(st_id):
+    """Admin: update a session type's name, weekday, or active status."""
+    data    = request.get_json() or {}
+    db      = get_db()
+    current = db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()
+    if not current:
+        return jsonify({'error': 'Session type not found'}), 404
+
+    name    = data.get('name', current['name']).strip()
+    weekday = data.get('weekday', current['weekday'])
+    active  = int(data.get('active', current['active']))
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if not isinstance(weekday, int) or weekday < 0 or weekday > 6:
+        return jsonify({'error': 'weekday must be an integer 0–6'}), 400
+
+    # Prevent deactivating the last active session type
+    if not active:
+        active_count = db.execute(
+            'SELECT COUNT(*) FROM session_types WHERE active = 1 AND id != ?', (st_id,)
+        ).fetchone()[0]
+        if active_count == 0:
+            return jsonify({'error': 'Cannot deactivate the only active session type'}), 400
+
+    try:
+        db.execute(
+            'UPDATE session_types SET name = ?, weekday = ?, active = ? WHERE id = ?',
+            (name, weekday, active, st_id)
+        )
+        db.commit()
+        log_action('update_session_type', 'session_types', st_id,
+                   {'name': name, 'weekday': weekday, 'active': active})
+        return jsonify(dict(db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A session type named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/session-types/<int:st_id>', methods=['DELETE'])
+@role_required('admin')
+def api_admin_session_types_delete(st_id):
+    """Admin: delete a session type (only if no members or attendance records use it)."""
+    db  = get_db()
+    row = db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Session type not found'}), 404
+
+    # Safety checks
+    member_count = db.execute(
+        'SELECT COUNT(*) FROM members WHERE session = ?', (row['name'],)
+    ).fetchone()[0]
+    if member_count:
+        return jsonify({'error': f'Cannot delete — {member_count} member(s) are assigned to this session'}), 400
+
+    active_count = db.execute(
+        'SELECT COUNT(*) FROM session_types WHERE active = 1 AND id != ?', (st_id,)
+    ).fetchone()[0]
+    if row['active'] and active_count == 0:
+        return jsonify({'error': 'Cannot delete the only active session type'}), 400
+
+    db.execute('DELETE FROM session_types WHERE id = ?', (st_id,))
+    db.commit()
+    log_action('delete_session_type', 'session_types', st_id, {'name': row['name']})
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/session-types/reorder', methods=['POST'])
+@role_required('admin')
+def api_admin_session_types_reorder():
+    """Admin: reorder session types. Body: [{id, sort_order}, ...]"""
+    items = request.get_json() or []
+    db    = get_db()
+    for item in items:
+        db.execute(
+            'UPDATE session_types SET sort_order = ? WHERE id = ?',
+            (item.get('sort_order', 0), item.get('id'))
+        )
+    db.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/api/admin/users')
 @role_required('admin', 'editor')
 def api_users_list():
@@ -966,8 +1150,8 @@ def api_users_create():
     # Non-admin roles must have a session assigned
     if role != 'admin' and not sess:
         return jsonify({'error': 'A session must be assigned for non-admin users'}), 400
-    if sess and sess not in ('Tuesday', 'Thursday'):
-        return jsonify({'error': 'Invalid session — must be Tuesday or Thursday'}), 400
+    if sess and sess not in get_valid_session_names():
+        return jsonify({'error': 'Invalid session'}), 400
     # Editors can only create users for their own session
     scoped = _assigned_session()
     if scoped is not None and sess != scoped:
@@ -1404,7 +1588,7 @@ def api_attendance_staff_get(session_type, date):
     Return all active staff members for a session on a given date,
     annotated with sign-in/out times. Staff are never subject to At Risk logic.
     """
-    if session_type not in ('Tuesday', 'Thursday'):
+    if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
 
     scoped = _assigned_session()
@@ -1433,9 +1617,9 @@ def api_attendance_staff_get(session_type, date):
 @app.route('/api/attendance/signin', methods=['POST'])
 @login_required
 def api_attendance_signin():
-    # Readonly users may view the register but cannot sign members in
-    if session.get('role') == 'readonly':
-        return jsonify({'error': 'Read-only users cannot sign members in'}), 403
+    allowed = [r.strip() for r in get_setting('register_can_signin', 'admin,editor,leader').split(',')]
+    if session.get('role') not in allowed:
+        return jsonify({'error': 'Your role does not have permission to sign members in'}), 403
 
     data        = request.get_json() or {}
     member_id   = data.get('member_id')
@@ -1449,6 +1633,10 @@ def api_attendance_signin():
     scoped = _assigned_session()
     if scoped is not None and scoped != sess_type:
         return jsonify({'error': 'Access denied for this session'}), 403
+
+    # Reject if register is locked
+    if _is_register_locked(sess_type, sess_date):
+        return jsonify({'error': 'This register has been completed and is now locked.'}), 403
 
     db = get_db()
     # Upsert — insert if not exists, update signed_in_at if already there
@@ -1491,8 +1679,9 @@ def api_attendance_signin():
 @app.route('/api/attendance/signout', methods=['POST'])
 @login_required
 def api_attendance_signout():
-    if session.get('role') == 'readonly':
-        return jsonify({'error': 'Read-only users cannot sign members out'}), 403
+    allowed = [r.strip() for r in get_setting('register_can_signout', 'admin,editor,leader,readonly').split(',')]
+    if session.get('role') not in allowed:
+        return jsonify({'error': 'Your role does not have permission to sign members out'}), 403
 
     data        = request.get_json() or {}
     member_id   = data.get('member_id')
@@ -1508,6 +1697,10 @@ def api_attendance_signout():
     if scoped is not None and scoped != sess_type:
         return jsonify({'error': 'Access denied for this session'}), 403
 
+    # Reject if register is locked
+    if _is_register_locked(sess_type, sess_date):
+        return jsonify({'error': 'This register has been completed and is now locked.'}), 403
+
     db        = get_db()
     out_value = None if clear else datetime.now().strftime('%H:%M')
     result = db.execute(
@@ -1520,6 +1713,160 @@ def api_attendance_signout():
     db.commit()
     _touch_attendance()
     return jsonify({'success': True, 'signed_out_at': out_value})
+
+
+@app.route('/api/attendance/complete/<session_type>/<date>')
+@login_required
+def api_attendance_complete_status(session_type, date):
+    """Return whether the register for this session+date has been completed."""
+    db  = get_db()
+    row = db.execute(
+        '''SELECT sc.completed_at, sc.auto_signout_count,
+                  u.username AS completed_by_name
+           FROM session_completions sc
+           LEFT JOIN users u ON u.id = sc.completed_by
+           WHERE sc.session_date = ? AND sc.session_type = ?''',
+        (date, session_type)
+    ).fetchone()
+    if row:
+        return jsonify({
+            'completed':          True,
+            'completed_by':       row['completed_by_name'],
+            'completed_at':       row['completed_at'],
+            'auto_signout_count': row['auto_signout_count'],
+        })
+    return jsonify({'completed': False})
+
+
+@app.route('/api/attendance/complete', methods=['POST'])
+@role_required('admin', 'editor')
+def api_attendance_complete():
+    """
+    Mark a session register as complete (locked).
+    Auto signs out any members still signed in.
+    Restricted to admin (any session) and editor (own session only).
+    """
+    data      = request.get_json() or {}
+    sess_type = data.get('session_type', '').strip()
+    sess_date = data.get('date', '').strip()
+
+    if not all([sess_type, sess_date]):
+        return jsonify({'error': 'session_type and date are required'}), 400
+
+    # Editors are scoped to their assigned session
+    scoped = _assigned_session()
+    if scoped is not None and scoped != sess_type:
+        return jsonify({'error': 'You can only complete your own session register'}), 403
+
+    db = get_db()
+
+    # Prevent double-completion
+    existing = db.execute(
+        'SELECT id FROM session_completions WHERE session_date = ? AND session_type = ?',
+        (sess_date, sess_type)
+    ).fetchone()
+    if existing:
+        return jsonify({'error': 'This register has already been completed'}), 409
+
+    # Auto sign out anyone still signed in
+    now         = datetime.now().strftime('%H:%M')
+    still_in    = db.execute(
+        '''SELECT id FROM attendance
+           WHERE session_date = ? AND session_type = ?
+             AND signed_in_at IS NOT NULL AND signed_out_at IS NULL''',
+        (sess_date, sess_type)
+    ).fetchall()
+    auto_count  = len(still_in)
+    if auto_count:
+        db.execute(
+            '''UPDATE attendance SET signed_out_at = ?, recorded_by = ?
+               WHERE session_date = ? AND session_type = ?
+                 AND signed_in_at IS NOT NULL AND signed_out_at IS NULL''',
+            (now, session['user_id'], sess_date, sess_type)
+        )
+
+    # Record the completion
+    db.execute(
+        '''INSERT INTO session_completions
+               (session_date, session_type, completed_by, completed_at, auto_signout_count)
+           VALUES (?, ?, ?, datetime('now'), ?)''',
+        (sess_date, sess_type, session['user_id'], auto_count)
+    )
+    db.commit()
+    _touch_attendance()
+
+    # Fetch summary counts for the response
+    totals = db.execute(
+        '''SELECT
+             COUNT(*) AS total,
+             SUM(CASE WHEN signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out
+           FROM attendance
+           WHERE session_date = ? AND session_type = ?''',
+        (sess_date, sess_type)
+    ).fetchone()
+
+    log_action('register_complete', 'session_completions', None, {
+        'session_type':      sess_type,
+        'session_date':      sess_date,
+        'auto_signout_count': auto_count,
+    })
+
+    return jsonify({
+        'success':           True,
+        'auto_signout_count': auto_count,
+        'total_members':     totals['total'] if totals else 0,
+        'total_signed_out':  totals['signed_out'] if totals else 0,
+    })
+
+
+@app.route('/api/attendance/reset', methods=['POST'])
+@role_required('admin')
+def api_attendance_reset():
+    """
+    Admin-only: completely wipe a session register.
+    Deletes all attendance rows and the session_completions record for
+    the given session_type + date, leaving the register blank and unlocked.
+    """
+    data      = request.get_json() or {}
+    sess_type = data.get('session_type', '').strip()
+    sess_date = data.get('date', '').strip()
+
+    if not all([sess_type, sess_date]):
+        return jsonify({'error': 'session_type and date are required'}), 400
+
+    db = get_db()
+
+    # Count rows being deleted so we can return a useful summary
+    att_count = db.execute(
+        'SELECT COUNT(*) AS n FROM attendance WHERE session_date = ? AND session_type = ?',
+        (sess_date, sess_type)
+    ).fetchone()['n']
+
+    # Wipe attendance records
+    db.execute(
+        'DELETE FROM attendance WHERE session_date = ? AND session_type = ?',
+        (sess_date, sess_type)
+    )
+
+    # Unlock the register (remove completion record if one exists)
+    db.execute(
+        'DELETE FROM session_completions WHERE session_date = ? AND session_type = ?',
+        (sess_date, sess_type)
+    )
+
+    db.commit()
+    _touch_attendance()
+
+    log_action('register_reset', 'attendance', None, {
+        'session_type':       sess_type,
+        'session_date':       sess_date,
+        'attendance_deleted': att_count,
+    })
+
+    return jsonify({
+        'success':            True,
+        'attendance_deleted': att_count,
+    })
 
 
 def get_setting(key, default=None):
@@ -1559,6 +1906,42 @@ def api_display_stream():
     )
 
 
+def get_session_types():
+    """Return active session types from the DB, cached per request in Flask g."""
+    if 'session_types' not in g:
+        db   = get_db()
+        rows = db.execute(
+            'SELECT id, name, weekday FROM session_types WHERE active = 1 ORDER BY sort_order, name'
+        ).fetchall()
+        g.session_types = [dict(r) for r in rows]
+    return g.session_types
+
+
+def get_valid_session_names():
+    """Return a tuple of valid session name strings (for validation checks)."""
+    return tuple(s['name'] for s in get_session_types())
+
+
+def weekday_to_session_map():
+    """Return dict mapping Python weekday int -> session name."""
+    return {s['weekday']: s['name'] for s in get_session_types()}
+
+
+def session_to_weekday_map():
+    """Return dict mapping session name -> Python weekday int."""
+    return {s['name']: s['weekday'] for s in get_session_types()}
+
+
+def _is_register_locked(sess_type, sess_date):
+    """Return True if the register for this session+date has been completed/locked."""
+    db = get_db()
+    row = db.execute(
+        'SELECT id FROM session_completions WHERE session_date = ? AND session_type = ?',
+        (sess_date, sess_type)
+    ).fetchone()
+    return row is not None
+
+
 def _assigned_session():
     """
     Return the session this user is scoped to, or None for admin (unscoped).
@@ -1580,8 +1963,11 @@ def api_attendance_check_at_risk():
     db    = get_db()
     today = datetime.now().strftime('%Y-%m-%d')
 
-    threshold_tue = int(get_setting('at_risk_threshold_tuesday',  '5'))
-    threshold_thu = int(get_setting('at_risk_threshold_thursday', '5'))
+    # Build per-session thresholds dynamically from settings
+    thresholds = {}
+    for st in get_session_types():
+        key = 'at_risk_threshold_' + st['name'].lower().replace(' ', '_')
+        thresholds[st['name']] = int(get_setting(key, '5'))
 
     # Fetch all past term sessions
     past_sessions = db.execute(
@@ -1612,14 +1998,11 @@ def api_attendance_check_at_risk():
 
     candidates = []
     for m in members:
-        assigned = m['session']  # 'Tuesday' or 'Thursday'
-
-        if assigned == 'Tuesday':
-            checks = [('Tuesday', sessions_by_type['Tuesday'][:threshold_tue], threshold_tue)]
-        elif assigned == 'Thursday':
-            checks = [('Thursday', sessions_by_type['Thursday'][:threshold_thu], threshold_thu)]
-        else:
-            continue  # skip any legacy Both records
+        assigned  = m['session']
+        threshold = thresholds.get(assigned, 5)
+        relevant  = sessions_by_type[assigned][:threshold]
+        if not checks:
+            continue
 
         for day, relevant, threshold in checks:
             if len(relevant) < threshold:
@@ -1714,7 +2097,9 @@ def api_attendance_history(member_id):
 @app.route('/display')
 def display_page():
     """Full-screen reception TV display — no login required."""
-    return render_template('display.html', current_session=session.get('session_assigned', ''))
+    return render_template('display.html',
+                           current_session=session.get('session_assigned', ''),
+                           session_types=get_session_types())
 
 
 @app.route('/api/display/<session_type>')
@@ -1724,7 +2109,7 @@ def api_display(session_type):
     today's session, plus on-duty leaders and active activities.
     No login required — returns first name + surname only, no sensitive data.
     """
-    if session_type not in ('Tuesday', 'Thursday'):
+    if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
 
     today = datetime.now().strftime('%Y-%m-%d')
@@ -1778,7 +2163,7 @@ def api_display(session_type):
 @login_required
 def api_activities_list(session_type):
     """List active activities for a session."""
-    if session_type not in ('Tuesday', 'Thursday'):
+    if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
     db   = get_db()
     rows = db.execute('''
@@ -1798,7 +2183,7 @@ def api_activity_add():
     data     = request.get_json() or {}
     sess     = data.get('session_type', '').strip()
     activity = data.get('activity', '').strip()
-    if sess not in ('Tuesday', 'Thursday'):
+    if sess not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
     if not activity:
         return jsonify({'error': 'Activity text is required'}), 400
@@ -1825,9 +2210,7 @@ def api_activity_delete(activity_id):
 
 # ── BLUEPRINT: calendar (Phase 5) ────────────────────────────────────────────
 
-VALID_SESSION_TYPES = ('Tuesday', 'Thursday')
-VALID_STATUSES      = ('planned', 'cancelled', 'special')
-WEEKDAY_NAMES       = {1: 'Tuesday', 3: 'Thursday'}  # Python weekday(): Mon=0
+VALID_STATUSES = ('planned', 'cancelled', 'special')
 
 
 @app.route('/calendar')
@@ -1886,7 +2269,7 @@ def api_calendar_add():
 
     if not session_date:
         return jsonify({'error': 'Session date is required'}), 400
-    if session_type not in VALID_SESSION_TYPES:
+    if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session type'}), 400
 
     # Editors can only add sessions for their own session type
@@ -1899,8 +2282,11 @@ def api_calendar_add():
     # Validate date and check day-of-week matches session type
     try:
         from datetime import date as dt_date
-        d = dt_date.fromisoformat(session_date)
-        expected_day = 1 if session_type == 'Tuesday' else 3  # Mon=0
+        d            = dt_date.fromisoformat(session_date)
+        wday_map     = session_to_weekday_map()
+        expected_day = wday_map.get(session_type)
+        if expected_day is None:
+            return jsonify({'error': 'Unknown session type'}), 400
         if d.weekday() != expected_day:
             return jsonify({'error': f'{session_date} is not a {session_type}'}), 400
     except ValueError:
@@ -1961,11 +2347,13 @@ def api_calendar_bulk():
     if (end - start).days > 365:
         return jsonify({'error': 'Date range cannot exceed 365 days'}), 400
 
-    # Map day names to Python weekday numbers
-    target_weekdays = set()
+    # Map day names to Python weekday numbers using DB-driven session types
+    s2w = session_to_weekday_map()
+    # weekday -> session_name for days that were requested
+    target_weekdays = {}
     for d in days:
-        if d == 'Tuesday':  target_weekdays.add(1)
-        elif d == 'Thursday': target_weekdays.add(3)
+        if d in s2w:
+            target_weekdays[s2w[d]] = d
 
     # Walk the date range
     created, skipped = 0, 0
@@ -1974,7 +2362,7 @@ def api_calendar_bulk():
     while current <= end:
         if current.weekday() in target_weekdays:
             date_str     = current.isoformat()
-            session_type = 'Tuesday' if current.weekday() == 1 else 'Thursday'
+            session_type = target_weekdays[current.weekday()]
             if date_str not in exclude_dates:
                 try:
                     db.execute(

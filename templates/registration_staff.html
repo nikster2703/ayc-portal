@@ -284,8 +284,8 @@
           <label>Session Preference <span class="req">*</span></label>
           <select id="session-pref">
             <option value="">— Select session —</option>
-            <option value="Tuesday">Tuesday</option>
-            <option value="Thursday">Thursday</option>
+            {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+            {% endfor %}
           </select>
         </div>
       </div>

@@ -6,8 +6,8 @@
   <h1>✅ Session Register</h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <select class="session-select" id="session-picker" onchange="onSessionChange()">
-      <option value="Tuesday">Tuesday</option>
-      <option value="Thursday">Thursday</option>
+      {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+      {% endfor %}
     </select>
     <input type="date" id="date-picker" class="session-select"
            style="width:auto" onchange="loadRegister()">
@@ -16,6 +16,90 @@
             style="display:none">
       ⚠️ Check attendance
     </button>
+    <button class="btn btn-sm" id="complete-register-btn"
+            onclick="openCompleteModal()"
+            style="display:none;background:#166534;color:#fff;border:none">
+      🔒 Complete Register
+    </button>
+    <button class="btn btn-sm" id="reset-register-btn"
+            onclick="openResetModal()"
+            style="display:none;background:#7f1d1d;color:#fff;border:none">
+      🔄 Reset Session
+    </button>
+  </div>
+</div>
+
+<!-- ── Locked banner (shown when register is completed) ─────────── -->
+<div id="register-locked-banner" style="display:none;
+     background:#f0fdf4;border:2px solid #86efac;border-radius:12px;
+     padding:12px 18px;margin-bottom:14px;
+     display:none;align-items:center;gap:10px">
+  <span style="font-size:20px">🔒</span>
+  <span id="register-locked-text" style="font-size:14px;font-weight:700;color:#166534;flex:1"></span>
+</div>
+
+<!-- ── Complete-register confirmation modal ──────────────────────── -->
+<div class="modal-overlay" id="complete-register-modal">
+  <div class="modal" style="max-width:480px">
+    <h2>🔒 Complete Session Register</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:12px">
+      This will lock the register. No further sign-ins or sign-outs will be possible for this session.
+    </p>
+    <div id="complete-register-summary"
+         style="background:var(--cream);border-radius:10px;padding:14px;margin-bottom:16px;
+                display:flex;gap:16px;flex-wrap:wrap">
+      <div style="text-align:center;flex:1">
+        <div style="font-size:26px;font-weight:900;color:#166534" id="crs-in">—</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.06em;color:var(--muted)">Signed In</div>
+      </div>
+      <div style="text-align:center;flex:1">
+        <div style="font-size:26px;font-weight:900;color:#475569" id="crs-waiting">—</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.06em;color:var(--muted)">Not Arrived</div>
+      </div>
+      <div style="text-align:center;flex:1">
+        <div style="font-size:26px;font-weight:900;color:#854d0e" id="crs-out">—</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.06em;color:var(--muted)">Signed Out</div>
+      </div>
+    </div>
+    <p id="crs-auto-note" style="font-size:13px;color:#92400e;
+       background:#fef3c7;border-radius:8px;padding:10px 12px;margin-bottom:16px;display:none">
+    </p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeCompleteModal()">Cancel</button>
+      <button class="btn" id="crs-confirm-btn" onclick="confirmCompleteRegister()"
+              style="background:#166534;color:#fff;border:none">
+        Confirm &amp; Complete
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Reset-session confirmation modal (admin only) ─────────── -->
+<div class="modal-overlay" id="reset-register-modal">
+  <div class="modal" style="max-width:460px">
+    <h2>🔄 Reset Session Register</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:12px">
+      This will <strong>permanently delete all sign-in and sign-out records</strong> for this
+      session and unlock the register as if nothing has been recorded yet.
+    </p>
+    <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;
+                padding:14px 16px;margin-bottom:16px;font-size:13px;color:#7f1d1d;font-weight:700">
+      ⚠️ This cannot be undone. All attendance data for this session date will be erased.
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      Session: <strong id="reset-modal-session">—</strong> &nbsp;·&nbsp;
+      Date: <strong id="reset-modal-date">—</strong>
+    </p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeResetModal()">Cancel</button>
+      <button class="btn" id="reset-confirm-btn" onclick="confirmResetRegister()"
+              style="background:#7f1d1d;color:#fff;border:none">
+        Yes, Reset Everything
+      </button>
+    </div>
   </div>
 </div>
 
@@ -349,21 +433,31 @@
 
 <script>
   const USER_ROLE       = "{{ current_role }}";
+  const SESSION_TYPES   = {{ session_types | tojson }};  // [{id, name, weekday}, ...]
   const CAN_MANAGE      = USER_ROLE === 'admin' || USER_ROLE === 'editor' || USER_ROLE === 'leader';
-  // Readonly users (youth volunteers) may sign kids OUT but not IN
-  const CAN_SIGNIN      = CAN_MANAGE;
-  const CAN_SIGNOUT     = CAN_MANAGE || USER_ROLE === 'readonly';
+  // Role lists driven by club settings (Admin → Settings → Register Permissions)
+  const SIGNIN_ROLES    = new Set({{ signin_roles  | tojson }});
+  const SIGNOUT_ROLES   = new Set({{ signout_roles | tojson }});
+  const CAN_SIGNIN      = SIGNIN_ROLES.has(USER_ROLE);
+  const CAN_SIGNOUT     = SIGNOUT_ROLES.has(USER_ROLE);
   const CAN_MARK_LEAVER = USER_ROLE === 'admin';
+  const CAN_COMPLETE    = USER_ROLE === 'admin' || USER_ROLE === 'editor';
+
+  // Tracks whether the current register is locked
+  let _registerLocked = false;
 
   /* ── Initialise ─────────────────────────────────────── */
   (function init() {
     const today = new Date();
     document.getElementById('date-picker').value = today.toISOString().slice(0, 10);
 
-    const dayOfWeek = today.getDay();
+    // Auto-select the session matching today's day of week
+    // JS getDay(): Sun=0…Sat=6 → Python weekday: Mon=0…Sun=6 = (jsDay + 6) % 7
     const picker    = document.getElementById('session-picker');
-    if (dayOfWeek === 4) picker.value = 'Thursday';
-    else                 picker.value = 'Tuesday';
+    const pyWeekday = (today.getDay() + 6) % 7;
+    const match     = SESSION_TYPES.find(s => s.weekday === pyWeekday);
+    if (match) picker.value = match.name;
+    else if (SESSION_TYPES.length) picker.value = SESSION_TYPES[0].name;
 
     const userSession = "{{ current_session }}";
     if (userSession) {
@@ -373,6 +467,10 @@
 
     if (CAN_MARK_LEAVER) {
       document.getElementById('at-risk-check-btn').style.display = '';
+    }
+
+    if (CAN_COMPLETE) {
+      document.getElementById('complete-register-btn').style.display = '';
     }
 
     loadRegister();
@@ -386,15 +484,58 @@
     const date = document.getElementById('date-picker').value;
     if (!date) return;
 
+    // Guard: no session types configured (e.g. DB migration hasn't run yet)
+    if (!sess) {
+      document.getElementById('register-container').innerHTML =
+        `<div class="alert-box err"><strong>⚠️ No session types found.</strong>
+         Please restart the portal so the database migration can run, then go to
+         ⚙️ Settings → Session Types to verify Tuesday and Thursday are listed.</div>`;
+      return;
+    }
+
     document.getElementById('register-container').innerHTML =
       `<div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>`;
 
+    // URL-encode the session type so names with spaces or special characters work correctly
+    const sessEnc = encodeURIComponent(sess);
+
     try {
-      const members = await apiFetch(`/api/attendance/${sess}/${date}`);
+      // Fetch register + completion status in parallel
+      const [members, completion] = await Promise.all([
+        apiFetch(`/api/attendance/${sessEnc}/${date}`),
+        apiFetch(`/api/attendance/complete/${sessEnc}/${date}`),
+      ]);
+      _applyCompletionState(completion);
       renderRegister(members, sess, date);
     } catch (e) {
       document.getElementById('register-container').innerHTML =
         `<div class="alert-box err"><strong>⚠️ Could not load register</strong> ${esc(e.message)}</div>`;
+    }
+  }
+
+  const CAN_RESET = USER_ROLE === 'admin';
+
+  function _applyCompletionState(completion) {
+    _registerLocked = completion.completed;
+    const banner      = document.getElementById('register-locked-banner');
+    const completeBtn = document.getElementById('complete-register-btn');
+    const resetBtn    = document.getElementById('reset-register-btn');
+    if (completion.completed) {
+      const time = completion.completed_at
+        ? completion.completed_at.slice(11, 16)   // HH:MM from datetime string
+        : '';
+      document.getElementById('register-locked-text').textContent =
+        `Register completed by ${completion.completed_by || 'unknown'} at ${time}` +
+        (completion.auto_signout_count
+          ? ` — ${completion.auto_signout_count} member${completion.auto_signout_count !== 1 ? 's' : ''} auto-signed out`
+          : '');
+      banner.style.display = 'flex';
+      if (completeBtn) completeBtn.style.display = 'none';
+      if (resetBtn && CAN_RESET) resetBtn.style.display = '';
+    } else {
+      banner.style.display = 'none';
+      if (completeBtn && CAN_COMPLETE) completeBtn.style.display = '';
+      if (resetBtn) resetBtn.style.display = 'none';
     }
   }
 
@@ -435,22 +576,22 @@
 
     if (groupWaiting.length) {
       html += `<div class="reg-group-header">⏳ Not Yet Arrived (${groupWaiting.length})</div>`;
-      html += groupWaiting.map(m => memberCard(m, sess, date)).join('');
+      html += groupWaiting.map(m => memberCard(m, sess, date, _registerLocked)).join('');
     }
     if (groupIn.length) {
       html += `<div class="reg-group-header">✅ Signed In (${groupIn.length})</div>`;
-      html += groupIn.map(m => memberCard(m, sess, date)).join('');
+      html += groupIn.map(m => memberCard(m, sess, date, _registerLocked)).join('');
     }
     if (groupOut.length) {
       html += `<div class="reg-group-header">🚪 Signed Out (${groupOut.length})</div>`;
-      html += groupOut.map(m => memberCard(m, sess, date)).join('');
+      html += groupOut.map(m => memberCard(m, sess, date, _registerLocked)).join('');
     }
 
     html += '</div>';
     container.innerHTML = html;
   }
 
-  function memberCard(m, sess, date) {
+  function memberCard(m, sess, date, locked = false) {
     const isIn  = !!m.signed_in_at && !m.signed_out_at;
     const isOut = !!m.signed_out_at;
 
@@ -466,7 +607,7 @@
 
     if (isOut) {
       timeText = `Out at ${esc(m.signed_out_at)}`;
-      btnHtml  = CAN_SIGNOUT
+      btnHtml  = (!locked && CAN_SIGNOUT)
         ? `<button class="reg-card__btn btn-undo"
              onclick="requestUndoSignout(${m.id},'${esc(sess)}','${esc(date)}')">
              ↩ Undo sign-out
@@ -474,7 +615,7 @@
         : '';
     } else if (isIn) {
       timeText = `In since ${esc(m.signed_in_at)}`;
-      btnHtml  = CAN_SIGNOUT
+      btnHtml  = (!locked && CAN_SIGNOUT)
         ? `<button class="reg-card__btn btn-signout"
              onclick="requestSignOut(${m.id},'${esc(sess)}','${esc(date)}')">
              Sign Out
@@ -482,7 +623,7 @@
         : '';
     } else {
       timeText = '';
-      btnHtml  = CAN_SIGNIN
+      btnHtml  = (!locked && CAN_SIGNIN)
         ? `<button class="reg-card__btn btn-signin"
              onclick="requestSignIn(${m.id},'${esc(sess)}','${esc(date)}')">
              Sign In
@@ -770,21 +911,22 @@
   async function loadStaffRegister() {
     const sess = document.getElementById('session-picker').value;
     const date = document.getElementById('date-picker').value;
-    if (!date) return;
+    if (!date || !sess) return;
 
     document.getElementById('staff-register-container').innerHTML =
       `<div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>`;
 
+    const sessEnc = encodeURIComponent(sess);
     try {
-      const staff = await apiFetch(`/api/attendance/staff/${sess}/${date}`);
-      renderStaffRegister(staff, sess, date);
+      const staff = await apiFetch(`/api/attendance/staff/${sessEnc}/${date}`);
+      renderStaffRegister(staff, sess, date, _registerLocked);
     } catch (e) {
       document.getElementById('staff-register-container').innerHTML =
         `<div class="alert-box err"><strong>⚠️ Could not load staff register</strong> ${esc(e.message)}</div>`;
     }
   }
 
-  function renderStaffRegister(staff, sess, date) {
+  function renderStaffRegister(staff, sess, date, locked = false) {
     const container = document.getElementById('staff-register-container');
 
     if (!staff.length) {
@@ -809,21 +951,21 @@
     let html = '<div class="reg-grid">';
     if (groupWaiting.length) {
       html += `<div class="reg-group-header">⏳ Not Yet Arrived (${groupWaiting.length})</div>`;
-      html += groupWaiting.map(m => staffCard(m, sess, date)).join('');
+      html += groupWaiting.map(m => staffCard(m, sess, date, locked)).join('');
     }
     if (groupIn.length) {
       html += `<div class="reg-group-header">✅ Signed In (${groupIn.length})</div>`;
-      html += groupIn.map(m => staffCard(m, sess, date)).join('');
+      html += groupIn.map(m => staffCard(m, sess, date, locked)).join('');
     }
     if (groupOut.length) {
       html += `<div class="reg-group-header">🚪 Signed Out (${groupOut.length})</div>`;
-      html += groupOut.map(m => staffCard(m, sess, date)).join('');
+      html += groupOut.map(m => staffCard(m, sess, date, locked)).join('');
     }
     html += '</div>';
     container.innerHTML = html;
   }
 
-  function staffCard(m, sess, date) {
+  function staffCard(m, sess, date, locked = false) {
     const isIn  = !!m.signed_in_at && !m.signed_out_at;
     const isOut = !!m.signed_out_at;
     const stateClass = isIn ? 'state-in' : isOut ? 'state-out' : '';
@@ -834,20 +976,20 @@
 
     if (isOut) {
       timeText = `Out at ${esc(m.signed_out_at)}`;
-      btnHtml  = CAN_SIGNOUT
+      btnHtml  = (!locked && CAN_SIGNOUT)
         ? `<button class="reg-card__btn btn-undo"
              onclick="requestConfirm('${cid}','undo','${esc(sess)}','${esc(date)}')">
              ↩ Undo sign-out
            </button>` : '';
     } else if (isIn) {
       timeText = `In since ${esc(m.signed_in_at)}`;
-      btnHtml  = CAN_SIGNOUT
+      btnHtml  = (!locked && CAN_SIGNOUT)
         ? `<button class="reg-card__btn btn-signout"
              onclick="requestConfirm('${cid}','signout','${esc(sess)}','${esc(date)}')">
              Sign Out
            </button>` : '';
     } else {
-      btnHtml  = CAN_SIGNIN
+      btnHtml  = (!locked && CAN_SIGNIN)
         ? `<button class="reg-card__btn btn-signin"
              onclick="requestConfirm('${cid}','signin','${esc(sess)}','${esc(date)}')">
              Sign In
@@ -861,6 +1003,107 @@
         <div class="reg-card__time">${timeText}</div>
         ${btnHtml}
       </div>`;
+  }
+
+  /* ── Complete register ──────────────────────────────── */
+  function openCompleteModal() {
+    if (_registerLocked) return;
+
+    // Populate summary from the live summary strip counts
+    const inCount      = parseInt(document.getElementById('sum-in').textContent)      || 0;
+    const waitingCount = parseInt(document.getElementById('sum-waiting').textContent) || 0;
+    const outCount     = parseInt(document.getElementById('sum-out').textContent)     || 0;
+
+    document.getElementById('crs-in').textContent      = inCount;
+    document.getElementById('crs-waiting').textContent = waitingCount;
+    document.getElementById('crs-out').textContent     = outCount;
+
+    const autoNote = document.getElementById('crs-auto-note');
+    if (inCount > 0) {
+      autoNote.textContent =
+        `⚠️ ${inCount} member${inCount !== 1 ? 's' : ''} still signed in ` +
+        `will be automatically signed out when you complete.`;
+      autoNote.style.display = '';
+    } else {
+      autoNote.style.display = 'none';
+    }
+
+    document.getElementById('complete-register-modal').classList.add('open');
+  }
+
+  function closeCompleteModal() {
+    document.getElementById('complete-register-modal').classList.remove('open');
+  }
+
+  document.getElementById('complete-register-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('complete-register-modal')) closeCompleteModal();
+  });
+
+  async function confirmCompleteRegister() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    const btn  = document.getElementById('crs-confirm-btn');
+    btn.disabled = true;
+    try {
+      const res = await apiFetch('/api/attendance/complete', {
+        method: 'POST',
+        body:   JSON.stringify({ session_type: sess, date }),
+      });
+      closeCompleteModal();
+      showToast(
+        `Register completed.` +
+        (res.auto_signout_count
+          ? ` ${res.auto_signout_count} member${res.auto_signout_count !== 1 ? 's' : ''} auto-signed out.`
+          : '')
+      );
+      loadRegister();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Reset register modal ───────────────────────────── */
+  function openResetModal() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    document.getElementById('reset-modal-session').textContent = sess;
+    document.getElementById('reset-modal-date').textContent    = date;
+    document.getElementById('reset-register-modal').classList.add('open');
+  }
+
+  function closeResetModal() {
+    document.getElementById('reset-register-modal').classList.remove('open');
+  }
+
+  document.getElementById('reset-register-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('reset-register-modal')) closeResetModal();
+  });
+
+  async function confirmResetRegister() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    const btn  = document.getElementById('reset-confirm-btn');
+    btn.disabled = true;
+    try {
+      const res = await apiFetch('/api/attendance/reset', {
+        method: 'POST',
+        body:   JSON.stringify({ session_type: sess, date }),
+      });
+      closeResetModal();
+      showToast(
+        `Session reset. ` +
+        (res.attendance_deleted
+          ? `${res.attendance_deleted} attendance record${res.attendance_deleted !== 1 ? 's' : ''} cleared.`
+          : 'Register is now blank.')
+      );
+      loadRegister();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   /* ── Activities board ───────────────────────────────── */

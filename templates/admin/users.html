@@ -87,8 +87,8 @@
       <label>Session assigned <span style="color:var(--red)">*</span></label>
       <select id="f-session">
         <option value="">— select session —</option>
-        <option value="Tuesday">Tuesday</option>
-        <option value="Thursday">Thursday</option>
+        {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+        {% endfor %}
       </select>
     </div>
     <div class="form-group">

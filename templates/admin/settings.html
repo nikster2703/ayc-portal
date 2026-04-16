@@ -18,26 +18,21 @@
   </p>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-    {% if current_role == 'admin' or current_session == 'Tuesday' %}
+    {% for st in session_types %}
+    {% if current_role == 'admin' or current_session == st.name %}
+    {% set field_id = 'thresh-' + st.name | lower | replace(' ', '-') %}
     <div>
-      <label class="form-label" for="thresh-tuesday">Tuesday threshold</label>
+      <label class="form-label" for="{{ field_id }}">{{ st.name }} threshold</label>
       <div style="display:flex;align-items:center;gap:8px">
-        <input type="number" id="thresh-tuesday" class="form-input" min="1" max="20"
+        <input type="number" id="{{ field_id }}"
+               data-session-key="at_risk_threshold_{{ st.name | lower | replace(' ', '_') }}"
+               class="form-input thresh-input" min="1" max="20"
                style="width:80px;text-align:center;font-size:20px;font-weight:800;color:var(--navy)">
         <span style="font-size:13px;color:var(--muted)">missed sessions</span>
       </div>
     </div>
     {% endif %}
-    {% if current_role == 'admin' or current_session == 'Thursday' %}
-    <div>
-      <label class="form-label" for="thresh-thursday">Thursday threshold</label>
-      <div style="display:flex;align-items:center;gap:8px">
-        <input type="number" id="thresh-thursday" class="form-input" min="1" max="20"
-               style="width:80px;text-align:center;font-size:20px;font-weight:800;color:var(--navy)">
-        <span style="font-size:13px;color:var(--muted)">missed sessions</span>
-      </div>
-    </div>
-    {% endif %}
+    {% endfor %}
   </div>
 
   <div style="display:flex;align-items:center;gap:12px">
@@ -55,6 +50,99 @@
     automatically reinstated to Active.
   </div>
 </div>
+
+<!-- ── Register Permissions (admin only) ──────────────────────────────────── -->
+{% if current_role == 'admin' %}
+<div class="form-card" style="max-width:560px;margin-top:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    ✅ Register Permissions
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    Control which roles can sign members <strong>in</strong> and sign members <strong>out</strong>
+    during a session. Admin always has both permissions.
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+    <div>
+      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px">
+        🟢 Can Sign In
+      </div>
+      {% for role in [('admin','Admin'),('editor','Editor'),('leader','Leader'),('readonly','Read-only / Youth Worker')] %}
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;
+                    font-size:14px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
+        <input type="checkbox"
+               id="perm-signin-{{ role[0] }}"
+               data-perm="signin" data-role="{{ role[0] }}"
+               {% if role[0] == 'admin' %}checked disabled{% endif %}
+               style="width:16px;height:16px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
+        {{ role[1] }}{% if role[0] == 'admin' %} <span style="font-size:11px;color:var(--muted)">(always)</span>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    <div>
+      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px">
+        🔴 Can Sign Out
+      </div>
+      {% for role in [('admin','Admin'),('editor','Editor'),('leader','Leader'),('readonly','Read-only / Youth Worker')] %}
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;
+                    font-size:14px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
+        <input type="checkbox"
+               id="perm-signout-{{ role[0] }}"
+               data-perm="signout" data-role="{{ role[0] }}"
+               {% if role[0] == 'admin' %}checked disabled{% endif %}
+               style="width:16px;height:16px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
+        {{ role[1] }}{% if role[0] == 'admin' %} <span style="font-size:11px;color:var(--muted)">(always)</span>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="btn btn-primary" onclick="saveRegisterPerms()">Save Permissions</button>
+    <span id="perm-save-status" style="font-size:13px;color:var(--muted)"></span>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Session Types (admin only) ─────────────────────────────────────────── -->
+{% if current_role == 'admin' %}
+<div class="form-card" style="max-width:560px;margin-top:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    📅 Session Types
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Define which nights the club runs. The name appears throughout the portal.
+    Weekday controls which calendar day is auto-detected.
+  </p>
+
+  <div id="session-types-list" style="margin-bottom:16px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <!-- Add new session type form -->
+  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px">
+    <div>
+      <label class="form-label" style="margin-bottom:3px">Name</label>
+      <input id="st-name" class="form-input" placeholder="e.g. Monday Crew" style="width:160px">
+    </div>
+    <div>
+      <label class="form-label" style="margin-bottom:3px">Weekday</label>
+      <select id="st-weekday" class="form-input" style="width:130px">
+        <option value="0">Monday</option>
+        <option value="1">Tuesday</option>
+        <option value="2">Wednesday</option>
+        <option value="3">Thursday</option>
+        <option value="4">Friday</option>
+        <option value="5">Saturday</option>
+        <option value="6">Sunday</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="addSessionType()">+ Add</button>
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Maintenance (admin only) ───────────────────────────────────────────── -->
 {% if current_role == 'admin' %}
@@ -79,33 +167,35 @@
   const USER_SESSION = "{{ current_session or '' }}";
   const IS_ADMIN     = "{{ current_role }}" === 'admin';
 
+  const WDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
   async function loadSettings() {
     try {
       const s = await apiFetch('/api/settings');
-      const tueEl = document.getElementById('thresh-tuesday');
-      const thuEl = document.getElementById('thresh-thursday');
-      if (tueEl) tueEl.value = s.at_risk_threshold_tuesday  ?? 5;
-      if (thuEl) thuEl.value = s.at_risk_threshold_thursday ?? 5;
+      document.querySelectorAll('.thresh-input').forEach(el => {
+        const key = el.dataset.sessionKey;
+        if (key && s[key] !== undefined) el.value = s[key];
+        else if (key) el.value = 5;
+      });
     } catch (e) {
       showToast('Could not load settings: ' + e.message, true);
     }
   }
 
   async function saveSettings() {
-    const tueEl = document.getElementById('thresh-tuesday');
-    const thuEl = document.getElementById('thresh-thursday');
     const payload = {};
-
-    if (tueEl) {
-      const v = parseInt(tueEl.value);
-      if (!v || v < 1) { showToast('Tuesday threshold must be a number greater than 0.', true); return; }
-      payload.at_risk_threshold_tuesday = v;
-    }
-    if (thuEl) {
-      const v = parseInt(thuEl.value);
-      if (!v || v < 1) { showToast('Thursday threshold must be a number greater than 0.', true); return; }
-      payload.at_risk_threshold_thursday = v;
-    }
+    let valid = true;
+    document.querySelectorAll('.thresh-input').forEach(el => {
+      const key = el.dataset.sessionKey;
+      const v   = parseInt(el.value);
+      if (!v || v < 1) {
+        showToast(`${el.id.replace('thresh-', '').replace('-', ' ')} threshold must be at least 1.`, true);
+        valid = false;
+      } else {
+        payload[key] = v;
+      }
+    });
+    if (!valid) return;
 
     const status = document.getElementById('save-status');
     try {
@@ -118,7 +208,127 @@
     }
   }
 
+  /* ── Session types CRUD ───────────────────────────────── */
+  async function loadSessionTypes() {
+    const el = document.getElementById('session-types-list');
+    if (!el) return;
+    try {
+      const types = await apiFetch('/api/admin/session-types');
+      if (!types.length) {
+        el.innerHTML = '<p style="color:var(--muted);font-size:13px">No session types defined.</p>';
+        return;
+      }
+      el.innerHTML = types.map(st => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;
+                    border-bottom:1px solid var(--border)">
+          <span style="flex:1;font-weight:700;font-size:14px">${esc(st.name)}</span>
+          <span style="font-size:12px;color:var(--muted);min-width:80px">${WDAY_NAMES[st.weekday] || '?'}</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;
+                       background:${st.active ? '#dcfce7' : '#f1f5f9'};
+                       color:${st.active ? '#166534' : '#64748b'}">
+            ${st.active ? 'Active' : 'Inactive'}
+          </span>
+          <button class="btn btn-ghost btn-sm"
+                  onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})"
+                  style="font-size:12px">
+            ${st.active ? 'Deactivate' : 'Activate'}
+          </button>
+          <button class="btn btn-ghost btn-sm"
+                  onclick="deleteSessionType(${st.id}, '${esc(st.name)}')"
+                  style="font-size:12px;color:var(--red)">
+            Delete
+          </button>
+        </div>`).join('');
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load session types.</p>`;
+    }
+  }
+
+  async function addSessionType() {
+    const name    = document.getElementById('st-name').value.trim();
+    const weekday = parseInt(document.getElementById('st-weekday').value);
+    if (!name) { showToast('Please enter a session name.', true); return; }
+    try {
+      await apiFetch('/api/admin/session-types', {
+        method: 'POST',
+        body:   JSON.stringify({ name, weekday }),
+      });
+      document.getElementById('st-name').value = '';
+      showToast(`Session type "${name}" added.`);
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function toggleSessionType(id, active) {
+    try {
+      await apiFetch(`/api/admin/session-types/${id}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ active }),
+      });
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function deleteSessionType(id, name) {
+    if (!confirm(`Delete session type "${name}"? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/api/admin/session-types/${id}`, { method: 'DELETE' });
+      showToast(`"${name}" deleted.`);
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  if (IS_ADMIN) loadSessionTypes();
+
   loadSettings();
+
+  /* ── Register permissions ─────────────────────────── */
+  async function loadRegisterPerms() {
+    try {
+      const s = await apiFetch('/api/settings');
+      const signinRoles  = (s.register_can_signin  || 'admin,editor,leader').split(',').map(r => r.trim());
+      const signoutRoles = (s.register_can_signout || 'admin,editor,leader,readonly').split(',').map(r => r.trim());
+
+      ['editor', 'leader', 'readonly'].forEach(role => {
+        const si = document.getElementById(`perm-signin-${role}`);
+        const so = document.getElementById(`perm-signout-${role}`);
+        if (si) si.checked = signinRoles.includes(role);
+        if (so) so.checked = signoutRoles.includes(role);
+      });
+    } catch (e) {
+      showToast('Could not load register permissions: ' + e.message, true);
+    }
+  }
+
+  async function saveRegisterPerms() {
+    const ROLES   = ['admin', 'editor', 'leader', 'readonly'];
+    const getList = perm => ROLES
+      .filter(r => r === 'admin' || document.getElementById(`perm-${perm}-${r}`)?.checked)
+      .join(',');
+
+    const status = document.getElementById('perm-save-status');
+    try {
+      await apiFetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          register_can_signin:  getList('signin'),
+          register_can_signout: getList('signout'),
+        }),
+      });
+      status.textContent = '✓ Saved';
+      setTimeout(() => status.textContent = '', 2500);
+    } catch (e) {
+      showToast('Save failed: ' + e.message, true);
+    }
+  }
+
+  if (IS_ADMIN) loadRegisterPerms();
 
   /* ── Maintenance ─────────────────────────────────── */
   const MAINTENANCE_ITEMS = [
@@ -168,7 +378,7 @@
           </div>
           <button class="btn btn-danger btn-sm maint-btn"
                   id="btn-${item.key}"
-                  onclick="clearData('${item.key}', '${item.url}', ${JSON.stringify(item.confirm)})"
+                  onclick="clearData('${item.key}', '${item.url}', '${item.confirm}')"
                   ${counts[item.key] === 0 ? 'disabled' : ''}>
             Clear
           </button>

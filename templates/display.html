@@ -372,11 +372,6 @@
     </div>
   </div>
 
-  <!-- Footer -->
-  <div class="footer">
-    <div class="pulse-dot"></div>
-    <span>Live · updates every 30 seconds</span>
-  </div>
 
 </div>
 
@@ -400,11 +395,14 @@
   const monthNames = ['January','February','March','April','May','June',
                       'July','August','September','October','November','December'];
 
+  const SESSION_TYPES   = {{ session_types | tojson }};
   const currentSession = (() => {
     const assigned = '{{ current_session }}';
-    if (assigned === 'Tuesday' || assigned === 'Thursday') return assigned;
+    if (assigned && SESSION_TYPES.some(s => s.name === assigned)) return assigned;
     // Admin / no assignment — fall back to day of week
-    return new Date().getDay() === 4 ? 'Thursday' : 'Tuesday';
+    const pyWeekday = (new Date().getDay() + 6) % 7;
+    const match = SESSION_TYPES.find(s => s.weekday === pyWeekday);
+    return match ? match.name : (SESSION_TYPES[0]?.name || 'Tuesday');
   })();
 
   // Set the session label once on load
@@ -504,7 +502,8 @@
   }
 
   /* ── Load data ───────────────────────────────────── */
-  let prevIds = new Set();
+  // Persistent map of "FirstSurname" key → card DOM element
+  let cardMap = new Map();
 
   async function loadDisplay() {
     try {
@@ -524,12 +523,10 @@
     const headEl = document.getElementById('headcount');
     const count  = members.length;
 
-    headEl.textContent = count === 0
-      ? 'No one yet'
-      : `${count} signed in`;
+    headEl.textContent = count === 0 ? 'No one yet' : `${count} signed in`;
 
     if (count === 0) {
-      prevIds = new Set();
+      cardMap.clear();
       grid.innerHTML = `
         <div class="empty-display">
           <div class="big-icon">🎉</div>
@@ -538,25 +535,87 @@
       return;
     }
 
-    const newIds = new Set(members.map(m => m.first_name + m.surname));
+    // Sort alphabetically by first name, then surname
+    const sorted = [...members].sort((a, b) => {
+      const fn = a.first_name.toLowerCase().localeCompare(b.first_name.toLowerCase());
+      return fn !== 0 ? fn : a.surname.toLowerCase().localeCompare(b.surname.toLowerCase());
+    });
 
-    grid.innerHTML = members.map(m => {
-      const key    = m.first_name + m.surname;
-      const init   = ((m.first_name[0] || '?') + (m.surname[0] || '?')).toUpperCase();
-      const colour = avatarColour(key);
-      const isNew  = !prevIds.has(key);
-      return `
-        <div class="name-card" style="${isNew ? '' : 'animation:none'}">
+    const newIds    = new Set(sorted.map(m => m.first_name + m.surname));
+    const isNew     = new Set();
+
+    // ── FLIP Step 1: snapshot positions of cards that will survive ──
+    const firstRects = new Map();
+    for (const [key, el] of cardMap.entries()) {
+      if (newIds.has(key)) firstRects.set(key, el.getBoundingClientRect());
+    }
+
+    // ── Remove departed members ──
+    for (const [key, el] of [...cardMap.entries()]) {
+      if (!newIds.has(key)) { el.remove(); cardMap.delete(key); }
+    }
+
+    // ── Clear the empty-state placeholder if present ──
+    grid.querySelector('.empty-display')?.remove();
+
+    // ── Create DOM nodes for new arrivals ──
+    for (const m of sorted) {
+      const key = m.first_name + m.surname;
+      if (!cardMap.has(key)) {
+        const init   = ((m.first_name[0] || '?') + (m.surname[0] || '?')).toUpperCase();
+        const colour = avatarColour(key);
+        const card   = document.createElement('div');
+        card.className = 'name-card';
+        card.innerHTML = `
           <div class="avatar" style="background:${colour}">${init}</div>
           <div class="name-text">
             <div class="first-name">${esc(m.first_name)}</div>
             <div class="surname">${esc(m.surname)}</div>
             ${m.signed_in_at ? `<div class="time-in">✓ in at ${esc(m.signed_in_at)}</div>` : ''}
-          </div>
-        </div>`;
-    }).join('');
+          </div>`;
+        cardMap.set(key, card);
+        isNew.add(key);
+      }
+    }
 
-    prevIds = newIds;
+    // ── FLIP Step 2: reorder DOM into sorted positions ──
+    // appendChild moves existing nodes in-place without destroying them
+    for (const m of sorted) {
+      grid.appendChild(cardMap.get(m.first_name + m.surname));
+    }
+
+    // ── FLIP Steps 3 & 4: Invert → Play for cards that moved ──
+    // New arrivals get the CSS fadeSlideIn animation automatically.
+    // Existing cards that shifted position get a smooth JS-driven slide.
+    requestAnimationFrame(() => {
+      for (const m of sorted) {
+        const key = m.first_name + m.surname;
+        const el  = cardMap.get(key);
+
+        if (isNew.has(key)) continue; // CSS animation handles these
+
+        const first = firstRects.get(key);
+        if (!first) continue;
+
+        const last = el.getBoundingClientRect();
+        const dx   = first.left - last.left;
+        const dy   = first.top  - last.top;
+
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue; // didn't move
+
+        // Suppress CSS animation on existing cards so it doesn't re-fire
+        el.style.animation  = 'none';
+        // Teleport card back to its old visual position (no transition yet)
+        el.style.transition = 'none';
+        el.style.transform  = `translate(${dx}px, ${dy}px)`;
+
+        // Next frame: release the transform so it glides to its new home
+        requestAnimationFrame(() => {
+          el.style.transition = 'transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+          el.style.transform  = '';
+        });
+      }
+    });
   }
 
   function esc(s) {

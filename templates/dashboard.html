@@ -182,33 +182,28 @@
   loadDashboard();
 
   /* ── Stat cards ─────────────────────────────────────── */
-  function renderStats(d) {
-    const m = d.members;
+  const SESSION_TYPES = {{ session_types | tojson }};
 
-    // For scoped users the API already returned counts filtered to their session,
-    // so m.active / m.tuesday / m.thursday are already their session's numbers.
-    const tuesdayVal  = m.tuesday  ?? 0;
-    const thursdayVal = m.thursday ?? 0;
+  function renderStats(d) {
+    const m  = d.members;
+    const sc = d.session_counts || {};  // {session_name: {members, staff}}
 
     // Staff count: per-session for scoped roles, global for admin
-    const staffCount =
-      IS_SCOPED && USER_SESSION === 'Tuesday'  ? (m.staff_tuesday  ?? 0) :
-      IS_SCOPED && USER_SESSION === 'Thursday' ? (m.staff_thursday ?? 0) :
-                                                 (m.staff_active   ?? 0);
+    const staffCount = IS_SCOPED && USER_SESSION
+      ? (sc[USER_SESSION]?.staff ?? 0)
+      : (m.staff_active ?? 0);
 
     const stats = [];
 
     // Active Members tile
     stats.push({ icon: '👥', value: m.active ?? 0, label: 'Active Members', href: '/members', colour: 'var(--teal)' });
 
-    // Session tiles:
-    // - Admin sees both Tuesday and Thursday tiles
-    // - Scoped users see only their own session tile
-    if (!IS_SCOPED || USER_SESSION === 'Tuesday') {
-      stats.push({ icon: '📅', value: tuesdayVal,  label: 'Tuesday Session',  href: '/register', colour: 'var(--navy)' });
-    }
-    if (!IS_SCOPED || USER_SESSION === 'Thursday') {
-      stats.push({ icon: '📅', value: thursdayVal, label: 'Thursday Session', href: '/register', colour: 'var(--navy)' });
+    // Session tiles — generated from SESSION_TYPES, scoped where applicable
+    for (const st of SESSION_TYPES) {
+      if (!IS_SCOPED || USER_SESSION === st.name) {
+        const val = sc[st.name]?.members ?? 0;
+        stats.push({ icon: '📅', value: val, label: st.name + ' Session', href: '/register', colour: 'var(--navy)' });
+      }
     }
 
     // Staff tile — visible to all roles
