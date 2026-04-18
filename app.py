@@ -45,8 +45,15 @@ from flask import (Flask, g, jsonify, redirect, render_template,
                    Response, stream_with_context)
 from werkzeug.utils import secure_filename
 
-# Load .env before anything reads os.environ
-load_dotenv()
+# ── Instance directory (multi-tenant) ─────────────────────────────────────────
+# INSTANCE_DIR is set by the service manager (launchd / systemd) for each club.
+# It points to the club's own folder containing .env and data/.
+# When running as a single-instance install (no INSTANCE_DIR), BASE_DIR is used.
+BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
+INSTANCE_DIR = os.environ.get('INSTANCE_DIR', BASE_DIR)
+
+# Load .env from the instance directory before anything reads os.environ
+load_dotenv(os.path.join(INSTANCE_DIR, '.env'))
 
 # ── App setup ──────────────────────────────────────────────────────────────────
 
@@ -63,15 +70,14 @@ if not _secret_key:
 app.secret_key = _secret_key
 app.permanent_session_lifetime = timedelta(hours=8)
 
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-DATABASE   = os.path.join(BASE_DIR, 'data', 'ayc.db')
-UPLOAD_DIR = os.path.join(BASE_DIR, 'data', 'documents')
+DATABASE   = os.path.join(INSTANCE_DIR, 'data', 'ayc.db')
+UPLOAD_DIR = os.path.join(INSTANCE_DIR, 'data', 'documents')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v6.2'  # Security hardening — SQLCipher DB encryption, document encryption at rest, password policy
+APP_VERSION = 'v7.3'  # Role display names, session notes & incidents, export complete register, member skills & badges; fix: tag badges now show on member detail card
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -89,6 +95,9 @@ ALL_PERMISSIONS = [
     ('register.reset',      'Reset Register',           'Wipe all sign-in/out data for a session',             'register'),
     ('register.at_risk',    'Mark At Risk',             'Run the at-risk check and flag members',               'register'),
     ('register.print',      'Print Register',           'Print a paper copy of the session register',           'register'),
+    ('members.tags',        'Manage Member Tags',        'Add and remove skill/badge tags on member records',    'members'),
+    ('register.notes',      'Session Notes',            'Add and manage session incident and general notes',    'register'),
+    ('register.export',     'Export Complete Register', 'Open print-ready export with attendance and notes',    'register'),
     # Approvals
     ('approvals.view',      'View Approvals',           'View pending self-registration submissions',           'approvals'),
     ('approvals.approve',   'Approve Registrations',    'Approve a pending registration',                       'approvals'),
@@ -124,9 +133,9 @@ ALL_PERMISSIONS = [
 # These seed the roles table on first run; admins can customise from /admin/roles.
 DEFAULT_ROLE_PERMISSIONS = {
     'admin': [
-        'members.view', 'members.edit', 'members.delete', 'members.hard_delete',
+        'members.view', 'members.edit', 'members.delete', 'members.hard_delete', 'members.tags',
         'register.signin', 'register.signout', 'register.complete', 'register.reset',
-        'register.at_risk', 'register.print',
+        'register.at_risk', 'register.print', 'register.notes', 'register.export',
         'approvals.view', 'approvals.approve', 'approvals.reject',
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
@@ -137,8 +146,9 @@ DEFAULT_ROLE_PERMISSIONS = {
         'activities.manage',
     ],
     'editor': [
-        'members.view', 'members.edit', 'members.delete',
+        'members.view', 'members.edit', 'members.delete', 'members.tags',
         'register.signin', 'register.signout', 'register.complete', 'register.at_risk', 'register.print',
+        'register.notes', 'register.export',
         'approvals.view', 'approvals.approve', 'approvals.reject',
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
@@ -150,7 +160,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     ],
     'leader': [
         'members.view',
-        'register.signin', 'register.signout',
+        'register.signin', 'register.signout', 'register.notes',
         'activities.manage',
     ],
     'readonly': [
@@ -158,6 +168,16 @@ DEFAULT_ROLE_PERMISSIONS = {
         'documents.view',
         'activities.manage',
     ],
+}
+
+# Human-readable labels for the four built-in role slugs.
+# Stored as display_name in the roles table; shown everywhere in the UI.
+#   readonly → Read Only   |   leader → User   |   editor → Editor   |   admin → Admin
+ROLE_DISPLAY_NAMES = {
+    'admin':    'Admin',
+    'editor':   'Editor',
+    'leader':   'User',
+    'readonly': 'Read Only',
 }
 
 # ── Postcode lookup (getaddress.io) ──────────────────────────────────────────
@@ -339,6 +359,40 @@ def ensure_tables():
             permissions TEXT    NOT NULL,
             created_at  TEXT    DEFAULT (datetime('now'))
         );
+        -- v7.1: member skills & badge tags
+        CREATE TABLE IF NOT EXISTS tag_definitions (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL UNIQUE,
+            category   TEXT    NOT NULL DEFAULT 'General',
+            icon       TEXT    DEFAULT '🏷',
+            colour     TEXT    NOT NULL DEFAULT '#3b82f6',
+            active     INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS member_tags (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id  INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+            tag_id     INTEGER NOT NULL REFERENCES tag_definitions(id) ON DELETE CASCADE,
+            expires_at TEXT,
+            notes      TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(member_id, tag_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_member_tags_member ON member_tags(member_id);
+        -- v7.1: session notes & incidents
+        CREATE TABLE IF NOT EXISTS session_notes (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_date TEXT    NOT NULL,
+            session_type TEXT    NOT NULL,
+            member_id    INTEGER REFERENCES members(id),
+            note_type    TEXT    NOT NULL DEFAULT 'General',
+            title        TEXT,
+            details      TEXT,
+            added_by     INTEGER REFERENCES users(id),
+            created_at   TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_notes_date_type ON session_notes(session_date, session_type);
+        CREATE INDEX IF NOT EXISTS idx_session_notes_member    ON session_notes(member_id);
     ''')
 
     # ── ALTER TABLE migrations (idempotent — each wrapped individually) ───────
@@ -352,6 +406,11 @@ def ensure_tables():
         "ALTER TABLE members ADD COLUMN status_note TEXT",
         # v6.0: link users to the new roles table
         "ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)",
+        # v7.1: role display names
+        "ALTER TABLE roles ADD COLUMN display_name TEXT",
+        # v7.1: track whether a completed register has been exported
+        "ALTER TABLE session_completions ADD COLUMN exported_at TEXT",
+        "ALTER TABLE session_completions ADD COLUMN exported_by INTEGER REFERENCES users(id)",
     ]
     for stmt in alter_stmts:
         try:
@@ -395,13 +454,19 @@ def ensure_tables():
     pdb.commit()
     pdb.close()
 
-    # ── Seed default roles (v6.0) ──────────────────────────────────────────────
+    # ── Seed default roles (v6.0) + display names (v7.1) ──────────────────────
     rdb = _connect_db()
     rdb.row_factory = sqlite3.Row
     for role_name, perms in DEFAULT_ROLE_PERMISSIONS.items():
+        display = ROLE_DISPLAY_NAMES.get(role_name, role_name)
         rdb.execute(
-            'INSERT OR IGNORE INTO roles (name, permissions, is_default) VALUES (?,?,1)',
-            (role_name, json.dumps(perms)),
+            'INSERT OR IGNORE INTO roles (name, permissions, is_default, display_name) VALUES (?,?,1,?)',
+            (role_name, json.dumps(perms), display),
+        )
+        # Migrate existing rows that pre-date the display_name column
+        rdb.execute(
+            'UPDATE roles SET display_name = ? WHERE name = ? AND (display_name IS NULL OR display_name = "")',
+            (display, role_name),
         )
     rdb.commit()
 
@@ -480,14 +545,15 @@ def has_permission(permission_code):
 def tpl_ctx():
     """Inject current user info into every protected template."""
     return {
-        'current_user':     session.get('username', ''),
-        'current_role':     session.get('role', ''),
-        'current_session':  session.get('session_assigned', ''),
-        'app_version':      APP_VERSION,
-        'session_types':    get_session_types(),        # [{id, name, weekday}, ...]
-        'user_permissions': session.get('permissions', []),  # list of permission codes
-        'club_name':        CLUB_NAME,
-        'club_short_name':  CLUB_SHORT_NAME,
+        'current_user':         session.get('username', ''),
+        'current_role':         session.get('role', ''),
+        'current_role_display': session.get('role_display', session.get('role', '')),
+        'current_session':      session.get('session_assigned', ''),
+        'app_version':          APP_VERSION,
+        'session_types':        get_session_types(),        # [{id, name, weekday}, ...]
+        'user_permissions':     session.get('permissions', []),  # list of permission codes
+        'club_name':            CLUB_NAME,
+        'club_short_name':      CLUB_SHORT_NAME,
     }
 
 # ── Page routes ────────────────────────────────────────────────────────────────
@@ -554,6 +620,18 @@ def print_register_page():
         ORDER   BY m.first_name, m.surname
     ''', (session_type,)).fetchall()
 
+    # Fetch session notes for this date + session type
+    notes = db.execute('''
+        SELECT  sn.id, sn.note_type, sn.title, sn.details, sn.created_at,
+                u.username   AS added_by_name,
+                m.first_name AS member_first, m.surname AS member_surname
+        FROM    session_notes sn
+        LEFT JOIN users   u ON u.id = sn.added_by
+        LEFT JOIN members m ON m.id = sn.member_id
+        WHERE   sn.session_date = ? AND sn.session_type = ?
+        ORDER   BY sn.created_at
+    ''', (date, session_type)).fetchall()
+
     # Format date nicely for display (YYYY-MM-DD → DD/MM/YYYY)
     try:
         from datetime import datetime as _dt
@@ -567,8 +645,112 @@ def print_register_page():
         date=date,
         display_date=display_date,
         members=[dict(r) for r in members],
+        notes=[dict(r) for r in notes],
         club_name=CLUB_NAME,
         club_short_name=CLUB_SHORT_NAME,
+    )
+
+
+@app.route('/register/export')
+@login_required
+def export_register_page():
+    """
+    Print-ready export of a completed register: full attendance with sign-in/out
+    times, duration, and all session notes. Opens in a new tab for browser print/save.
+    Requires register.export permission.
+    """
+    if not has_permission('register.export'):
+        return 'Access denied', 403
+
+    session_type = request.args.get('session', '').strip()
+    date         = request.args.get('date', '').strip()
+
+    if not session_type or not date:
+        return 'Missing session or date parameter', 400
+
+    valid_sessions = get_valid_session_names()
+    if session_type not in valid_sessions:
+        return 'Invalid session type', 400
+
+    db = get_db()
+
+    # Must be a completed register
+    completion = db.execute('''
+        SELECT sc.completed_at, sc.auto_signout_count,
+               u.username AS completed_by_name
+        FROM   session_completions sc
+        LEFT JOIN users u ON u.id = sc.completed_by
+        WHERE  sc.session_date = ? AND sc.session_type = ?
+    ''', (date, session_type)).fetchone()
+    if not completion:
+        return 'This register has not been completed yet.', 400
+
+    # Full member attendance — everyone expected, whether they arrived or not
+    members = db.execute('''
+        SELECT  m.first_name, m.surname, m.unattended_exit,
+                a.signed_in_at, a.signed_out_at
+        FROM    members m
+        LEFT JOIN attendance a
+               ON  a.member_id   = m.id
+               AND a.session_date = ?
+               AND a.session_type = ?
+        WHERE   m.status     != 'Leaver'
+          AND   m.member_type = 'member'
+          AND   m.session     = ?
+        ORDER   BY m.surname, m.first_name
+    ''', (date, session_type, session_type)).fetchall()
+
+    # Staff attendance
+    staff = db.execute('''
+        SELECT  m.first_name, m.surname, m.staff_role,
+                a.signed_in_at, a.signed_out_at
+        FROM    members m
+        LEFT JOIN attendance a
+               ON  a.member_id   = m.id
+               AND a.session_date = ?
+               AND a.session_type = ?
+        WHERE   m.status     != 'Leaver'
+          AND   m.member_type = 'staff'
+          AND   m.session     = ?
+        ORDER   BY m.surname, m.first_name
+    ''', (date, session_type, session_type)).fetchall()
+
+    # Session notes
+    notes = db.execute('''
+        SELECT  sn.note_type, sn.title, sn.details, sn.created_at,
+                u.username   AS added_by_name,
+                m.first_name AS member_first, m.surname AS member_surname
+        FROM    session_notes sn
+        LEFT JOIN users   u ON u.id = sn.added_by
+        LEFT JOIN members m ON m.id = sn.member_id
+        WHERE   sn.session_date = ? AND sn.session_type = ?
+        ORDER   BY sn.created_at
+    ''', (date, session_type)).fetchall()
+
+    try:
+        from datetime import datetime as _dt
+        display_date = _dt.strptime(date, '%Y-%m-%d').strftime('%A %d %B %Y')
+    except ValueError:
+        display_date = date
+
+    # Calculate attended / not arrived counts for the header
+    attended    = sum(1 for m in members if m['signed_in_at'])
+    not_arrived = sum(1 for m in members if not m['signed_in_at'])
+
+    return render_template(
+        'register_export.html',
+        session_type    = session_type,
+        date            = date,
+        display_date    = display_date,
+        completion      = dict(completion),
+        members         = [dict(m) for m in members],
+        staff           = [dict(s) for s in staff],
+        notes           = [dict(n) for n in notes],
+        attended        = attended,
+        not_arrived     = not_arrived,
+        club_name       = CLUB_NAME,
+        club_short_name = CLUB_SHORT_NAME,
+        app_version     = APP_VERSION,
     )
 
 
@@ -625,6 +807,11 @@ def roles_page():
 @permission_required('admin.settings')
 def staff_roles_page():
     return render_template('admin/staff_roles.html', active_page='staff_roles', **tpl_ctx())
+
+@app.route('/admin/tags')
+@permission_required('admin.settings')
+def tags_page():
+    return render_template('admin/tags.html', active_page='tags', **tpl_ctx())
 
 @app.route('/api/settings')
 @permission_required('admin.settings')
@@ -690,14 +877,16 @@ def api_login():
         # Load permissions from the roles table via role_id.
         # Fall back to the role text column if role_id is not yet set
         # (safety net for the one-release transition period).
-        perms = []
-        role_name = user['role']
+        perms        = []
+        role_name    = user['role']
+        role_display = ROLE_DISPLAY_NAMES.get(role_name, role_name)
         if user['role_id']:
             role_row = db.execute(
-                'SELECT name, permissions FROM roles WHERE id = ?', (user['role_id'],)
+                'SELECT name, permissions, display_name FROM roles WHERE id = ?', (user['role_id'],)
             ).fetchone()
             if role_row:
-                role_name = role_row['name']
+                role_name    = role_row['name']
+                role_display = role_row['display_name'] or ROLE_DISPLAY_NAMES.get(role_name, role_name)
                 try:
                     perms = json.loads(role_row['permissions'])
                 except (TypeError, ValueError):
@@ -705,20 +894,22 @@ def api_login():
         else:
             # Fallback: look up by role name (covers users not yet migrated)
             role_row = db.execute(
-                'SELECT name, permissions FROM roles WHERE name = ?', (user['role'],)
+                'SELECT name, permissions, display_name FROM roles WHERE name = ?', (user['role'],)
             ).fetchone()
             if role_row:
+                role_display = role_row['display_name'] or ROLE_DISPLAY_NAMES.get(role_name, role_name)
                 try:
                     perms = json.loads(role_row['permissions'])
                 except (TypeError, ValueError):
                     perms = []
 
         session.permanent = True
-        session['user_id']          = user['id']
-        session['username']         = user['username']
-        session['role']             = role_name          # kept for _assigned_session() + templates
-        session['permissions']      = perms              # v6.0: full permission list
-        session['session_assigned'] = user['session_assigned'] or ''
+        session['user_id']            = user['id']
+        session['username']           = user['username']
+        session['role']               = role_name          # slug — kept for _assigned_session() + templates
+        session['role_display']       = role_display       # v7.1: human-readable label
+        session['permissions']        = perms              # v6.0: full permission list
+        session['session_assigned']   = user['session_assigned'] or ''
 
         db.execute('UPDATE users SET last_login = ? WHERE id = ?',
                    (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), user['id']))
@@ -749,6 +940,7 @@ def api_me():
     return jsonify({
         'username':         session['username'],
         'role':             session['role'],
+        'role_display':     session.get('role_display', session['role']),
         'session_assigned': session.get('session_assigned', ''),
         'permissions':      session.get('permissions', []),
     })
@@ -1994,6 +2186,31 @@ def api_approvals_reject(reg_id):
 
 # ── BLUEPRINT: attendance (Phase 3) ───────────────────────────────────────────
 
+def _fetch_tags_for_members(db, member_ids):
+    """Return {member_id: [{id, name, icon, colour, category}, ...]} for a list of member IDs."""
+    if not member_ids:
+        return {}
+    placeholders = ','.join('?' * len(member_ids))
+    rows = db.execute(f'''
+        SELECT  mt.member_id,
+                td.id, td.name, td.icon, td.colour, td.category
+        FROM    member_tags mt
+        JOIN    tag_definitions td ON td.id = mt.tag_id AND td.active = 1
+        WHERE   mt.member_id IN ({placeholders})
+        ORDER   BY td.sort_order, td.name
+    ''', member_ids).fetchall()
+    result = {}
+    for r in rows:
+        result.setdefault(r['member_id'], []).append({
+            'id':       r['id'],
+            'name':     r['name'],
+            'icon':     r['icon'],
+            'colour':   r['colour'],
+            'category': r['category'],
+        })
+    return result
+
+
 @app.route('/api/attendance/<session_type>/<date>')
 @login_required
 def api_attendance_get(session_type, date):
@@ -2030,7 +2247,14 @@ def api_attendance_get(session_type, date):
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()
 
-    return jsonify([dict(r) for r in rows])
+    member_ids  = [r['id'] for r in rows]
+    tags_by_member = _fetch_tags_for_members(db, member_ids)
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['tags'] = tags_by_member.get(r['id'], [])
+        result.append(d)
+    return jsonify(result)
 
 
 @app.route('/api/attendance/staff/<session_type>/<date>')
@@ -2063,7 +2287,14 @@ def api_attendance_staff_get(session_type, date):
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()
 
-    return jsonify([dict(r) for r in rows])
+    member_ids     = [r['id'] for r in rows]
+    tags_by_member = _fetch_tags_for_members(db, member_ids)
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['tags'] = tags_by_member.get(r['id'], [])
+        result.append(d)
+    return jsonify(result)
 
 
 @app.route('/api/attendance/signin', methods=['POST'])
@@ -2909,7 +3140,7 @@ def api_calendar_upcoming():
 
 # ── BLUEPRINT: documents ──────────────────────────────────────────────────────
 
-CATEGORY_LABELS = ('policy', 'template', 'form', 'general')
+CATEGORY_LABELS = ('policy', 'template', 'form', 'general', 'registers')
 # Numeric rank used to gate document access.
 # readonly=0, leader=1, editor=2, admin=3
 # When uploading a doc, set access_role to the minimum rank required.
@@ -3357,11 +3588,14 @@ def api_roles_list():
     """Return all roles with their permission sets."""
     db   = get_db()
     rows = db.execute(
-        'SELECT id, name, is_default, permissions, created_at FROM roles ORDER BY name'
+        'SELECT id, name, display_name, is_default, permissions, created_at FROM roles ORDER BY name'
     ).fetchall()
     result = []
     for r in rows:
         d = dict(r)
+        # Fall back to slug if display_name not yet set (pre-migration rows)
+        if not d.get('display_name'):
+            d['display_name'] = ROLE_DISPLAY_NAMES.get(d['name'], d['name'])
         try:
             d['permissions'] = json.loads(d['permissions'])
         except (TypeError, ValueError):
@@ -3374,9 +3608,10 @@ def api_roles_list():
 @permission_required('admin.settings')
 def api_roles_create():
     """Create a new custom role."""
-    data  = request.get_json() or {}
-    name  = data.get('name', '').strip()
-    perms = data.get('permissions', [])
+    data         = request.get_json() or {}
+    name         = data.get('name', '').strip()
+    display_name = data.get('display_name', '').strip() or name
+    perms        = data.get('permissions', [])
 
     if not name:
         return jsonify({'error': 'Role name is required'}), 400
@@ -3384,7 +3619,7 @@ def api_roles_create():
         return jsonify({'error': 'permissions must be a list'}), 400
 
     # Validate all permission codes exist
-    db         = get_db()
+    db          = get_db()
     valid_codes = {r['code'] for r in db.execute('SELECT code FROM permissions').fetchall()}
     bad = [p for p in perms if p not in valid_codes]
     if bad:
@@ -3396,12 +3631,12 @@ def api_roles_create():
 
     try:
         cur = db.execute(
-            'INSERT INTO roles (name, permissions, is_default) VALUES (?,?,0)',
-            (name, json.dumps(perms))
+            'INSERT INTO roles (name, display_name, permissions, is_default) VALUES (?,?,?,0)',
+            (name, display_name, json.dumps(perms))
         )
         db.commit()
         log_action('create_role', 'roles', cur.lastrowid, {'name': name, 'permissions': perms})
-        row = db.execute('SELECT id, name, is_default, permissions, created_at FROM roles WHERE id = ?',
+        row = db.execute('SELECT id, name, display_name, is_default, permissions, created_at FROM roles WHERE id = ?',
                          (cur.lastrowid,)).fetchone()
         d = dict(row)
         d['permissions'] = json.loads(d['permissions'])
@@ -3413,15 +3648,16 @@ def api_roles_create():
 @app.route('/api/admin/roles/<int:role_id>', methods=['PUT'])
 @permission_required('admin.settings')
 def api_roles_update(role_id):
-    """Update a role's name and/or permission set."""
+    """Update a role's name, display name, and/or permission set."""
     data  = request.get_json() or {}
     db    = get_db()
     role  = db.execute('SELECT * FROM roles WHERE id = ?', (role_id,)).fetchone()
     if not role:
         return jsonify({'error': 'Role not found'}), 404
 
-    name  = data.get('name', role['name']).strip()
-    perms = data.get('permissions', json.loads(role['permissions']))
+    name         = data.get('name', role['name']).strip()
+    display_name = data.get('display_name', role['display_name'] or role['name']).strip() or name
+    perms        = data.get('permissions', json.loads(role['permissions']))
 
     if not name:
         return jsonify({'error': 'Role name is required'}), 400
@@ -3442,17 +3678,17 @@ def api_roles_update(role_id):
 
     try:
         db.execute(
-            'UPDATE roles SET name = ?, permissions = ? WHERE id = ?',
-            (name, json.dumps(perms), role_id)
+            'UPDATE roles SET name = ?, display_name = ?, permissions = ? WHERE id = ?',
+            (name, display_name, json.dumps(perms), role_id)
         )
         db.commit()
-        log_action('update_role', 'roles', role_id, {'name': name, 'permissions': perms})
+        log_action('update_role', 'roles', role_id, {'name': name, 'display_name': display_name, 'permissions': perms})
     except sqlite3.IntegrityError:
         return jsonify({'error': f'A role named "{name}" already exists'}), 409
 
     # Refresh session permissions if the user's own role was updated
     # (so changes take effect on their next page load rather than next login)
-    row = db.execute('SELECT id, name, is_default, permissions, created_at FROM roles WHERE id = ?',
+    row = db.execute('SELECT id, name, display_name, is_default, permissions, created_at FROM roles WHERE id = ?',
                      (role_id,)).fetchone()
     d = dict(row)
     d['permissions'] = json.loads(d['permissions'])
@@ -3484,6 +3720,281 @@ def api_roles_delete(role_id):
     return jsonify({'success': True})
 
 
+# ── BLUEPRINT: tag definitions admin CRUD (Phase 7.1) ────────────────────────
+
+@app.route('/api/tags')
+@permission_required('members.view')
+def api_tags_public():
+    """Return all active tag definitions — used by the member edit UI for assignment."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, category, icon, colour FROM tag_definitions '
+        'WHERE active = 1 ORDER BY sort_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/tags')
+@permission_required('admin.settings')
+def api_tags_list():
+    """Return all tag definitions including inactive ones (admin view)."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, category, icon, colour, active, sort_order '
+        'FROM tag_definitions ORDER BY sort_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/tags', methods=['POST'])
+@permission_required('admin.settings')
+def api_tags_create():
+    data     = request.get_json() or {}
+    name     = data.get('name', '').strip()
+    category = data.get('category', 'General').strip() or 'General'
+    icon     = data.get('icon', '🏷').strip() or '🏷'
+    colour   = data.get('colour', '#3b82f6').strip() or '#3b82f6'
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+
+    db        = get_db()
+    max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM tag_definitions').fetchone()[0]
+    try:
+        cur = db.execute(
+            'INSERT INTO tag_definitions (name, category, icon, colour, active, sort_order) VALUES (?,?,?,?,1,?)',
+            (name, category, icon, colour, max_order + 1)
+        )
+        db.commit()
+        log_action('create_tag', 'tag_definitions', cur.lastrowid, {'name': name})
+        return jsonify(dict(db.execute('SELECT * FROM tag_definitions WHERE id = ?', (cur.lastrowid,)).fetchone())), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A tag named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/tags/<int:tag_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_tags_update(tag_id):
+    db  = get_db()
+    row = db.execute('SELECT * FROM tag_definitions WHERE id = ?', (tag_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Tag not found'}), 404
+
+    data     = request.get_json() or {}
+    name     = data.get('name',     row['name']).strip()
+    category = data.get('category', row['category']).strip() or 'General'
+    icon     = data.get('icon',     row['icon']).strip() or '🏷'
+    colour   = data.get('colour',   row['colour']).strip() or '#3b82f6'
+    active   = int(data.get('active', row['active']))
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    try:
+        db.execute(
+            'UPDATE tag_definitions SET name=?, category=?, icon=?, colour=?, active=? WHERE id=?',
+            (name, category, icon, colour, active, tag_id)
+        )
+        db.commit()
+        log_action('update_tag', 'tag_definitions', tag_id, {'name': name, 'active': active})
+        return jsonify(dict(db.execute('SELECT * FROM tag_definitions WHERE id = ?', (tag_id,)).fetchone()))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A tag named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/tags/reorder', methods=['POST'])
+@permission_required('admin.settings')
+def api_tags_reorder():
+    items = request.get_json() or []
+    db    = get_db()
+    for item in items:
+        db.execute('UPDATE tag_definitions SET sort_order = ? WHERE id = ?',
+                   (item.get('sort_order', 0), item.get('id')))
+    db.commit()
+    return jsonify({'success': True})
+
+
+# ── Member tag assignment ──────────────────────────────────────────────────────
+
+@app.route('/api/members/<int:member_id>/tags')
+@permission_required('members.view')
+def api_member_tags_get(member_id):
+    """Return all active tags assigned to a member."""
+    db   = get_db()
+    rows = db.execute('''
+        SELECT  mt.id AS assignment_id, mt.expires_at, mt.notes, mt.created_at,
+                td.id AS tag_id, td.name, td.icon, td.colour, td.category
+        FROM    member_tags mt
+        JOIN    tag_definitions td ON td.id = mt.tag_id
+        WHERE   mt.member_id = ?
+        ORDER   BY td.sort_order, td.name
+    ''', (member_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/members/<int:member_id>/tags', methods=['POST'])
+@permission_required('members.tags')
+def api_member_tags_add(member_id):
+    """Assign a tag to a member."""
+    data       = request.get_json() or {}
+    tag_id     = data.get('tag_id')
+    expires_at = data.get('expires_at', None)
+    notes      = data.get('notes', '').strip() or None
+
+    if not tag_id:
+        return jsonify({'error': 'tag_id is required'}), 400
+
+    db  = get_db()
+    tag = db.execute('SELECT id, name FROM tag_definitions WHERE id = ? AND active = 1', (tag_id,)).fetchone()
+    if not tag:
+        return jsonify({'error': 'Tag not found or inactive'}), 404
+
+    try:
+        cur = db.execute(
+            'INSERT INTO member_tags (member_id, tag_id, expires_at, notes) VALUES (?,?,?,?)',
+            (member_id, tag_id, expires_at, notes)
+        )
+        db.commit()
+        log_action('add_member_tag', 'member_tags', cur.lastrowid,
+                   {'member_id': member_id, 'tag': tag['name']})
+        row = db.execute('''
+            SELECT mt.id AS assignment_id, mt.expires_at, mt.notes, mt.created_at,
+                   td.id AS tag_id, td.name, td.icon, td.colour, td.category
+            FROM   member_tags mt JOIN tag_definitions td ON td.id = mt.tag_id
+            WHERE  mt.id = ?
+        ''', (cur.lastrowid,)).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'This tag is already assigned to the member'}), 409
+
+
+@app.route('/api/members/<int:member_id>/tags/<int:tag_id>', methods=['DELETE'])
+@permission_required('members.tags')
+def api_member_tags_remove(member_id, tag_id):
+    """Remove a tag assignment from a member (tag_id here is the tag_definitions.id)."""
+    db  = get_db()
+    row = db.execute(
+        'SELECT id FROM member_tags WHERE member_id = ? AND tag_id = ?',
+        (member_id, tag_id)
+    ).fetchone()
+    if not row:
+        return jsonify({'error': 'Tag assignment not found'}), 404
+
+    db.execute('DELETE FROM member_tags WHERE id = ?', (row['id'],))
+    db.commit()
+    log_action('remove_member_tag', 'member_tags', row['id'],
+               {'member_id': member_id, 'tag_id': tag_id})
+    return jsonify({'success': True})
+
+
+# ── BLUEPRINT: session notes (Phase 7.1) ──────────────────────────────────────
+
+NOTE_TYPES = ('General', 'Medical', 'Safeguarding', 'Behaviour', 'Accident', 'Other')
+
+
+@app.route('/api/register/notes/<session_type>/<date>')
+@permission_required('register.signout')   # minimum permission — everyone on the register page
+def api_notes_get(session_type, date):
+    """Return all session notes for a given session and date."""
+    db    = get_db()
+    rows  = db.execute('''
+        SELECT  sn.id, sn.note_type, sn.title, sn.details, sn.created_at,
+                sn.member_id,
+                u.username   AS added_by_name,
+                m.first_name AS member_first, m.surname AS member_surname
+        FROM    session_notes sn
+        LEFT JOIN users   u ON u.id = sn.added_by
+        LEFT JOIN members m ON m.id = sn.member_id
+        WHERE   sn.session_date = ? AND sn.session_type = ?
+        ORDER   BY sn.created_at
+    ''', (date, session_type)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/register/notes', methods=['POST'])
+@permission_required('register.notes')
+def api_notes_create():
+    """Add a new session note or incident."""
+    data         = request.get_json() or {}
+    session_date = data.get('session_date', '').strip()
+    session_type = data.get('session_type', '').strip()
+    note_type    = data.get('note_type', 'General').strip()
+    title        = data.get('title', '').strip()
+    details      = data.get('details', '').strip()
+    member_id    = data.get('member_id') or None
+
+    if not session_date or not session_type:
+        return jsonify({'error': 'session_date and session_type are required'}), 400
+    if note_type not in NOTE_TYPES:
+        note_type = 'General'
+    if not title and not details:
+        return jsonify({'error': 'Please provide at least a title or details'}), 400
+
+    # Validate session type
+    valid_sessions = get_valid_session_names()
+    if session_type not in valid_sessions:
+        return jsonify({'error': 'Invalid session type'}), 400
+
+    db = get_db()
+
+    # Validate member_id belongs to this session if provided
+    if member_id:
+        member = db.execute(
+            'SELECT id FROM members WHERE id = ? AND session = ? AND status != "Leaver"',
+            (member_id, session_type)
+        ).fetchone()
+        if not member:
+            member_id = None  # silently clear invalid member link
+
+    cur = db.execute(
+        '''INSERT INTO session_notes (session_date, session_type, member_id, note_type, title, details, added_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+        (session_date, session_type, member_id, note_type, title, details, session['user_id'])
+    )
+    db.commit()
+
+    log_action('create_session_note', 'session_notes', cur.lastrowid, {
+        'session_date': session_date,
+        'session_type': session_type,
+        'note_type':    note_type,
+    })
+
+    row = db.execute('''
+        SELECT  sn.id, sn.note_type, sn.title, sn.details, sn.created_at,
+                sn.member_id,
+                u.username   AS added_by_name,
+                m.first_name AS member_first, m.surname AS member_surname
+        FROM    session_notes sn
+        LEFT JOIN users   u ON u.id = sn.added_by
+        LEFT JOIN members m ON m.id = sn.member_id
+        WHERE   sn.id = ?
+    ''', (cur.lastrowid,)).fetchone()
+    return jsonify(dict(row)), 201
+
+
+@app.route('/api/register/notes/<int:note_id>', methods=['DELETE'])
+@permission_required('register.notes')
+def api_notes_delete(note_id):
+    """Delete a session note. Only the original author or an admin may delete."""
+    db   = get_db()
+    note = db.execute('SELECT * FROM session_notes WHERE id = ?', (note_id,)).fetchone()
+    if not note:
+        return jsonify({'error': 'Note not found'}), 404
+
+    # Only the author or admin can delete
+    is_admin   = session.get('role') == 'admin'
+    is_author  = note['added_by'] == session['user_id']
+    if not is_admin and not is_author:
+        return jsonify({'error': 'You can only delete your own notes'}), 403
+
+    db.execute('DELETE FROM session_notes WHERE id = ?', (note_id,))
+    db.commit()
+    log_action('delete_session_note', 'session_notes', note_id, {
+        'session_date': note['session_date'],
+        'session_type': note['session_type'],
+    })
+    return jsonify({'success': True})
+
+
 # ── Run ────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -3492,4 +4003,6 @@ if __name__ == '__main__':
         print('First run — initialising database…')
         init_db()
     _debug = os.environ.get('FLASK_DEBUG', '0') == '1'
-    app.run(debug=_debug, host='127.0.0.1', port=5001, threaded=True)
+    # PORT can be set by the service manager (launchd / systemd) for multi-instance
+    _port = int(os.environ.get('PORT', 5001))
+    app.run(debug=_debug, host='127.0.0.1', port=_port, threaded=True)

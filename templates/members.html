@@ -141,6 +141,30 @@
       <textarea id="e-comments" rows="2"></textarea>
     </div>
 
+    {% if 'members.tags' in user_permissions %}
+    <!-- ── Tags section ───────────────────────────────────── -->
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <label style="margin:0;font-weight:700">🎖 Skills &amp; Badges</label>
+        <button class="btn btn-ghost btn-sm" onclick="openTagPicker()"
+                id="add-tag-btn" type="button">+ Add</button>
+      </div>
+      <div id="member-tags-display"
+           style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px">
+        <span style="font-size:12px;color:var(--muted);padding-top:4px" id="no-tags-hint">
+          No tags assigned
+        </span>
+      </div>
+
+      <!-- Tag picker dropdown -->
+      <div id="tag-picker" style="display:none;margin-top:10px;
+           background:var(--bg);border:1.5px solid var(--border);
+           border-radius:10px;padding:10px;max-height:200px;overflow-y:auto">
+        <div id="tag-picker-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
       <button class="btn btn-primary" id="edit-save-btn" onclick="saveEdit()">Save Changes</button>
@@ -421,6 +445,13 @@
       </div>
     </div>
 
+    <div class="detail-section" id="member-tags-detail-section-${m.id}">
+      <div class="sec-title">🎖 Skills &amp; Badges</div>
+      <div id="member-tags-detail-${m.id}" style="display:flex;flex-wrap:wrap;gap:6px;min-height:22px">
+        <span style="font-size:13px;color:var(--muted)">No skills or badges assigned.</span>
+      </div>
+    </div>
+
     <div class="detail-section">
       <div class="sec-title">📋 Registration</div>
       <div class="dg">
@@ -467,7 +498,33 @@
         if (attDiv.textContent.trim() === 'Loading…') {
           loadAttendanceHistory(memberId, attDiv);
         }
+        // Lazy-load tag badges on first open only
+        const tagsEl = document.getElementById('member-tags-detail-' + memberId);
+        if (tagsEl && !tagsEl.dataset.loaded) {
+          loadDetailCardTags(memberId, tagsEl);
+        }
       }
+    }
+  }
+
+  async function loadDetailCardTags(memberId, el) {
+    try {
+      const tags = await apiFetch(`/api/members/${memberId}/tags`);
+      el.dataset.loaded = '1';
+      if (!tags.length) {
+        el.innerHTML = '<span style="font-size:13px;color:var(--muted)">No skills or badges assigned.</span>';
+      } else {
+        el.innerHTML = tags.map(t => `
+          <span style="display:inline-flex;align-items:center;gap:5px;
+                font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;
+                background:${t.colour}20;color:${t.colour};
+                border:1px solid ${t.colour}40">
+            ${esc(t.icon || '🏷')} ${esc(t.name)}
+          </span>`).join('');
+      }
+    } catch (e) {
+      // Silently fail — tags are supplementary info
+      console.warn('Could not load member tags for detail card:', e.message);
     }
   }
 
@@ -530,13 +587,152 @@
     document.getElementById('e-c2-email').value = m.contact2_email || '';
 
     document.getElementById('edit-modal').classList.add('open');
+    {% if 'members.tags' in user_permissions %}
+    _memberTags = [];
+    renderMemberTags();
+    loadMemberTags(memberId);
+    {% endif %}
     document.getElementById('e-first_name').focus();
   }
 
   function closeEditModal() {
     document.getElementById('edit-modal').classList.remove('open');
+    closeTagPicker();
     editingId = null;
   }
+
+  /* ── Member tags ───────────────────────────────────── */
+  {% if 'members.tags' in user_permissions %}
+  let _memberTags    = [];   // currently assigned tags for the open member
+  let _allTagDefs    = [];   // all active tag definitions
+  let _tagPickerOpen = false;
+
+  async function loadMemberTags(memberId) {
+    const display  = document.getElementById('member-tags-display');
+    const noHint   = document.getElementById('no-tags-hint');
+    if (!display) return;
+
+    try {
+      // Load both in parallel
+      const [assigned, allDefs] = await Promise.all([
+        apiFetch(`/api/members/${memberId}/tags`),
+        _allTagDefs.length ? Promise.resolve(_allTagDefs) : apiFetch('/api/tags'),
+      ]);
+      _memberTags = assigned;
+      _allTagDefs = allDefs;
+      renderMemberTags();
+    } catch (e) {
+      console.warn('Could not load member tags:', e.message);
+    }
+  }
+
+  function renderMemberTags() {
+    const display = document.getElementById('member-tags-display');
+    const noHint  = document.getElementById('no-tags-hint');
+
+    // Build the badge HTML shared by both the edit modal and the detail card
+    const badgeHtml = _memberTags.map(t => `
+      <span style="display:inline-flex;align-items:center;gap:5px;
+            font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;
+            background:${t.colour}20;color:${t.colour};
+            border:1px solid ${t.colour}40">
+        ${esc(t.icon || '🏷')} ${esc(t.name)}
+      </span>`).join('');
+
+    // Update edit-modal display (only present when modal is open)
+    if (display) {
+      if (!_memberTags.length) {
+        display.innerHTML = '';
+        if (noHint) { noHint.style.display = ''; display.appendChild(noHint); }
+      } else {
+        if (noHint) noHint.style.display = 'none';
+        // Re-render with remove buttons for the modal
+        display.innerHTML = _memberTags.map(t => `
+          <span style="display:inline-flex;align-items:center;gap:5px;
+                font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;
+                background:${t.colour}20;color:${t.colour};
+                border:1px solid ${t.colour}40">
+            ${esc(t.icon || '🏷')} ${esc(t.name)}
+            <button type="button"
+                    onclick="removeTag(${t.tag_id})"
+                    style="background:none;border:none;cursor:pointer;
+                           color:${t.colour};font-size:13px;padding:0;line-height:1;
+                           opacity:.7"
+                    title="Remove">✕</button>
+          </span>`).join('');
+      }
+    }
+
+    // Also update the read-only detail card if it's in the DOM
+    if (editingId) {
+      const detailEl = document.getElementById('member-tags-detail-' + editingId);
+      if (detailEl) {
+        detailEl.dataset.loaded = '1';   // prevent stale lazy-load overwriting our fresh data
+        detailEl.innerHTML = _memberTags.length
+          ? badgeHtml
+          : '<span style="font-size:13px;color:var(--muted)">No skills or badges assigned.</span>';
+      }
+    }
+  }
+
+  function openTagPicker() {
+    if (!_allTagDefs.length) { showToast('No tags defined yet — add some in Settings → Skills & Badges.', true); return; }
+    const picker     = document.getElementById('tag-picker');
+    const pickerList = document.getElementById('tag-picker-list');
+    _tagPickerOpen   = !_tagPickerOpen;
+
+    if (!_tagPickerOpen) { picker.style.display = 'none'; return; }
+
+    // Only show tags not already assigned
+    const assignedIds = new Set(_memberTags.map(t => t.tag_id));
+    const available   = _allTagDefs.filter(t => !assignedIds.has(t.id));
+
+    if (!available.length) {
+      pickerList.innerHTML = '<span style="font-size:12px;color:var(--muted)">All tags already assigned.</span>';
+    } else {
+      pickerList.innerHTML = available.map(t => `
+        <button type="button"
+                onclick="addTag(${t.id})"
+                style="display:inline-flex;align-items:center;gap:5px;
+                       font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;
+                       background:${t.colour}15;color:${t.colour};
+                       border:1.5px solid ${t.colour}40;cursor:pointer">
+          ${esc(t.icon || '🏷')} ${esc(t.name)}
+        </button>`).join('');
+    }
+    picker.style.display = '';
+  }
+
+  function closeTagPicker() {
+    _tagPickerOpen = false;
+    const picker = document.getElementById('tag-picker');
+    if (picker) picker.style.display = 'none';
+  }
+
+  async function addTag(tagId) {
+    if (!editingId) return;
+    try {
+      await apiFetch(`/api/members/${editingId}/tags`, {
+        method: 'POST',
+        body:   JSON.stringify({ tag_id: tagId }),
+      });
+      closeTagPicker();
+      await loadMemberTags(editingId);
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function removeTag(tagId) {
+    if (!editingId) return;
+    try {
+      await apiFetch(`/api/members/${editingId}/tags/${tagId}`, { method: 'DELETE' });
+      await loadMemberTags(editingId);
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+  {% endif %}
 
   async function saveEdit() {
     if (!editingId) return;

@@ -51,6 +51,23 @@
   </div>
 </div>
 
+<!-- ── Skills & Badges link ───────────────────────────────────────────────── -->
+{% if 'admin.settings' in user_permissions %}
+<div class="form-card" style="max-width:560px;margin-top:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    🎖 Skills &amp; Badges
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Define the skill and badge tags that can be assigned to members — e.g. First Aider,
+    DBS Checked, Bronze DofE. Tags appear as colour-coded badges on member cards and
+    in the session register.
+  </p>
+  <a href="/admin/tags" class="btn btn-primary" style="display:inline-block;text-decoration:none">
+    Manage Skills &amp; Badges →
+  </a>
+</div>
+{% endif %}
+
 <!-- ── Staff Roles link ────────────────────────────────────────────────────── -->
 {% if 'admin.settings' in user_permissions %}
 <div class="form-card" style="max-width:560px;margin-top:24px">

@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Skills & Badges{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🎖 Skills &amp; Badges</h1>
+</div>
+
+<div class="form-card" style="max-width:640px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Manage Skills &amp; Badges
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    Define the tags that can be assigned to members. They appear as colour-coded badges
+    on member cards and in the session register — useful for flagging First Aiders,
+    DBS Checked status, DofE awards and more.
+  </p>
+
+  <!-- Tag list -->
+  <div id="tags-list" style="margin-bottom:20px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <!-- Add new tag button -->
+  <div style="border-top:1px solid var(--border);padding-top:16px">
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add Skill / Badge</button>
+  </div>
+</div>
+
+<!-- ── Add / Edit modal ───────────────────────────────────────────────────── -->
+<div id="tag-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:460px">
+    <h2 id="modal-title">Add Skill / Badge</h2>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Name</label>
+      <input id="tag-name" class="form-input" placeholder="e.g. First Aider" maxlength="60">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="tag-category" class="form-input">
+          <option value="Staff Skill">Staff Skill</option>
+          <option value="Youth Achievement">Youth Achievement</option>
+          <option value="Safeguarding">Safeguarding</option>
+          <option value="Medical">Medical</option>
+          <option value="General">General</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Icon <span style="color:var(--muted);font-weight:400">(emoji)</span></label>
+        <input id="tag-icon" class="form-input" placeholder="🏷" maxlength="4"
+               style="font-size:20px;text-align:center">
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Badge colour</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <!-- Preset swatches -->
+        <div id="colour-swatches" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <!-- Custom picker -->
+        <input type="color" id="tag-colour" value="#3b82f6"
+               oninput="syncColourFromPicker()"
+               style="width:36px;height:36px;border:none;background:none;cursor:pointer;padding:0">
+        <span id="colour-preview"
+              style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;
+                     background:#3b82f620;color:#3b82f6;border:1px solid #3b82f640">
+          Preview
+        </span>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button id="modal-save-btn" class="btn btn-primary" onclick="saveTag()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let _tags      = [];
+  let _editingId = null;
+
+  const PRESETS = [
+    '#ef4444', '#f97316', '#eab308', '#22c55e',
+    '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899',
+    '#64748b', '#1e3a5f',
+  ];
+
+  /* ── Boot ──────────────────────────────────────────────── */
+  (function init() {
+    // Render preset colour swatches
+    const sw = document.getElementById('colour-swatches');
+    PRESETS.forEach(hex => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.style.cssText =
+        `width:24px;height:24px;border-radius:50%;background:${hex};
+         border:2px solid transparent;cursor:pointer;flex-shrink:0`;
+      btn.title = hex;
+      btn.onclick = () => setColour(hex);
+      sw.appendChild(btn);
+    });
+    loadTags();
+  })();
+
+  /* ── Colour helpers ────────────────────────────────────── */
+  function setColour(hex) {
+    document.getElementById('tag-colour').value = hex;
+    updateColourPreview(hex);
+    // Highlight the active swatch
+    document.querySelectorAll('#colour-swatches button').forEach(b => {
+      b.style.border = b.title === hex ? '2px solid #1e3a5f' : '2px solid transparent';
+    });
+  }
+
+  function syncColourFromPicker() {
+    const hex = document.getElementById('tag-colour').value;
+    updateColourPreview(hex);
+    document.querySelectorAll('#colour-swatches button').forEach(b => {
+      b.style.border = '2px solid transparent';
+    });
+  }
+
+  function updateColourPreview(hex) {
+    const prev = document.getElementById('colour-preview');
+    prev.style.background = hex + '20';
+    prev.style.color       = hex;
+    prev.style.border      = `1px solid ${hex}40`;
+  }
+
+  /* ── Load & render ─────────────────────────────────────── */
+  async function loadTags() {
+    const el = document.getElementById('tags-list');
+    try {
+      _tags = await apiFetch('/api/admin/tags');
+      renderTags();
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load tags: ${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderTags() {
+    const el = document.getElementById('tags-list');
+    if (!_tags.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px">No skills or badges defined yet.</p>';
+      return;
+    }
+    el.innerHTML = _tags.map(t => `
+      <div id="tag-row-${t.id}"
+           draggable="true"
+           data-id="${t.id}"
+           ondragstart="onDragStart(event,${t.id})"
+           ondragover="onDragOver(event)"
+           ondrop="onDrop(event,${t.id})"
+           ondragend="onDragEnd()"
+           style="display:flex;align-items:center;gap:10px;padding:10px 8px;
+                  border-bottom:1px solid var(--border);cursor:grab;
+                  opacity:${t.active ? '1' : '0.5'};border-radius:6px;
+                  transition:background .15s">
+        <span style="color:var(--muted);cursor:grab" title="Drag to reorder">⠿</span>
+        <span style="font-size:18px;flex-shrink:0">${esc(t.icon || '🏷')}</span>
+        <span style="flex:1">
+          <span style="font-weight:700;font-size:14px;color:var(--navy)">${esc(t.name)}</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:6px">${esc(t.category)}</span>
+        </span>
+        <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:12px;
+                     background:${t.colour}20;color:${t.colour};
+                     border:1px solid ${t.colour}40;white-space:nowrap">
+          ${esc(t.name)}
+        </span>
+        <button class="btn btn-ghost btn-sm" onclick="openEditModal(${t.id})">Edit</button>
+        <button class="btn btn-ghost btn-sm"
+                onclick="toggleActive(${t.id}, ${t.active ? 0 : 1})"
+                style="color:${t.active ? 'var(--muted)' : 'var(--teal)'}">
+          ${t.active ? 'Deactivate' : 'Activate'}
+        </button>
+      </div>`).join('');
+  }
+
+  /* ── Modal ─────────────────────────────────────────────── */
+  function openAddModal() {
+    _editingId = null;
+    document.getElementById('modal-title').textContent = 'Add Skill / Badge';
+    document.getElementById('tag-name').value          = '';
+    document.getElementById('tag-category').value      = 'Staff Skill';
+    document.getElementById('tag-icon').value          = '🏷';
+    setColour('#3b82f6');
+    document.getElementById('modal-save-btn').textContent = 'Add';
+    document.getElementById('tag-modal').classList.add('open');
+    document.getElementById('tag-name').focus();
+  }
+
+  function openEditModal(id) {
+    const t = _tags.find(x => x.id === id);
+    if (!t) return;
+    _editingId = id;
+    document.getElementById('modal-title').textContent  = `Edit: ${t.name}`;
+    document.getElementById('tag-name').value           = t.name;
+    document.getElementById('tag-category').value       = t.category;
+    document.getElementById('tag-icon').value           = t.icon || '🏷';
+    setColour(t.colour || '#3b82f6');
+    document.getElementById('modal-save-btn').textContent = 'Save Changes';
+    document.getElementById('tag-modal').classList.add('open');
+    document.getElementById('tag-name').focus();
+  }
+
+  function closeModal() {
+    document.getElementById('tag-modal').classList.remove('open');
+    _editingId = null;
+  }
+
+  async function saveTag() {
+    const name     = document.getElementById('tag-name').value.trim();
+    const category = document.getElementById('tag-category').value;
+    const icon     = document.getElementById('tag-icon').value.trim() || '🏷';
+    const colour   = document.getElementById('tag-colour').value;
+
+    if (!name) { showToast('Please enter a name.', true); return; }
+
+    const btn = document.getElementById('modal-save-btn');
+    btn.disabled = true;
+
+    try {
+      if (_editingId) {
+        await apiFetch(`/api/admin/tags/${_editingId}`, {
+          method: 'PUT',
+          body:   JSON.stringify({ name, category, icon, colour }),
+        });
+        showToast('Badge updated.');
+      } else {
+        await apiFetch('/api/admin/tags', {
+          method: 'POST',
+          body:   JSON.stringify({ name, category, icon, colour }),
+        });
+        showToast(`"${name}" added.`);
+      }
+      closeModal();
+      loadTags();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Toggle active ─────────────────────────────────────── */
+  async function toggleActive(id, active) {
+    try {
+      await apiFetch(`/api/admin/tags/${id}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ active }),
+      });
+      loadTags();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Drag-to-reorder ───────────────────────────────────── */
+  let _dragId = null;
+
+  function onDragStart(e, id) {
+    _dragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.4';
+  }
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.style.background = 'var(--cream)';
+  }
+  function onDragEnd() {
+    document.querySelectorAll('[id^="tag-row-"]').forEach(el => {
+      el.style.background = 'transparent';
+      const t = _tags.find(x => x.id == el.dataset.id);
+      if (t) el.style.opacity = t.active ? '1' : '0.5';
+    });
+  }
+  async function onDrop(e, targetId) {
+    e.preventDefault();
+    if (_dragId === targetId) return;
+    e.currentTarget.style.background = 'transparent';
+
+    const fromIdx = _tags.findIndex(t => t.id === _dragId);
+    const toIdx   = _tags.findIndex(t => t.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [moved] = _tags.splice(fromIdx, 1);
+    _tags.splice(toIdx, 0, moved);
+    const payload = _tags.map((t, i) => ({ id: t.id, sort_order: i }));
+    _tags.forEach((t, i) => t.sort_order = i);
+    renderTags();
+
+    try {
+      await apiFetch('/api/admin/tags/reorder', {
+        method: 'POST',
+        body:   JSON.stringify(payload),
+      });
+    } catch (e) {
+      showToast('Could not save order: ' + e.message, true);
+    }
+  }
+</script>
+{% endblock %}

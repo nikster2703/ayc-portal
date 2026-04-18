@@ -17,7 +17,7 @@
   <div>
     <div style="font-weight:800;font-size:14px;color:#0369a1">Public Documents</div>
     <div style="font-size:13px;color:#0284c7;margin-top:2px">
-      These documents have been shared with all staff. Contact a core leader if you need access to additional materials.
+      These documents have been shared with all staff. Contact an editor or admin if you need access to additional materials.
     </div>
   </div>
 </div>
@@ -62,14 +62,15 @@
           <option value="policy">Policy</option>
           <option value="form">Form</option>
           <option value="template">Template</option>
+          <option value="registers">Registers</option>
         </select>
       </div>
       <div class="form-group">
         <label>Visible to</label>
         <select id="upload-access">
-          <option value="readonly">All staff</option>
-          <option value="leader">Leaders+</option>
-          <option value="editor">Editors+</option>
+          <option value="readonly">All staff (Read Only+)</option>
+          <option value="leader">User+</option>
+          <option value="editor">Editor+</option>
           <option value="admin">Admin only</option>
         </select>
       </div>
@@ -151,7 +152,7 @@
     const upDate  = d.created_at
       ? new Date(d.created_at + 'Z').toLocaleDateString('en-GB')
       : '—';
-    const accessLabel = { readonly:'All staff', leader:'Leaders+', editor:'Editors+', admin:'Admin only' };
+    const accessLabel = { readonly:'All staff', leader:'User+', editor:'Editor+', admin:'Admin only' };
 
     return `
       <div class="doc-card">

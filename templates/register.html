@@ -18,6 +18,14 @@
       🖨 Print Register
     </button>
     {% endif %}
+    {% if 'register.notes' in user_permissions %}
+    <button class="btn btn-sm" id="add-note-btn"
+            onclick="openAddNoteModal()"
+            style="background:#0f766e;color:#fff;border:none"
+            title="Add a session note or incident">
+      📝 Add Note
+    </button>
+    {% endif %}
     <button class="btn btn-ghost btn-sm" id="at-risk-check-btn"
             onclick="checkAtRisk()" title="Check for members who have missed their session threshold"
             style="display:none">
@@ -40,9 +48,18 @@
 <div id="register-locked-banner" style="display:none;
      background:#f0fdf4;border:2px solid #86efac;border-radius:12px;
      padding:12px 18px;margin-bottom:14px;
-     display:none;align-items:center;gap:10px">
+     display:none;align-items:center;gap:10px;flex-wrap:wrap">
   <span style="font-size:20px">🔒</span>
   <span id="register-locked-text" style="font-size:14px;font-weight:700;color:#166534;flex:1"></span>
+  {% if 'register.export' in user_permissions %}
+  <button id="export-register-btn"
+          onclick="openExportRegister()"
+          style="display:none;background:#1e3a5f;color:#fff;border:none;
+                 border-radius:8px;padding:8px 14px;font-size:13px;
+                 font-weight:700;cursor:pointer;white-space:nowrap">
+    📄 Export Complete Register
+  </button>
+  {% endif %}
 </div>
 
 <!-- ── Complete-register confirmation modal ──────────────────────── -->
@@ -109,6 +126,71 @@
     </div>
   </div>
 </div>
+
+<!-- ── Add Note / Incident modal ─────────────────────────────── -->
+{% if 'register.notes' in user_permissions %}
+<div class="modal-overlay" id="add-note-modal">
+  <div class="modal" style="max-width:520px">
+    <h2>📝 Add Session Note</h2>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Type</label>
+      <select id="note-type-select" class="form-input">
+        <option value="General">General</option>
+        <option value="Medical">🩺 Medical</option>
+        <option value="Safeguarding">🛡 Safeguarding</option>
+        <option value="Behaviour">⚠️ Behaviour</option>
+        <option value="Accident">🚨 Accident</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Linked to member <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <select id="note-member-select" class="form-input">
+        <option value="">— Not linked to a specific member —</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Short title</label>
+      <input id="note-title-input" type="text" class="form-input"
+             placeholder="e.g. Head bump during football" maxlength="120">
+    </div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Full details</label>
+      <textarea id="note-details-input" class="form-input" rows="4"
+                placeholder="Describe what happened, when, who was involved, and any action taken…"
+                style="resize:vertical"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAddNoteModal()">Cancel</button>
+      <button class="btn" id="note-submit-btn" onclick="submitNote()"
+              style="background:#0f766e;color:#fff;border:none">
+        Save Note
+      </button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Session Log panel ───────────────────────────────────────── -->
+{% if 'register.signout' in user_permissions %}
+<div id="session-log-panel" style="display:none;
+     border:1.5px solid #ccfbf1;background:#f0fdfa;border-radius:12px;
+     padding:14px 18px;margin-bottom:16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <h3 style="font-size:15px;font-weight:800;color:#0f766e;margin:0">
+      📋 Session Log
+      <span id="session-log-count" style="font-size:12px;font-weight:400;
+            color:var(--muted);margin-left:6px"></span>
+    </h3>
+    <button class="btn btn-ghost btn-sm"
+            onclick="toggleSessionLog()"
+            id="session-log-toggle">Hide</button>
+  </div>
+  <div id="session-log-entries">
+    <p style="color:var(--muted);font-size:13px">No notes recorded yet.</p>
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Tab bar ─────────────────────────────────────────────────── -->
 <div style="display:flex;gap:6px;margin-bottom:16px">
@@ -519,13 +601,15 @@
     }
   }
 
-  const CAN_RESET = USER_PERMS.has('register.reset');
+  const CAN_RESET  = USER_PERMS.has('register.reset');
+  const CAN_EXPORT = USER_PERMS.has('register.export');
 
   function _applyCompletionState(completion) {
     _registerLocked = completion.completed;
     const banner      = document.getElementById('register-locked-banner');
     const completeBtn = document.getElementById('complete-register-btn');
     const resetBtn    = document.getElementById('reset-register-btn');
+    const exportBtn   = document.getElementById('export-register-btn');
     if (completion.completed) {
       const time = completion.completed_at
         ? completion.completed_at.slice(11, 16)   // HH:MM from datetime string
@@ -538,10 +622,12 @@
       banner.style.display = 'flex';
       if (completeBtn) completeBtn.style.display = 'none';
       if (resetBtn && CAN_RESET) resetBtn.style.display = '';
+      if (exportBtn && CAN_EXPORT) exportBtn.style.display = '';
     } else {
       banner.style.display = 'none';
       if (completeBtn && CAN_COMPLETE) completeBtn.style.display = '';
       if (resetBtn) resetBtn.style.display = 'none';
+      if (exportBtn) exportBtn.style.display = 'none';
     }
   }
 
@@ -608,6 +694,19 @@
     const unaFlag = m.unattended_exit
       ? `<span class="flag-badge flag-unattended" title="Unattended exit permitted">🚪</span>` : '';
 
+    const tagBadges = (m.tags && m.tags.length)
+      ? m.tags.map(t =>
+          `<span style="display:inline-flex;align-items:center;gap:3px;
+                 font-size:10px;font-weight:700;padding:2px 7px;
+                 border-radius:10px;white-space:nowrap;
+                 background:${t.colour}22;color:${t.colour};
+                 border:1px solid ${t.colour}44"
+                 title="${esc(t.name)}">
+             ${esc(t.icon || '')} ${esc(t.name)}
+           </span>`
+        ).join('')
+      : '';
+
     let timeText = '';
     let btnHtml  = '';
 
@@ -641,6 +740,7 @@
       <div class="reg-card ${stateClass}" id="card-${m.id}">
         <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
         <div class="reg-card__flags">${medFlag}${unaFlag}</div>
+        ${tagBadges ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:3px 0">${tagBadges}</div>` : ''}
         <div class="reg-card__time">${timeText}</div>
         ${btnHtml}
       </div>`;
@@ -1002,10 +1102,24 @@
            </button>` : '';
     }
 
+    const staffTagBadges = (m.tags && m.tags.length)
+      ? m.tags.map(t =>
+          `<span style="display:inline-flex;align-items:center;gap:3px;
+                 font-size:10px;font-weight:700;padding:2px 7px;
+                 border-radius:10px;white-space:nowrap;
+                 background:${t.colour}22;color:${t.colour};
+                 border:1px solid ${t.colour}44"
+                 title="${esc(t.name)}">
+             ${esc(t.icon || '')} ${esc(t.name)}
+           </span>`
+        ).join('')
+      : '';
+
     return `
       <div class="reg-card staff-card ${stateClass}" id="${cid}">
         <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
         <div class="reg-card__role">${esc(m.staff_role || 'Staff')}</div>
+        ${staffTagBadges ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:3px 0">${staffTagBadges}</div>` : ''}
         <div class="reg-card__time">${timeText}</div>
         ${btnHtml}
       </div>`;
@@ -1119,6 +1233,206 @@
     if (!sess || !date) { showToast('Please select a session and date first.', true); return; }
     window.open(`/register/print?session=${encodeURIComponent(sess)}&date=${encodeURIComponent(date)}`, '_blank');
   }
+
+  /* ── Export complete register ────────────────────────── */
+  function openExportRegister() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    if (!sess || !date) { showToast('Please select a session and date first.', true); return; }
+    window.open(`/register/export?session=${encodeURIComponent(sess)}&date=${encodeURIComponent(date)}`, '_blank');
+  }
+
+  /* ── Session Notes ───────────────────────────────────── */
+  const CAN_ADD_NOTES   = USER_PERMS.has('register.notes');
+  const CAN_VIEW_NOTES  = USER_PERMS.has('register.signout'); // everyone on register can view
+  let _logVisible       = true;
+  let _currentMembers   = [];  // kept in sync after each loadRegister() for the member dropdown
+
+  async function loadNotes() {
+    if (!CAN_VIEW_NOTES) return;
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    if (!sess || !date) return;
+
+    const panel = document.getElementById('session-log-panel');
+    if (!panel) return;
+
+    try {
+      const notes = await apiFetch(`/api/register/notes/${encodeURIComponent(sess)}/${date}`);
+      renderNotes(notes);
+      panel.style.display = notes.length ? '' : 'none';
+    } catch (e) {
+      // Non-fatal — don't interrupt the register view
+      console.warn('Could not load session notes:', e.message);
+    }
+  }
+
+  function renderNotes(notes) {
+    const panel   = document.getElementById('session-log-panel');
+    const entries = document.getElementById('session-log-entries');
+    const count   = document.getElementById('session-log-count');
+    if (!panel || !entries) return;
+
+    if (!notes.length) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    panel.style.display = '';
+    if (count) count.textContent = `(${notes.length})`;
+
+    const typeColour = {
+      General:       '#0f766e',
+      Medical:       '#b91c1c',
+      Safeguarding:  '#7c3aed',
+      Behaviour:     '#b45309',
+      Accident:      '#dc2626',
+      Other:         '#475569',
+    };
+
+    entries.innerHTML = notes.map(n => {
+      const colour   = typeColour[n.note_type] || '#475569';
+      const time     = n.created_at ? n.created_at.slice(11, 16) : '';
+      const member   = n.member_first
+        ? `<span style="font-weight:600">${esc(n.member_first)} ${esc(n.member_surname)}</span>`
+        : '';
+      const canDel   = CAN_ADD_NOTES;  // author check done server-side; show button if perm held
+      return `
+        <div style="display:flex;gap:10px;padding:10px 0;
+             border-bottom:1px solid #ccfbf1;align-items:flex-start"
+             id="note-entry-${n.id}">
+          <div style="flex-shrink:0;min-width:80px;text-align:right;
+               font-size:12px;color:var(--muted);padding-top:2px">
+            ${esc(time)}
+          </div>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;
+                    background:${colour}1a;color:${colour};border:1px solid ${colour}40">
+                ${esc(n.note_type)}
+              </span>
+              ${member ? `<span style="font-size:13px">↳ ${member}</span>` : ''}
+              ${canDel ? `<button class="btn btn-ghost btn-sm"
+                  onclick="deleteNote(${n.id})"
+                  style="margin-left:auto;color:var(--muted);font-size:11px;padding:2px 8px">
+                  ✕
+                </button>` : ''}
+            </div>
+            ${n.title ? `<div style="font-size:14px;font-weight:700;margin-bottom:2px">${esc(n.title)}</div>` : ''}
+            ${n.details ? `<div style="font-size:13px;color:#334155;white-space:pre-wrap">${esc(n.details)}</div>` : ''}
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">
+              Added by ${esc(n.added_by_name || 'unknown')}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function toggleSessionLog() {
+    _logVisible = !_logVisible;
+    const entries = document.getElementById('session-log-entries');
+    const toggle  = document.getElementById('session-log-toggle');
+    if (entries) entries.style.display = _logVisible ? '' : 'none';
+    if (toggle)  toggle.textContent    = _logVisible ? 'Hide' : 'Show';
+  }
+
+  function openAddNoteModal() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    if (!sess || !date) { showToast('Please select a session and date first.', true); return; }
+
+    // Populate member dropdown with current session members
+    const memberSel = document.getElementById('note-member-select');
+    if (memberSel) {
+      memberSel.innerHTML = '<option value="">— Not linked to a specific member —</option>';
+      const sorted = [..._currentMembers].sort((a, b) =>
+        `${a.first_name} ${a.surname}`.localeCompare(`${b.first_name} ${b.surname}`)
+      );
+      sorted.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value       = m.id;
+        opt.textContent = `${m.first_name} ${m.surname}`;
+        memberSel.appendChild(opt);
+      });
+    }
+
+    // Reset form
+    document.getElementById('note-type-select').value = 'General';
+    document.getElementById('note-title-input').value  = '';
+    document.getElementById('note-details-input').value = '';
+
+    document.getElementById('add-note-modal').classList.add('open');
+  }
+
+  function closeAddNoteModal() {
+    document.getElementById('add-note-modal').classList.remove('open');
+  }
+
+  async function submitNote() {
+    const sess    = document.getElementById('session-picker').value;
+    const date    = document.getElementById('date-picker').value;
+    const type    = document.getElementById('note-type-select').value;
+    const title   = document.getElementById('note-title-input').value.trim();
+    const details = document.getElementById('note-details-input').value.trim();
+    const memberSel = document.getElementById('note-member-select');
+    const memberId  = memberSel ? (memberSel.value || null) : null;
+
+    if (!title && !details) {
+      showToast('Please enter at least a title or some details.', true); return;
+    }
+
+    const btn = document.getElementById('note-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+      await apiFetch('/api/register/notes', {
+        method: 'POST',
+        body: JSON.stringify({
+          session_date: date,
+          session_type: sess,
+          note_type:    type,
+          title:        title,
+          details:      details,
+          member_id:    memberId ? parseInt(memberId) : null,
+        }),
+      });
+      closeAddNoteModal();
+      showToast('Note saved to session log.');
+      loadNotes();
+    } catch (e) {
+      showToast(e.message || 'Could not save note.', true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Note';
+    }
+  }
+
+  async function deleteNote(noteId) {
+    if (!confirm('Delete this note? This cannot be undone.')) return;
+    try {
+      await apiFetch(`/api/register/notes/${noteId}`, { method: 'DELETE' });
+      document.getElementById(`note-entry-${noteId}`)?.remove();
+      showToast('Note deleted.');
+      loadNotes(); // refresh count + hide panel if empty
+    } catch (e) {
+      showToast(e.message || 'Could not delete note.', true);
+    }
+  }
+
+  // Patch loadRegister to also load notes and capture current members list
+  const _origLoadRegister = loadRegister;
+  loadRegister = async function() {
+    await _origLoadRegister.apply(this, arguments);
+    loadNotes();
+  };
+
+  // Patch renderRegister to capture members for the note dropdown
+  const _origRenderRegister = renderRegister;
+  renderRegister = function(members, sess, date, ...rest) {
+    _currentMembers = members || [];
+    return _origRenderRegister.apply(this, [members, sess, date, ...rest]);
+  };
 
   /* ── Activities board ───────────────────────────────── */
   {% if 'activities.manage' in user_permissions %}

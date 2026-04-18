@@ -35,7 +35,7 @@
       <input id="role-name-input" class="form-input" placeholder="e.g. Youth Worker"
              style="max-width:320px">
       <p id="name-hint" style="font-size:12px;color:var(--muted);margin-top:4px">
-        Default roles (Admin, Editor, Leader, Readonly) cannot be renamed.
+        Default roles (Admin, Editor, User, Read Only) cannot be renamed.
       </p>
     </div>
 
@@ -124,7 +124,7 @@
         <div class="form-card" style="margin-top:12px;padding:16px 20px;
              display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <div style="min-width:160px">
-            <span style="font-weight:800;font-size:15px;color:var(--navy)">${esc(role.name)}</span>
+            <span style="font-weight:800;font-size:15px;color:var(--navy)">${esc(role.display_name || role.name)}</span>
             ${defaultTag}
           </div>
           <div style="flex:1;display:flex;flex-wrap:wrap;gap:5px">${badges}</div>
@@ -157,7 +157,7 @@
     const role = _allRoles.find(r => r.id === roleId);
     if (!role) return;
     _editId = roleId;
-    document.getElementById('modal-title').textContent    = `Edit Role: ${role.name}`;
+    document.getElementById('modal-title').textContent    = `Edit Role: ${role.display_name || role.name}`;
     document.getElementById('role-name-input').value      = role.name;
     document.getElementById('role-name-input').disabled   = !!role.is_default;
     document.getElementById('modal-status').textContent   = '';

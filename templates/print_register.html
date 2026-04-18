@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AYC Session Register — {{ session_type }} {{ display_date }}</title>
+  <style>
+    /* ── Base ─────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11pt;
+      color: #000;
+      background: #fff;
+    }
+
+    /* ── Screen: show a print button and some padding ── */
+    @media screen {
+      body { padding: 24px; max-width: 900px; margin: 0 auto; }
+
+      .print-controls {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 2px solid #e2e8f0;
+      }
+
+      .btn-print {
+        padding: 10px 22px;
+        background: #1e3a5f;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+      }
+      .btn-print:hover { background: #162d4a; }
+
+      .btn-back {
+        padding: 10px 18px;
+        background: none;
+        color: #475569;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .btn-back:hover { border-color: #94a3b8; color: #1e293b; }
+
+      .controls-hint {
+        font-size: 12px;
+        color: #94a3b8;
+      }
+    }
+
+    /* ── Hide controls when printing ──────────────────── */
+    @media print {
+      .print-controls { display: none !important; }
+
+      body { font-size: 10pt; }
+
+      /* Avoid page breaks inside a row */
+      tr { page-break-inside: avoid; }
+
+      /* Page break before each repeated header (set via JS) */
+      .page-header-repeat { page-break-before: always; }
+      .page-header-repeat:first-child { page-break-before: auto; }
+
+      @page {
+        size: A4 portrait;
+        margin: 15mm 12mm 15mm 12mm;
+      }
+    }
+
+    /* ── Page header ────────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .page-header img.logo {
+      height: 64px;
+      width: auto;
+      flex-shrink: 0;
+    }
+
+    .page-header h1 {
+      font-size: 16pt;
+      font-weight: 700;
+      color: #1e3a5f;
+      margin-bottom: 2px;
+    }
+
+    .page-header .subtitle {
+      font-size: 11pt;
+      color: #475569;
+    }
+
+    /* ── Register table ─────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+    }
+
+    thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-size: 10pt;
+      font-weight: 700;
+      padding: 7px 8px;
+      text-align: left;
+      border: 1px solid #1e3a5f;
+    }
+
+    thead th.col-num    { width: 38px;  text-align: center; }
+    thead th.col-home   { width: 140px; text-align: center; }
+    thead th.col-tick   { width: 100px; text-align: center; }
+
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:nth-child(odd)  { background: #ffffff; }
+
+    tbody td {
+      padding: 6px 8px;
+      border: 1px solid #cbd5e1;
+      font-size: 10pt;
+      vertical-align: middle;
+    }
+
+    tbody td.col-num  { text-align: center; color: #64748b; font-size: 9pt; }
+    tbody td.col-home { text-align: center; font-weight: 700; }
+    tbody td.col-home.yes { color: #166534; }
+    tbody td.col-home.no  { color: #b91c1c; }
+    tbody td.col-tick { text-align: center; }
+
+    /* ── Footer note ────────────────────────────────── */
+    .print-footer {
+      margin-top: 10px;
+      font-size: 9pt;
+      color: #94a3b8;
+      text-align: right;
+    }
+
+    /* ── Session log (incident notes) ───────────────── */
+    .notes-section {
+      margin-top: 24px;
+      page-break-inside: avoid;
+    }
+
+    .notes-section h2 {
+      font-size: 12pt;
+      font-weight: 700;
+      color: #1e3a5f;
+      margin-bottom: 8px;
+      border-bottom: 2px solid #1e3a5f;
+      padding-bottom: 4px;
+    }
+
+    .note-row {
+      display: flex;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 10pt;
+    }
+
+    .note-time {
+      min-width: 42px;
+      color: #64748b;
+      font-size: 9pt;
+      padding-top: 1px;
+      flex-shrink: 0;
+    }
+
+    .note-type-badge {
+      font-size: 8pt;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      height: fit-content;
+    }
+
+    .note-type-General      { background:#e0f2fe; color:#0369a1; }
+    .note-type-Medical      { background:#fee2e2; color:#b91c1c; }
+    .note-type-Safeguarding { background:#ede9fe; color:#7c3aed; }
+    .note-type-Behaviour    { background:#fef3c7; color:#b45309; }
+    .note-type-Accident     { background:#fee2e2; color:#dc2626; }
+    .note-type-Other        { background:#f1f5f9; color:#475569; }
+
+    .note-body { flex: 1; }
+    .note-title { font-weight: 700; margin-bottom: 2px; }
+    .note-details { color: #334155; white-space: pre-wrap; margin-top: 2px; }
+    .note-meta { font-size: 8pt; color: #94a3b8; margin-top: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Screen controls ──────────────────────────────── -->
+<div class="print-controls">
+  <button class="btn-print" onclick="window.print()">🖨 Print</button>
+  <a class="btn-back" href="/register">← Back to Register</a>
+  <span class="controls-hint">
+    Tip: In your print dialog, set paper to A4 and enable "Print headers and footers" off.
+  </span>
+</div>
+
+<!-- ── Register table ───────────────────────────────── -->
+<div class="page-header">
+  <img class="logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="Spelthorne Youth">
+  <div>
+    <h1>Session Register — {{ session_type }}</h1>
+    <div class="subtitle">{{ display_date }} &nbsp;·&nbsp; {{ members | length }} member{{ 's' if members | length != 1 else '' }}</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="col-num">#</th>
+      <th>First Name</th>
+      <th>Surname</th>
+      <th class="col-home">Able To Go Home Alone</th>
+      <th class="col-tick">Tick on Arrival</th>
+      <th class="col-tick">Tick When Leaving</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in members %}
+    <tr>
+      <td class="col-num">{{ loop.index }}</td>
+      <td>{{ m.first_name }}</td>
+      <td>{{ m.surname }}</td>
+      <td class="col-home {{ 'yes' if m.unattended_exit else 'no' }}">
+        {{ 'YES' if m.unattended_exit else 'NO' }}
+      </td>
+      <td class="col-tick"></td>
+      <td class="col-tick"></td>
+    </tr>
+    {% endfor %}
+    {# Add a few blank rows at the bottom for late arrivals / walk-ins #}
+    {% for i in range(5) %}
+    <tr>
+      <td class="col-num" style="color:#cbd5e1">{{ members | length + i + 1 }}</td>
+      <td></td>
+      <td></td>
+      <td class="col-home"></td>
+      <td class="col-tick"></td>
+      <td class="col-tick"></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if notes %}
+<div class="notes-section">
+  <h2>📋 Session Log — Notes &amp; Incidents ({{ notes | length }})</h2>
+  {% for note in notes %}
+  <div class="note-row">
+    <div class="note-time">{{ note.created_at[11:16] if note.created_at else '' }}</div>
+    <span class="note-type-badge note-type-{{ note.note_type }}">{{ note.note_type }}</span>
+    <div class="note-body">
+      {% if note.member_first %}
+      <div style="font-size:9pt;color:#475569;margin-bottom:2px">
+        ↳ {{ note.member_first }} {{ note.member_surname }}
+      </div>
+      {% endif %}
+      {% if note.title %}
+      <div class="note-title">{{ note.title }}</div>
+      {% endif %}
+      {% if note.details %}
+      <div class="note-details">{{ note.details }}</div>
+      {% endif %}
+      <div class="note-meta">Added by {{ note.added_by_name or 'unknown' }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="print-footer">
+  Printed {{ display_date }} &nbsp;·&nbsp; {{ club_short_name }} Portal
+</div>
+
+</body>
+</html>

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complete Register — {{ session_type }} {{ display_date }}</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11pt;
+      color: #1e293b;
+      background: #fff;
+    }
+
+    /* ── Screen wrapper ─────────────────────────────────── */
+    @media screen {
+      body { padding: 24px; max-width: 960px; margin: 0 auto; background: #f8fafc; }
+
+      .page { background: #fff; padding: 32px 36px; border-radius: 12px;
+              box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+
+      .print-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .btn-print {
+        padding: 10px 22px;
+        background: #1e3a5f;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+      }
+      .btn-print:hover { background: #162d4a; }
+
+      .btn-back {
+        padding: 10px 18px;
+        background: none;
+        color: #475569;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .btn-back:hover { border-color: #94a3b8; }
+
+      .controls-hint { font-size: 12px; color: #94a3b8; }
+    }
+
+    /* ── Print settings ─────────────────────────────────── */
+    @media print {
+      .print-controls { display: none !important; }
+      body { font-size: 10pt; background: #fff; }
+      .page { padding: 0; box-shadow: none; }
+      tr { page-break-inside: avoid; }
+      .section { page-break-inside: avoid; }
+
+      @page {
+        size: A4 portrait;
+        margin: 14mm 12mm 14mm 12mm;
+      }
+    }
+
+    /* ── Page header ────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 3px solid #1e3a5f;
+    }
+
+    .page-header img.logo {
+      height: 56px;
+      width: auto;
+      flex-shrink: 0;
+    }
+
+    .page-header-text h1 {
+      font-size: 15pt;
+      font-weight: 900;
+      color: #1e3a5f;
+      margin-bottom: 4px;
+    }
+
+    .page-header-text .subtitle {
+      font-size: 10pt;
+      color: #475569;
+      line-height: 1.5;
+    }
+
+    /* ── Stats bar ──────────────────────────────────────── */
+    .stats-bar {
+      display: flex;
+      gap: 0;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .stat-cell {
+      flex: 1;
+      padding: 10px 14px;
+      text-align: center;
+      border-right: 1.5px solid #e2e8f0;
+    }
+    .stat-cell:last-child { border-right: none; }
+
+    .stat-value {
+      font-size: 20pt;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    .stat-label {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #64748b;
+    }
+
+    .stat-cell.green .stat-value  { color: #166534; }
+    .stat-cell.amber .stat-value  { color: #92400e; }
+    .stat-cell.blue  .stat-value  { color: #1e40af; }
+    .stat-cell.slate .stat-value  { color: #475569; }
+
+    /* ── Section header ─────────────────────────────────── */
+    .section-header {
+      font-size: 11pt;
+      font-weight: 800;
+      color: #1e3a5f;
+      padding: 6px 0 4px;
+      border-bottom: 2px solid #1e3a5f;
+      margin-bottom: 0;
+    }
+
+    /* ── Attendance table ───────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 10pt;
+    }
+
+    thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-size: 9pt;
+      font-weight: 700;
+      padding: 6px 8px;
+      text-align: left;
+      border: 1px solid #1e3a5f;
+    }
+
+    thead th.center { text-align: center; }
+    thead th.w-num  { width: 32px; text-align: center; }
+    thead th.w-time { width: 72px; text-align: center; }
+    thead th.w-dur  { width: 60px; text-align: center; }
+    thead th.w-home { width: 80px; text-align: center; }
+
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:nth-child(odd)  { background: #fff; }
+
+    tbody td {
+      padding: 5px 8px;
+      border: 1px solid #e2e8f0;
+      vertical-align: middle;
+    }
+
+    td.center    { text-align: center; }
+    td.num       { text-align: center; color: #94a3b8; font-size: 9pt; }
+    td.time-val  { text-align: center; font-weight: 700; font-size: 10pt; }
+    td.dur-val   { text-align: center; color: #475569; font-size: 9pt; }
+
+    td.status-arrived  { color: #166534; font-weight: 700; text-align: center; }
+    td.status-out      { color: #475569; font-weight: 700; text-align: center; }
+    td.status-missing  { color: #9ca3af; font-style: italic; text-align: center; }
+    td.home-yes        { color: #166534; font-weight: 700; text-align: center; }
+    td.home-no         { color: #b91c1c; font-weight: 700; text-align: center; }
+
+    /* ── Notes section ──────────────────────────────────── */
+    .notes-section {
+      margin-top: 4px;
+      margin-bottom: 20px;
+    }
+
+    .note-row {
+      display: flex;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 10pt;
+      align-items: flex-start;
+    }
+
+    .note-time {
+      min-width: 38px;
+      color: #94a3b8;
+      font-size: 9pt;
+      padding-top: 2px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .note-badge {
+      font-size: 8pt;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      height: fit-content;
+    }
+
+    .nb-General      { background: #e0f2fe; color: #0369a1; }
+    .nb-Medical      { background: #fee2e2; color: #b91c1c; }
+    .nb-Safeguarding { background: #ede9fe; color: #7c3aed; }
+    .nb-Behaviour    { background: #fef3c7; color: #b45309; }
+    .nb-Accident     { background: #fee2e2; color: #dc2626; }
+    .nb-Other        { background: #f1f5f9; color: #475569; }
+
+    .note-body    { flex: 1; }
+    .note-title   { font-weight: 700; margin-bottom: 1px; }
+    .note-details { color: #334155; white-space: pre-wrap; font-size: 10pt; }
+    .note-member  { font-size: 9pt; color: #475569; margin-bottom: 2px; }
+    .note-meta    { font-size: 8pt; color: #94a3b8; margin-top: 3px; }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    .page-footer {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 8.5pt;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Screen controls ─────────────────────────────────── -->
+<div class="print-controls">
+  <button class="btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <a class="btn-back" href="/register">← Back to Register</a>
+  <span class="controls-hint">Tip: In your print dialog choose A4, portrait, and turn off headers/footers.</span>
+</div>
+
+<div class="page">
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <div class="page-header">
+    <img class="logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="{{ club_short_name }}">
+    <div class="page-header-text">
+      <h1>Complete Session Register — {{ session_type }}</h1>
+      <div class="subtitle">
+        {{ display_date }}
+        &nbsp;·&nbsp;
+        Completed by <strong>{{ completion.completed_by_name or 'unknown' }}</strong>
+        at <strong>{{ completion.completed_at[11:16] if completion.completed_at else '—' }}</strong>
+        {% if completion.auto_signout_count %}
+        &nbsp;·&nbsp; {{ completion.auto_signout_count }} member{{ 's' if completion.auto_signout_count != 1 else '' }} auto-signed out
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Stats bar ───────────────────────────────────────── -->
+  <div class="stats-bar">
+    <div class="stat-cell green">
+      <div class="stat-value">{{ attended }}</div>
+      <div class="stat-label">Attended</div>
+    </div>
+    <div class="stat-cell amber">
+      <div class="stat-value">{{ not_arrived }}</div>
+      <div class="stat-label">Not Arrived</div>
+    </div>
+    <div class="stat-cell blue">
+      <div class="stat-value">{{ members | length }}</div>
+      <div class="stat-label">Expected</div>
+    </div>
+    <div class="stat-cell slate">
+      <div class="stat-value">{{ staff | selectattr('signed_in_at') | list | length }}</div>
+      <div class="stat-label">Staff On Duty</div>
+    </div>
+    {% if notes %}
+    <div class="stat-cell" style="color:#7c3aed">
+      <div class="stat-value" style="color:#7c3aed">{{ notes | length }}</div>
+      <div class="stat-label">Notes / Incidents</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Member attendance ───────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">👦 Member Attendance</div>
+    <table>
+      <thead>
+        <tr>
+          <th class="w-num">#</th>
+          <th>Name</th>
+          <th class="w-home">Go Home Alone</th>
+          <th class="w-time">Signed In</th>
+          <th class="w-time">Signed Out</th>
+          <th class="w-dur">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td>{{ m.first_name }} {{ m.surname }}</td>
+          <td class="{{ 'home-yes' if m.unattended_exit else 'home-no' }}">
+            {{ 'YES' if m.unattended_exit else 'NO' }}
+          </td>
+          {% if m.signed_in_at %}
+            <td class="time-val status-arrived">{{ m.signed_in_at }}</td>
+            {% if m.signed_out_at %}
+              <td class="time-val status-out">{{ m.signed_out_at }}</td>
+              {# Calculate duration in minutes #}
+              {% set in_parts  = m.signed_in_at.split(':')  %}
+              {% set out_parts = m.signed_out_at.split(':') %}
+              {% set in_mins   = in_parts[0]|int  * 60 + in_parts[1]|int  %}
+              {% set out_mins  = out_parts[0]|int * 60 + out_parts[1]|int %}
+              {% set dur       = out_mins - in_mins %}
+              <td class="dur-val">{{ dur }}m</td>
+            {% else %}
+              <td class="time-val" style="color:#94a3b8">—</td>
+              <td class="dur-val">—</td>
+            {% endif %}
+          {% else %}
+            <td class="status-missing">Not arrived</td>
+            <td class="status-missing">—</td>
+            <td class="dur-val">—</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Staff attendance ────────────────────────────────── -->
+  {% if staff %}
+  <div class="section">
+    <div class="section-header">🧑‍🤝‍🧑 Staff On Duty</div>
+    <table>
+      <thead>
+        <tr>
+          <th class="w-num">#</th>
+          <th>Name</th>
+          <th>Role</th>
+          <th class="w-time">Signed In</th>
+          <th class="w-time">Signed Out</th>
+          <th class="w-dur">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in staff %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td>{{ s.first_name }} {{ s.surname }}</td>
+          <td style="color:#475569">{{ s.staff_role or '—' }}</td>
+          {% if s.signed_in_at %}
+            <td class="time-val status-arrived">{{ s.signed_in_at }}</td>
+            {% if s.signed_out_at %}
+              <td class="time-val status-out">{{ s.signed_out_at }}</td>
+              {% set in_parts  = s.signed_in_at.split(':')  %}
+              {% set out_parts = s.signed_out_at.split(':') %}
+              {% set in_mins   = in_parts[0]|int  * 60 + in_parts[1]|int  %}
+              {% set out_mins  = out_parts[0]|int * 60 + out_parts[1]|int %}
+              {% set dur       = out_mins - in_mins %}
+              <td class="dur-val">{{ dur }}m</td>
+            {% else %}
+              <td class="time-val" style="color:#94a3b8">—</td>
+              <td class="dur-val">—</td>
+            {% endif %}
+          {% else %}
+            <td class="status-missing">Not arrived</td>
+            <td class="status-missing">—</td>
+            <td class="dur-val">—</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- ── Session notes ───────────────────────────────────── -->
+  {% if notes %}
+  <div class="section">
+    <div class="section-header">📋 Session Log — Notes &amp; Incidents ({{ notes | length }})</div>
+    <div class="notes-section">
+      {% for n in notes %}
+      <div class="note-row">
+        <div class="note-time">{{ n.created_at[11:16] if n.created_at else '' }}</div>
+        <span class="note-badge nb-{{ n.note_type }}">{{ n.note_type }}</span>
+        <div class="note-body">
+          {% if n.member_first %}
+          <div class="note-member">↳ {{ n.member_first }} {{ n.member_surname }}</div>
+          {% endif %}
+          {% if n.title %}
+          <div class="note-title">{{ n.title }}</div>
+          {% endif %}
+          {% if n.details %}
+          <div class="note-details">{{ n.details }}</div>
+          {% endif %}
+          <div class="note-meta">Added by {{ n.added_by_name or 'unknown' }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Footer ─────────────────────────────────────────── -->
+  <div class="page-footer">
+    <span>
+      {{ club_name }} &nbsp;·&nbsp; {{ session_type }} register &nbsp;·&nbsp; {{ display_date }}
+    </span>
+    <span>
+      Completed by {{ completion.completed_by_name or 'unknown' }}
+      at {{ completion.completed_at[11:16] if completion.completed_at else '—' }}
+      &nbsp;·&nbsp; {{ club_short_name }} Portal {{ app_version }}
+    </span>
+  </div>
+
+</div><!-- /page -->
+</body>
+</html>
