@@ -56,7 +56,7 @@
       <span class="nav-label">Dashboard</span>
     </a>
 
-    {% if current_role != 'readonly' %}
+    {% if 'members.view' in user_permissions %}
     <a href="/members"
        class="nav-link{% if active_page == 'members' %} active{% endif %}">
       <span class="nav-icon">👥</span>
@@ -64,7 +64,7 @@
     </a>
     {% endif %}
 
-    {% if current_role in ('admin', 'editor') %}
+    {% if 'approvals.view' in user_permissions %}
     <a href="/approvals"
        class="nav-link{% if active_page == 'approvals' %} active{% endif %}">
       <span class="nav-icon">📋</span>
@@ -90,7 +90,7 @@
       <span class="nav-label">Documents</span>
     </a>
 
-    {% if current_role == 'admin' or current_role == 'editor' %}
+    {% if 'mailshots.send' in user_permissions %}
     <a href="/communications"
        class="nav-link{% if active_page == 'communications' %} active{% endif %}">
       <span class="nav-icon">✉️</span>
@@ -98,25 +98,30 @@
     </a>
     {% endif %}
 
-    {% if current_role in ('admin', 'editor') %}
+    {% if 'users.view' in user_permissions %}
     <a href="/admin/users"
        class="nav-link{% if active_page == 'users' %} active{% endif %}">
       <span class="nav-icon">⚙️</span>
       <span class="nav-label">Users</span>
     </a>
     {% endif %}
-    {% if current_role in ('admin', 'editor') %}
+    {% if 'audit.view' in user_permissions %}
     <a href="/admin/audit"
        class="nav-link{% if active_page == 'audit' %} active{% endif %}">
       <span class="nav-icon">🔍</span>
       <span class="nav-label">Audit Log</span>
     </a>
     {% endif %}
-    {% if current_role in ('admin', 'editor') %}
+    {% if 'admin.settings' in user_permissions %}
     <a href="/admin/settings"
        class="nav-link{% if active_page == 'settings' %} active{% endif %}">
       <span class="nav-icon">🛠️</span>
       <span class="nav-label">Settings</span>
+    </a>
+    <a href="/admin/staff-roles"
+       class="nav-link{% if active_page == 'staff_roles' %} active{% endif %}">
+      <span class="nav-icon">🏷️</span>
+      <span class="nav-label">Staff Roles</span>
     </a>
     {% endif %}
   </nav>

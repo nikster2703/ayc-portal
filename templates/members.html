@@ -11,39 +11,31 @@
            placeholder="Search by name…" oninput="filterMembers()">
   </div>
 
-  {% if current_role == 'admin' %}
-  {# Admin: can switch between all sessions #}
+  {% if not current_session %}
+  {# Unscoped (admin): can switch between all sessions #}
   <select class="session-select" id="session-filter" onchange="filterMembers()">
     <option value="all">All Sessions</option>
     {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
     {% endfor %}
     <option value="__staff__">Staff / Volunteers</option>
   </select>
-  {% elif current_role == 'editor' %}
-  {# Core Leader: locked to their own session, but can switch to Staff / Volunteers view #}
+  {% elif 'members.edit' in user_permissions %}
+  {# Scoped editor: locked to their own session, but can switch to Staff / Volunteers view #}
   <select class="session-select" id="session-filter" onchange="filterMembers()">
     <option value="{{ current_session }}">{{ current_session }} Session</option>
     <option value="__staff__">Staff / Volunteers</option>
   </select>
-  {% elif current_role == 'leader' %}
-  {# Leader: fixed to their session, no dropdown needed #}
+  {% else %}
+  {# Scoped read-only: fixed label #}
   <span class="session-select" style="display:inline-flex;align-items:center;
         padding:0 14px;background:var(--navy);color:white;border-radius:8px;
         font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
     {{ current_session or 'Your session' }}
   </span>
   <input type="hidden" id="session-filter" value="{{ current_session }}">
-  {% else %}
-  {# Readonly: fixed label #}
-  <span class="session-select" style="display:inline-flex;align-items:center;
-        padding:0 14px;background:var(--navy);color:white;border-radius:8px;
-        font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
-    {{ current_session or 'Your session' }}
-  </span>
-  <input type="hidden" id="session-filter" value="all">
   {% endif %}
 
-  {% if current_role in ('admin', 'editor') %}
+  {% if 'members.delete' in user_permissions %}
   <label class="leaver-toggle" id="leaver-toggle" onclick="toggleLeavers()">
     <input type="checkbox" id="show-leavers">
     <span>👤 Leavers only</span>
@@ -157,7 +149,7 @@
 </div>
 
 <!-- ── Permanent delete modal (admin only) ───────────────────────────── -->
-{% if current_role == 'admin' %}
+{% if 'members.hard_delete' in user_permissions %}
 <div class="modal-overlay" id="perm-delete-modal">
   <div class="modal" style="max-width:480px">
 
@@ -207,11 +199,12 @@
 
 {% block scripts %}
 <script>
-  /* ── Role awareness ────────────────────────────────── */
-  const USER_ROLE    = "{{ current_role }}";
-  const CAN_EDIT     = USER_ROLE === 'admin' || USER_ROLE === 'editor';
-  const CAN_DELETE   = USER_ROLE === 'admin';
-  const IS_ADMIN     = USER_ROLE === 'admin';
+  /* ── Permission awareness (v6.0) ──────────────────── */
+  const USER_ROLE    = "{{ current_role }}";  // kept for any legacy checks
+  const USER_PERMS   = new Set({{ user_permissions | tojson }});
+  const CAN_EDIT     = USER_PERMS.has('members.edit');
+  const CAN_DELETE   = USER_PERMS.has('members.delete');
+  const IS_ADMIN     = USER_PERMS.has('members.hard_delete');
 
   /* ── Data ──────────────────────────────────────────── */
   let allMembers  = [];
@@ -358,7 +351,7 @@
       ? `<span style="display:inline-flex;align-items:center;gap:3px;background:#ede9fe;color:#7c3aed;
                       border:1.5px solid #c4b5fd;border-radius:6px;padding:1px 8px;
                       font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
-                      margin-left:6px">🧑‍🤝‍🧑 ${esc(m.staff_role || 'Staff')}</span>`
+                      margin-left:6px">🧑‍🤝‍🧑 ${esc(m.staff_role || 'Staff Member')}</span>`
       : '';
 
     const addr     = [m.address, m.postcode].filter(Boolean).join(', ') || '—';
@@ -385,6 +378,15 @@
   </div>
   ${actionBtns}
   <div class="card-body">
+
+    ${isStaff ? `
+    <div class="detail-section">
+      <div class="sec-title">👤 Staff Details</div>
+      <div class="dg">
+        <div class="di"><div class="lbl">Role</div><div class="val">${esc(m.staff_role || '—')}</div></div>
+        <div class="di"><div class="lbl">Session</div><div class="val">${esc(v(m.session))}</div></div>
+      </div>
+    </div>` : ''}
 
     <div class="detail-section">
       <div class="sec-title">📍 Address</div>
@@ -618,7 +620,7 @@
   });
 
   /* ── Permanent delete ──────────────────────────────── */
-  {% if current_role == 'admin' %}
+  {% if 'members.hard_delete' in user_permissions %}
   let _pdelId   = null;
   let _pdelName = null;
 

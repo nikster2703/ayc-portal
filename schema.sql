@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS members (
     status            TEXT    NOT NULL DEFAULT 'Active',  -- Active | Inactive | Leaver
     session           TEXT,                               -- Tuesday | Thursday | Both
     member_type       TEXT    NOT NULL DEFAULT 'member',  -- member | staff
-    staff_role        TEXT,                               -- Volunteer | Youth Volunteer | Leader (staff only)
+    staff_role        TEXT,                               -- value from staff_roles table (staff only)
     date_registered   TEXT,
     comments          TEXT,
     created_at        TEXT    DEFAULT (datetime('now')),
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS pending_registrations (
     reviewed_at        TEXT,
     notes              TEXT,
     registration_type  TEXT    NOT NULL DEFAULT 'member', -- member | staff
-    applicant_role     TEXT,    -- Volunteer | Youth Volunteer | Leader (staff registrations)
+    applicant_role     TEXT,    -- value from staff_roles table (staff registrations)
     mobile             TEXT,    -- staff contact mobile
     email              TEXT     -- staff contact email
 );
@@ -137,6 +137,15 @@ CREATE TABLE IF NOT EXISTS attendance (
     recorded_by   INTEGER REFERENCES users(id)
 );
 
+-- ── Staff roles (configurable) ──────────────────────────
+CREATE TABLE IF NOT EXISTS staff_roles (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    NOT NULL UNIQUE,
+    active        INTEGER NOT NULL DEFAULT 1,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    DEFAULT (datetime('now'))
+);
+
 -- ── Session types (configurable) ────────────────────────
 CREATE TABLE IF NOT EXISTS session_types (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,6 +189,23 @@ CREATE TABLE IF NOT EXISTS session_activities (
     added_by     INTEGER REFERENCES users(id),
     created_at   TEXT    DEFAULT (datetime('now')),
     active       INTEGER NOT NULL DEFAULT 1
+);
+
+-- ── Permissions catalogue (Phase 6) ──────────────────────
+CREATE TABLE IF NOT EXISTS permissions (
+    code        TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT,
+    category    TEXT NOT NULL
+);
+
+-- ── Configurable roles (Phase 6) ─────────────────────────
+CREATE TABLE IF NOT EXISTS roles (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    UNIQUE NOT NULL,
+    is_default  INTEGER DEFAULT 0,
+    permissions TEXT    NOT NULL,   -- JSON array of permission codes
+    created_at  TEXT    DEFAULT (datetime('now'))
 );
 
 -- ── Duke of Edinburgh (future phase) ─────────────────────

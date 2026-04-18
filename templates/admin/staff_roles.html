@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}AYC Portal — Staff Roles{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🏷️ Staff Roles</h1>
+</div>
+
+<div class="form-card" style="max-width:600px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Manage Staff Roles
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    These roles appear in the staff registration form, the approval form, and on the
+    reception display screen. Add, rename, reorder or deactivate roles here — changes
+    take effect immediately everywhere without any code edits.
+  </p>
+
+  <!-- Role list -->
+  <div id="roles-list" style="margin-bottom:20px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <!-- Add new role -->
+  <div style="display:flex;gap:8px;align-items:flex-end;border-top:1px solid var(--border);padding-top:16px">
+    <div style="flex:1">
+      <label class="form-label" style="margin-bottom:3px">New role name</label>
+      <input id="new-role-name" class="form-input" placeholder="e.g. Senior Leader"
+             style="width:100%" onkeydown="if(event.key==='Enter') addRole()">
+    </div>
+    <button class="btn btn-primary" onclick="addRole()">+ Add Role</button>
+  </div>
+</div>
+
+<!-- Rename modal -->
+<div id="rename-modal" class="modal-overlay" onclick="if(event.target===this)closeRenameModal()">
+  <div class="modal-box" style="max-width:400px">
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:16px">Rename Role</h3>
+    <input id="rename-input" class="form-input" style="width:100%;margin-bottom:16px"
+           placeholder="New role name" onkeydown="if(event.key==='Enter') saveRename()">
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeRenameModal()">Cancel</button>
+      <button id="rename-save-btn" class="btn btn-primary" onclick="saveRename()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let roles       = [];
+  let renamingId  = null;
+
+  /* ── Load & render ─────────────────────────────────────────── */
+  async function loadRoles() {
+    const el = document.getElementById('roles-list');
+    try {
+      roles = await apiFetch('/api/admin/staff-roles');
+      renderRoles();
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load roles: ${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderRoles() {
+    const el = document.getElementById('roles-list');
+    if (!roles.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px">No roles defined yet.</p>';
+      return;
+    }
+    el.innerHTML = roles.map((r, idx) => `
+      <div id="role-row-${r.id}"
+           draggable="true"
+           data-id="${r.id}"
+           data-order="${idx}"
+           ondragstart="onDragStart(event, ${r.id})"
+           ondragover="onDragOver(event)"
+           ondrop="onDrop(event, ${r.id})"
+           ondragend="onDragEnd()"
+           style="display:flex;align-items:center;gap:10px;padding:10px 8px;
+                  border-bottom:1px solid var(--border);cursor:grab;
+                  background:${r.active ? 'transparent' : 'var(--bg)'};
+                  opacity:${r.active ? '1' : '0.55'};border-radius:6px;
+                  transition:background .15s">
+        <span style="font-size:16px;color:var(--muted);cursor:grab" title="Drag to reorder">⠿</span>
+        <span style="flex:1;font-weight:700;font-size:14px;color:var(--navy)">${esc(r.name)}</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;font-weight:700;
+                     background:${r.active ? '#dcfce7' : '#f1f5f9'};
+                     color:${r.active ? '#166534' : '#64748b'}">
+          ${r.active ? 'Active' : 'Inactive'}
+        </span>
+        <button class="btn btn-ghost btn-sm" onclick="openRenameModal(${r.id}, '${esc(r.name)}')"
+                style="font-size:12px">Rename</button>
+        <button class="btn btn-ghost btn-sm"
+                onclick="toggleRole(${r.id}, ${r.active ? 0 : 1})"
+                style="font-size:12px">
+          ${r.active ? 'Deactivate' : 'Activate'}
+        </button>
+      </div>`).join('');
+  }
+
+  /* ── Add ───────────────────────────────────────────────────── */
+  async function addRole() {
+    const name = document.getElementById('new-role-name').value.trim();
+    if (!name) { showToast('Please enter a role name.', true); return; }
+    try {
+      await apiFetch('/api/admin/staff-roles', {
+        method: 'POST',
+        body:   JSON.stringify({ name }),
+      });
+      document.getElementById('new-role-name').value = '';
+      showToast(`Role "${name}" added.`);
+      loadRoles();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Toggle active ─────────────────────────────────────────── */
+  async function toggleRole(id, active) {
+    try {
+      await apiFetch(`/api/admin/staff-roles/${id}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ active }),
+      });
+      loadRoles();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Rename modal ──────────────────────────────────────────── */
+  function openRenameModal(id, currentName) {
+    renamingId = id;
+    document.getElementById('rename-input').value = currentName;
+    document.getElementById('rename-modal').classList.add('open');
+    document.getElementById('rename-input').focus();
+    document.getElementById('rename-input').select();
+  }
+  function closeRenameModal() {
+    renamingId = null;
+    document.getElementById('rename-modal').classList.remove('open');
+  }
+  async function saveRename() {
+    const name = document.getElementById('rename-input').value.trim();
+    if (!name) { showToast('Name cannot be empty.', true); return; }
+    const btn = document.getElementById('rename-save-btn');
+    btn.disabled = true;
+    try {
+      await apiFetch(`/api/admin/staff-roles/${renamingId}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ name }),
+      });
+      showToast(`Role renamed to "${name}".`);
+      closeRenameModal();
+      loadRoles();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Drag-to-reorder ───────────────────────────────────────── */
+  let dragSourceId = null;
+
+  function onDragStart(e, id) {
+    dragSourceId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.4';
+  }
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.style.background = 'var(--teal-light, #e0f7f5)';
+  }
+  function onDragEnd() {
+    document.querySelectorAll('[id^="role-row-"]').forEach(el => {
+      el.style.opacity  = el.dataset.id == roles.find(r => !r.active)?.id ? '0.55' : '1';
+      el.style.background = 'transparent';
+    });
+  }
+  async function onDrop(e, targetId) {
+    e.preventDefault();
+    if (dragSourceId === targetId) return;
+    e.currentTarget.style.background = 'transparent';
+
+    // Reorder in memory
+    const fromIdx = roles.findIndex(r => r.id === dragSourceId);
+    const toIdx   = roles.findIndex(r => r.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = roles.splice(fromIdx, 1);
+    roles.splice(toIdx, 0, moved);
+
+    // Assign new display_order values
+    const payload = roles.map((r, i) => ({ id: r.id, display_order: i }));
+    roles.forEach((r, i) => r.display_order = i);
+    renderRoles();
+
+    try {
+      await apiFetch('/api/admin/staff-roles/reorder', {
+        method: 'POST',
+        body:   JSON.stringify(payload),
+      });
+    } catch (e) {
+      showToast('Could not save new order: ' + e.message, true);
+    }
+  }
+
+  loadRoles();
+</script>
+{% endblock %}

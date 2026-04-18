@@ -50,9 +50,6 @@
         <label>Staff Role <span style="color:var(--red)">*</span></label>
         <select id="approve-staff-role">
           <option value="">— select role —</option>
-          <option value="Volunteer">Volunteer</option>
-          <option value="Youth Volunteer">Youth Volunteer</option>
-          <option value="Leader">Leader</option>
         </select>
       </div>
 
@@ -81,12 +78,7 @@
             <select id="approve-portal-role"
                     style="width:100%;padding:8px 12px;border:2px solid var(--border);
                            border-radius:8px;font-size:14px;font-family:inherit">
-              <option value="readonly">Read Only — register sign-out and public documents only</option>
-              <option value="leader">Leader — view members, manage register, view documents</option>
-              <option value="editor">Core Leader — full member edit, users, comms, documents</option>
-              {% if current_role == 'admin' %}
-              <option value="admin">Admin — full access including audit log and permanent delete</option>
-              {% endif %}
+              <option value="">Loading roles…</option>
             </select>
           </div>
           <div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;
@@ -151,13 +143,35 @@
   #login-fields.visible { display: flex; }
 </style>
 <script>
-  const USER_ROLE    = "{{ current_role }}";
+  const USER_ROLE    = "{{ current_role }}";  // kept for display
   const USER_SESSION = "{{ current_session or '' }}";
-  const IS_SCOPED    = USER_ROLE !== 'admin';
+  const USER_PERMS   = new Set({{ user_permissions | tojson }});
+  const IS_SCOPED    = USER_SESSION !== '';
 
   let currentTab   = 'pending';
   let pendingRegId = null;
   let pendingRegType = 'member';
+  let _approvalRoles = [];  // [{id, name, permissions:[...]}, ...]
+
+  /* ── Load roles for portal-login dropdown ─────────── */
+  async function loadApprovalRoles() {
+    try {
+      _approvalRoles = await apiFetch('/api/admin/roles');
+      const el = document.getElementById('approve-portal-role');
+      if (!el) return;
+      el.innerHTML = _approvalRoles
+        .filter(r => {
+          const perms = Array.isArray(r.permissions) ? r.permissions : [];
+          return USER_PERMS.has('users.create.admin') || !perms.includes('users.create.admin');
+        })
+        .map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`)
+        .join('');
+    } catch (e) {
+      // Non-fatal — roles may not be accessible to this user
+    }
+  }
+
+  loadApprovalRoles();
 
   /* ── Tab switching ────────────────────────────────── */
   function switchTab(tab) {
@@ -465,5 +479,17 @@
 
   document.querySelectorAll('.modal-overlay').forEach(el =>
     el.addEventListener('click', e => { if (e.target === el) closeApprovalModals(); }));
+
+  /* ── Populate staff role dropdown from DB ─────────────────────── */
+  (async function loadStaffRoles() {
+    const sel = document.getElementById('approve-staff-role');
+    try {
+      const roles = await apiFetch('/api/staff-roles');
+      sel.innerHTML = '<option value="">— select role —</option>' +
+        roles.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+    } catch {
+      // Leave the placeholder in place — approver can still manually pick
+    }
+  })();
 </script>
 {% endblock %}

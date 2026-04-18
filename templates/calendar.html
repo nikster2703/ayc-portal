@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
   <h1>📅 Term Calendar</h1>
-  {% if current_role in ('admin', 'editor') %}
+  {% if 'calendar.create' in user_permissions %}
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <button class="btn btn-ghost" onclick="openAddModal()">+ Add Session</button>
     <button class="btn btn-primary" onclick="openBulkModal()">⚡ Generate Term</button>
@@ -310,9 +310,10 @@
 
 {% block scripts %}
 <script>
-  const CAN_EDIT      = {{ 'true' if current_role in ('admin', 'editor') else 'false' }};
+  const USER_PERMS    = new Set({{ user_permissions | tojson }});
+  const CAN_EDIT      = USER_PERMS.has('calendar.create') || USER_PERMS.has('calendar.edit') || USER_PERMS.has('calendar.delete');
   const USER_SESSION  = "{{ current_session or '' }}";
-  const IS_SCOPED     = {{ 'true' if current_role != 'admin' else 'false' }};
+  const IS_SCOPED     = USER_SESSION !== '';
   const SESSION_TYPES = {{ session_types | tojson }};
   // weekday (Python 0=Mon…6=Sun) → session name
   const WDAY_TO_SESSION = Object.fromEntries(SESSION_TYPES.map(s => [s.weekday, s.name]));

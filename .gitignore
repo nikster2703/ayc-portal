@@ -17,6 +17,7 @@ env/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/*.db.backup-*
 
 # Uploaded documents (runtime data, not source code)
 data/documents/

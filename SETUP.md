@@ -11,9 +11,11 @@ Built with Python / Flask / SQLite. Runs on a Mac Mini M1, accessible over the i
 |-------|----------|
 | 1 | Login, member lookup, edit/soft-delete, audit log, user management |
 | 2 | Public self-registration form + staff approval workflow |
-| 3 | Digital session register (sign-in/out), attendance history, auto-leaver (35-day rule) |
+| 3 | Digital session register (sign-in/out), attendance history, At Risk tracking |
 | 4 | Document repository, email templates, mailshots via Gmail |
-| 5 | Duke of Edinburgh module *(coming soon)* |
+| 5 | Term calendar, staff registrations, permanent record delete |
+| 6 | Configurable Roles & Permissions — fully database-driven, customisable per-role |
+| 7 | Duke of Edinburgh module *(coming soon)* |
 
 **Special pages**
 - `/registration` — public self-registration form (no login required, share with parents)
@@ -218,16 +220,60 @@ Your portal will then be live at `https://ayc-portal.duckdns.org`.
 Log in as admin → **⚙️ Users** in the nav. You can:
 
 - Add staff accounts (username, email, role, optional session assignment)
-- **Roles:**
-  - **Admin** — full access including user management and audit log
-  - **Editor** — view/edit all members, approve registrations, send mailshots
-  - **Leader** — view and sign-in/out members for their assigned session only
-  - **Read-only** — view only, scoped to their assigned session
-- Assign a **session** to Leader and Read-only accounts so they only see Tuesday or Thursday members
+- Roles are fully configurable — see the **Roles & Permissions** section below for details
+- Assign a **session** to accounts that need to be scoped to a single session (e.g. Tuesday or Thursday only). Accounts with the `admin.maintenance` permission are automatically unscoped.
 - Deactivate accounts when someone leaves
 - Reset passwords via the Edit button
 
 Staff can also change their own password at any time by clicking their username in the top-right header.
+
+---
+
+## Roles & Permissions
+
+From Phase 6 onwards, roles are fully database-driven. There are no hard-coded role names in the application — any role with the right permissions will automatically gain access to the corresponding features.
+
+### Default roles
+
+Four roles are created on first run and cannot be deleted:
+
+| Role | Description |
+|------|-------------|
+| **Admin** | Full access — user management, audit log, settings, all member data |
+| **Core Leader** | Edit members, approve registrations, send mailshots, manage documents |
+| **Leader** | Sign members in/out for their assigned session; view attendance |
+| **Read-only** | View member list and attendance for their assigned session only |
+
+### Managing roles
+
+Log in as admin → **⚙️ Settings** → **Manage Roles & Permissions**. From here you can:
+
+- Create custom roles with any combination of permissions
+- Edit existing role names and permissions
+- Delete custom roles (only if no users are currently assigned to them)
+
+### Permission reference
+
+Permissions are grouped into categories. The full list is visible in the role editor UI. Key ones to know:
+
+| Permission | What it unlocks |
+|------------|-----------------|
+| `admin.maintenance` | Full admin access; marks the role as unscoped (no session required) |
+| `users.create.admin` | Ability to create/assign admin-level roles |
+| `members.edit` | Edit member records |
+| `members.delete` | Soft-delete (mark as leaver) |
+| `members.hard_delete` | Permanent delete of member records |
+| `approvals.view` | See and action the self-registration queue |
+| `register.signin` / `register.signout` | Sign members in or out on the register |
+| `register.at_risk` | Mark/unmark members as At Risk |
+| `documents.upload` | Upload new documents to the repository |
+| `mailshots.send` | Compose and send mailshots |
+| `calendar.create` | Add / generate term calendar entries |
+| `audit.view` | View the security audit log |
+
+### Session scoping
+
+Any role **without** the `admin.maintenance` permission must be assigned a session (e.g. Tuesday or Thursday). Users with a scoped role can only see members registered to that session. Admins see all sessions.
 
 ---
 
@@ -249,7 +295,7 @@ For a clean full-screen view, press **Cmd+Ctrl+F** in Safari or **F11** in Chrom
 
 Share the URL `https://ayc-portal.duckdns.org/registration` (or your local equivalent) with parents. The form collects all required details and places the submission in the **Approvals** queue for staff to review.
 
-Staff with Admin or Editor role go to **📋 Approvals** in the nav to approve (assigning a session) or reject (with optional notes) each submission. Approved submissions automatically create a member record with the next AYC### ID.
+Staff with the `approvals.view` permission go to **📋 Approvals** in the nav to approve (assigning a session and portal role) or reject (with optional notes) each submission. Approved submissions automatically create a member record with the next AYC### ID. The portal role dropdown in the approval form is populated dynamically from the roles table, so any custom roles you've created will appear automatically.
 
 ---
 
@@ -263,14 +309,16 @@ ayc-portal/
 ├── .env                      Your secrets — never share or commit this file
 ├── .env.example              Template showing all available config variables
 ├── SETUP.md                  This file
+├── PERMISSIONS_AUDIT.md      Full list of every permission code and which routes/features it guards
 │
 ├── data/
-│   ├── ayc.db                SQLite database (all member/attendance data)
+│   ├── ayc.db                SQLite database (all member/attendance/roles data)
 │   └── documents/            Uploaded documents (PDFs, Word files, etc.)
 │
 ├── scripts/
 │   ├── seed_admin.py         Create the first admin user interactively
-│   └── migrate_members.py    Import members from the original spreadsheet
+│   ├── migrate_members.py    Import members from the original spreadsheet
+│   └── schema_permissions.sql  Standalone SQL to seed the roles/permissions tables
 │
 ├── static/
 │   ├── css/shared.css        All shared styles
@@ -288,8 +336,10 @@ ayc-portal/
     ├── documents.html        Document repository — upload, browse, download
     ├── communications.html   Email templates + send mailshots + sent history
     └── admin/
-        ├── users.html        User management (admin only)
-        └── audit.html        Security audit log (admin only)
+        ├── users.html        User management
+        ├── roles.html        Roles & Permissions editor
+        ├── audit.html        Security audit log
+        └── settings.html     Portal settings (session types, etc.)
 ```
 
 ---
@@ -312,7 +362,13 @@ crontab -e
 
 Also back up `data/documents/` periodically — this contains all uploaded files.
 
-When you move to D9 hosting, copy both `data/ayc.db` and `data/documents/` across and the portal will work immediately.
+When you move to D9 hosting, copy both `data/ayc.db` and `data/documents/` across and the portal will work immediately — your roles, permissions, members, and all settings are all stored in the database.
+
+### Upgrading from v5 to v6 (Roles & Permissions)
+
+If you have an existing database from before Phase 6 (i.e. no `roles` or `permissions` tables), the app will create them automatically on first run using the default role set. Existing users will be migrated to the matching default role. No manual SQL is required.
+
+If you need to migrate manually or inspect the schema, see `scripts/schema_permissions.sql`.
 
 ---
 

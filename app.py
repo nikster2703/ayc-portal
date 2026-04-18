@@ -1,15 +1,18 @@
 """
-AYC Portal — Flask Application  v3.6
-Phases 1-5: Auth, members, audit, user admin, approvals, register,
-            documents, comms, term calendar, staff registrations.
+AYC Portal — Flask Application  v6.0
+Phases 1-6: Auth, members, audit, user admin, approvals, register,
+            documents, comms, term calendar, staff registrations,
+            configurable Roles + Permissions system.
 
 Phase roadmap (this file grows into blueprints as phases are added):
-  Phase 1 — Auth, members lookup, edit/delete, audit log, user admin  ✓
-  Phase 2 — Approvals: review pending registrations                   ✓
+  Phase 1 — Auth, members lookup, edit/delete, audit log, user admin    ✓
+  Phase 2 — Approvals: review pending registrations                     ✓
   Phase 3 — Digital session register + attendance history + auto-leaver ✓
-  Phase 4 — Document repository, email templates, mailshots           ✓
-  Phase 5 — Term calendar, staff registrations, user permanent delete ✓
-  Phase 6 — Duke of Edinburgh module
+  Phase 4 — Document repository, email templates, mailshots             ✓
+  Phase 5 — Term calendar, staff registrations, user permanent delete   ✓
+  Phase 6 — Configurable Roles + Permissions (DB-driven, replaces all   ✓
+             hard-coded role checks with permission_required decorator)
+  Phase 7 — Duke of Edinburgh module
 
 To split into blueprints later, each section marked ## BLUEPRINT: <name>
 can be extracted to blueprints/<name>.py and registered with app.register_blueprint().
@@ -18,7 +21,10 @@ can be extracted to blueprints/<name>.py and registered with app.register_bluepr
 import os
 import json
 import secrets
-import sqlite3
+import sqlcipher3 as sqlite3  # SQLCipher — transparent AES-256 encryption at rest
+import hashlib
+import base64
+import re
 import smtplib
 import time
 import urllib.request
@@ -32,6 +38,7 @@ from email import encoders
 from functools import wraps
 
 import bcrypt
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from flask import (Flask, g, jsonify, redirect, render_template,
                    request, session, url_for, send_from_directory,
@@ -64,7 +71,93 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v5.0'  # Split sign-in/sign-out permissions (settings-driven); alphabetical FLIP animation on live display; reset session register (admin only); fix maintenance clear buttons
+APP_VERSION = 'v6.2'  # Security hardening — SQLCipher DB encryption, document encryption at rest, password policy
+
+# ── Permission catalogue ───────────────────────────────────────────────────────
+# Single source of truth for every permission code the app supports.
+# Used to seed the DB on first run and to populate the roles editor UI.
+ALL_PERMISSIONS = [
+    # Members
+    ('members.view',        'View Members',            'View member list and full detail cards',               'members'),
+    ('members.edit',        'Edit Members',             'Edit member records',                                  'members'),
+    ('members.delete',      'Soft Delete Members',      'Mark a member as Leaver (reversible)',                 'members'),
+    ('members.hard_delete', 'Permanent Delete Members', 'Permanently and irreversibly delete a member',         'members'),
+    # Register / attendance
+    ('register.signin',     'Sign In',                  'Sign members in on the session register',              'register'),
+    ('register.signout',    'Sign Out',                 'Sign members out on the session register',              'register'),
+    ('register.complete',   'Complete Register',        'Lock the register at end of session',                  'register'),
+    ('register.reset',      'Reset Register',           'Wipe all sign-in/out data for a session',             'register'),
+    ('register.at_risk',    'Mark At Risk',             'Run the at-risk check and flag members',               'register'),
+    # Approvals
+    ('approvals.view',      'View Approvals',           'View pending self-registration submissions',           'approvals'),
+    ('approvals.approve',   'Approve Registrations',    'Approve a pending registration',                       'approvals'),
+    ('approvals.reject',    'Reject Registrations',     'Reject a pending registration',                        'approvals'),
+    # Documents
+    ('documents.view',      'View Documents',           'Browse the document repository (per-doc rank still applies)', 'documents'),
+    ('documents.upload',    'Upload Documents',         'Upload new files to the repository',                   'documents'),
+    ('documents.delete',    'Delete Documents',         'Soft-delete documents from the repository',            'documents'),
+    # Calendar
+    ('calendar.create',     'Create Calendar Sessions', 'Add sessions to the term calendar',                    'calendar'),
+    ('calendar.edit',       'Edit Calendar',            'Update session status, notes and term name',           'calendar'),
+    ('calendar.delete',     'Delete Calendar Sessions', 'Remove sessions from the term calendar',               'calendar'),
+    # Users
+    ('users.view',          'View Users',               'View the portal user list',                            'users'),
+    ('users.create',        'Create Users',             'Create new portal staff accounts',                     'users'),
+    ('users.edit',          'Edit Users',               'Edit existing portal accounts',                        'users'),
+    ('users.create.admin',  'Create Admin Users',       'Assign roles that carry admin-level permissions',      'users'),
+    ('users.delete',        'Delete Users',             'Permanently delete a portal user account',             'users'),
+    # Admin / settings
+    ('admin.settings',      'Manage Settings',          'Access and change club settings and roles',            'admin'),
+    ('admin.session_types', 'Manage Session Types',     'Create, edit and reorder session types',               'admin'),
+    ('admin.maintenance',   'Maintenance Tools',        'Clear audit logs, attendance and registration data',   'admin'),
+    # Audit
+    ('audit.view',          'View Audit Log',           'View the full system audit log',                       'audit'),
+    # Communications
+    ('mailshots.send',      'Send Mailshots',           'Send bulk emails to member contacts',                  'communications'),
+    ('mailshots.templates', 'Manage Email Templates',   'Create, edit and delete email templates',              'communications'),
+    # Display board
+    ('activities.manage',   'Manage Activities Board',  'Add and remove activities from the TV display',        'display'),
+]
+
+# Default permission sets — exact match to old hard-coded behaviour.
+# These seed the roles table on first run; admins can customise from /admin/roles.
+DEFAULT_ROLE_PERMISSIONS = {
+    'admin': [
+        'members.view', 'members.edit', 'members.delete', 'members.hard_delete',
+        'register.signin', 'register.signout', 'register.complete', 'register.reset',
+        'register.at_risk',
+        'approvals.view', 'approvals.approve', 'approvals.reject',
+        'documents.view', 'documents.upload', 'documents.delete',
+        'calendar.create', 'calendar.edit', 'calendar.delete',
+        'users.view', 'users.create', 'users.edit', 'users.create.admin', 'users.delete',
+        'admin.settings', 'admin.session_types', 'admin.maintenance',
+        'audit.view',
+        'mailshots.send', 'mailshots.templates',
+        'activities.manage',
+    ],
+    'editor': [
+        'members.view', 'members.edit', 'members.delete',
+        'register.signin', 'register.signout', 'register.complete', 'register.at_risk',
+        'approvals.view', 'approvals.approve', 'approvals.reject',
+        'documents.view', 'documents.upload', 'documents.delete',
+        'calendar.create', 'calendar.edit', 'calendar.delete',
+        'users.view', 'users.create', 'users.edit',
+        'admin.settings',
+        'audit.view',
+        'mailshots.send', 'mailshots.templates',
+        'activities.manage',
+    ],
+    'leader': [
+        'members.view',
+        'register.signin', 'register.signout',
+        'activities.manage',
+    ],
+    'readonly': [
+        'register.signout',
+        'documents.view',
+        'activities.manage',
+    ],
+}
 
 # ── Postcode lookup (getaddress.io) ──────────────────────────────────────────
 GETADDRESS_KEY = os.environ.get('GETADDRESS_KEY', '')
@@ -78,10 +171,60 @@ SMTP_FROM = os.environ.get('MAIL_FROM', SMTP_USER)
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
+def _connect_db(path=None):
+    """Open a SQLCipher-encrypted DB connection.
+
+    Raises RuntimeError on startup if DB_ENCRYPTION_KEY is missing — the app
+    must never run without the key once the database is encrypted.
+    Verifies the key immediately so a wrong key fails fast and clearly.
+    """
+    if path is None:
+        path = DATABASE
+    key = os.environ.get('DB_ENCRYPTION_KEY')
+    if not key:
+        raise RuntimeError(
+            'DB_ENCRYPTION_KEY is not set in .env — refusing to start. '
+            'Add the key to .env and restart the portal.'
+        )
+    conn = sqlite3.connect(path)
+    conn.execute(f"PRAGMA key='{key}'")
+    conn.execute('SELECT count(*) FROM sqlite_master')  # verify key immediately
+    return conn
+
+
+# ── Document encryption helpers ────────────────────────────────────────────────
+
+def _doc_fernet():
+    """Return a Fernet instance derived from DB_ENCRYPTION_KEY.
+
+    We derive a 32-byte key by SHA-256 hashing the DB_ENCRYPTION_KEY so that
+    a single key in .env covers both database and document encryption.
+    Raises RuntimeError if the key is missing — same hard-fail policy as the DB.
+    """
+    raw_key = os.environ.get('DB_ENCRYPTION_KEY')
+    if not raw_key:
+        raise RuntimeError(
+            'DB_ENCRYPTION_KEY is not set in .env — cannot encrypt/decrypt documents.'
+        )
+    derived = hashlib.sha256(raw_key.encode()).digest()  # always 32 bytes
+    fernet_key = base64.urlsafe_b64encode(derived)
+    return Fernet(fernet_key)
+
+
+def encrypt_file(data: bytes) -> bytes:
+    """Encrypt raw file bytes. Returns Fernet token (bytes)."""
+    return _doc_fernet().encrypt(data)
+
+
+def decrypt_file(token: bytes) -> bytes:
+    """Decrypt a Fernet token back to the original file bytes."""
+    return _doc_fernet().decrypt(token)
+
+
 def get_db():
-    """Return a request-scoped DB connection."""
+    """Return a request-scoped DB connection with SQLCipher encryption."""
     if 'db' not in g:
-        g.db = sqlite3.connect(DATABASE)
+        g.db = _connect_db()
         g.db.row_factory = sqlite3.Row
         g.db.execute('PRAGMA foreign_keys = ON')
     return g.db
@@ -115,7 +258,7 @@ def log_action(action, table_name=None, record_id=None, details=None):
 def init_db():
     """Initialise the database from schema.sql. Safe to run multiple times."""
     os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
-    db = sqlite3.connect(DATABASE)
+    db = _connect_db()
     with open(os.path.join(BASE_DIR, 'schema.sql'), 'r') as f:
         db.executescript(f.read())
     db.commit()
@@ -128,8 +271,11 @@ def init_db_command():
     init_db()
 
 def ensure_tables():
-    """Create any tables added after initial deploy without requiring a full init-db."""
-    db = sqlite3.connect(DATABASE)
+    """Create any tables added after initial deploy without requiring a full init-db.
+    Safe to run on every startup — all operations are idempotent."""
+    db = _connect_db()
+
+    # ── Tables ────────────────────────────────────────────────────────────────
     db.executescript('''
         CREATE TABLE IF NOT EXISTS session_activities (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,35 +320,23 @@ def ensure_tables():
             updated_at TEXT,
             updated_by INTEGER REFERENCES users(id)
         );
+        -- v6.0: permissions catalogue and configurable roles
+        CREATE TABLE IF NOT EXISTS permissions (
+            code        TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            description TEXT,
+            category    TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS roles (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    UNIQUE NOT NULL,
+            is_default  INTEGER DEFAULT 0,
+            permissions TEXT    NOT NULL,
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
     ''')
-    # Seed default settings if they don't exist yet
-    settings_db = sqlite3.connect(DATABASE)
-    settings_db.row_factory = sqlite3.Row
-    for key, val in [
-        ('at_risk_threshold_tuesday',  '5'),
-        ('at_risk_threshold_thursday', '5'),
-        ('register_can_signin',        'admin,editor,leader'),
-        ('register_can_signout',       'admin,editor,leader,readonly'),
-    ]:
-        existing = settings_db.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone()
-        if not existing:
-            settings_db.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
-    settings_db.commit()
-    settings_db.close()
-    # Seed default session types (Tuesday=weekday 1, Thursday=weekday 3)
-    seed_db = sqlite3.connect(DATABASE)
-    for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
-        existing = seed_db.execute(
-            'SELECT id FROM session_types WHERE name = ?', (name,)
-        ).fetchone()
-        if not existing:
-            seed_db.execute(
-                'INSERT INTO session_types (name, weekday, active, sort_order) VALUES (?,?,1,?)',
-                (name, weekday, sort_order)
-            )
-    seed_db.commit()
-    seed_db.close()
-    # ALTER TABLE migrations — each wrapped individually so existing columns don't abort the rest
+
+    # ── ALTER TABLE migrations (idempotent — each wrapped individually) ───────
     alter_stmts = [
         "ALTER TABLE members ADD COLUMN member_type TEXT NOT NULL DEFAULT 'member'",
         "ALTER TABLE members ADD COLUMN staff_role TEXT",
@@ -211,6 +345,8 @@ def ensure_tables():
         "ALTER TABLE pending_registrations ADD COLUMN mobile TEXT",
         "ALTER TABLE pending_registrations ADD COLUMN email TEXT",
         "ALTER TABLE members ADD COLUMN status_note TEXT",
+        # v6.0: link users to the new roles table
+        "ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)",
     ]
     for stmt in alter_stmts:
         try:
@@ -221,10 +357,88 @@ def ensure_tables():
     db.commit()
     db.close()
 
+    # ── Seed default settings ─────────────────────────────────────────────────
+    sdb = _connect_db()
+    sdb.row_factory = sqlite3.Row
+    for key, val in [
+        ('at_risk_threshold_tuesday',  '5'),
+        ('at_risk_threshold_thursday', '5'),
+    ]:
+        if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
+            sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
+    sdb.commit()
+    sdb.close()
+
+    # ── Seed default session types ─────────────────────────────────────────────
+    tdb = _connect_db()
+    for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
+        if not tdb.execute('SELECT id FROM session_types WHERE name = ?', (name,)).fetchone():
+            tdb.execute(
+                'INSERT INTO session_types (name, weekday, active, sort_order) VALUES (?,?,1,?)',
+                (name, weekday, sort_order),
+            )
+    tdb.commit()
+    tdb.close()
+
+    # ── Seed permissions catalogue (v6.0) ──────────────────────────────────────
+    pdb = _connect_db()
+    for code, name, desc, cat in ALL_PERMISSIONS:
+        pdb.execute(
+            'INSERT OR IGNORE INTO permissions (code, name, description, category) VALUES (?,?,?,?)',
+            (code, name, desc, cat),
+        )
+    pdb.commit()
+    pdb.close()
+
+    # ── Seed default roles (v6.0) ──────────────────────────────────────────────
+    rdb = _connect_db()
+    rdb.row_factory = sqlite3.Row
+    for role_name, perms in DEFAULT_ROLE_PERMISSIONS.items():
+        rdb.execute(
+            'INSERT OR IGNORE INTO roles (name, permissions, is_default) VALUES (?,?,1)',
+            (role_name, json.dumps(perms)),
+        )
+    rdb.commit()
+
+    # ── Migrate existing users → role_id (v6.0) ───────────────────────────────
+    # Any user whose role_id is still NULL gets it set from their old role text column.
+    users_needing_migration = rdb.execute(
+        'SELECT id, role FROM users WHERE role_id IS NULL'
+    ).fetchall()
+    for user in users_needing_migration:
+        role_row = rdb.execute(
+            'SELECT id FROM roles WHERE name = ?', (user['role'],)
+        ).fetchone()
+        if role_row:
+            rdb.execute(
+                'UPDATE users SET role_id = ? WHERE id = ?',
+                (role_row['id'], user['id']),
+            )
+    rdb.commit()
+    rdb.close()
+
 # Run migration on startup
 with app.app_context():
     if os.path.exists(DATABASE):
         ensure_tables()
+
+# ── Password policy ────────────────────────────────────────────────────────────
+
+def validate_password(password):
+    """Enforce the portal password policy.
+    Returns an error string if the password fails, or None if it passes.
+    Policy: 8+ characters, at least one uppercase letter, one number, one special character.
+    """
+    if len(password) < 8:
+        return 'Password must be at least 8 characters'
+    if not re.search(r'[A-Z]', password):
+        return 'Password must contain at least one uppercase letter'
+    if not re.search(r'[0-9]', password):
+        return 'Password must contain at least one number'
+    if not re.search(r'[^A-Za-z0-9]', password):
+        return 'Password must contain at least one special character'
+    return None
+
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
 
@@ -239,13 +453,13 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def role_required(*roles):
-    """Restrict access to users with one of the specified roles."""
+def permission_required(permission_code):
+    """Restrict access to users whose role includes the given permission code."""
     def decorator(f):
         @wraps(f)
         @login_required
         def decorated(*args, **kwargs):
-            if session.get('role') not in roles:
+            if permission_code not in session.get('permissions', []):
                 if request.path.startswith('/api/'):
                     return jsonify({'error': 'Forbidden'}), 403
                 return redirect(url_for('dashboard_page'))
@@ -253,21 +467,20 @@ def role_required(*roles):
         return decorated
     return decorator
 
+def has_permission(permission_code):
+    """Return True if the current session user has the given permission.
+    Safe to call from templates and helper functions."""
+    return permission_code in session.get('permissions', [])
+
 def tpl_ctx():
     """Inject current user info into every protected template."""
-    def _roles(key, default):
-        val = get_setting(key, default)
-        return [r.strip() for r in val.split(',') if r.strip()]
-
     return {
-        'current_user':    session.get('username', ''),
-        'current_role':    session.get('role', ''),
-        'current_session': session.get('session_assigned', ''),
-        'app_version':     APP_VERSION,
-        'session_types':   get_session_types(),  # [{id, name, weekday}, ...]
-        # Register permission lists — used by register.html JS
-        'signin_roles':    _roles('register_can_signin',  'admin,editor,leader'),
-        'signout_roles':   _roles('register_can_signout', 'admin,editor,leader,readonly'),
+        'current_user':     session.get('username', ''),
+        'current_role':     session.get('role', ''),
+        'current_session':  session.get('session_assigned', ''),
+        'app_version':      APP_VERSION,
+        'session_types':    get_session_types(),        # [{id, name, weekday}, ...]
+        'user_permissions': session.get('permissions', []),  # list of permission codes
     }
 
 # ── Page routes ────────────────────────────────────────────────────────────────
@@ -284,12 +497,12 @@ def dashboard_page():
     return render_template('dashboard.html', active_page='dashboard', **tpl_ctx())
 
 @app.route('/members')
-@role_required('admin', 'editor', 'leader')
+@permission_required('members.view')
 def members_page():
     return render_template('members.html', active_page='members', **tpl_ctx())
 
 @app.route('/approvals')
-@role_required('admin', 'editor')
+@permission_required('approvals.view')
 def approvals_page():
     return render_template('approvals.html', active_page='approvals', **tpl_ctx())
 
@@ -314,32 +527,42 @@ def registration_staff_page():
     return render_template('registration_staff.html', version=APP_VERSION, session_types=get_session_types())
 
 @app.route('/documents')
-@role_required('admin', 'editor', 'leader', 'readonly')
+@permission_required('documents.view')
 def documents_page():
     return render_template('documents.html', active_page='documents', **tpl_ctx())
 
 @app.route('/communications')
-@role_required('admin', 'editor')
+@permission_required('mailshots.send')
 def communications_page():
     return render_template('communications.html', active_page='communications', **tpl_ctx())
 
 @app.route('/admin/users')
-@role_required('admin', 'editor')
+@permission_required('users.view')
 def users_page():
     return render_template('admin/users.html', active_page='users', **tpl_ctx())
 
 @app.route('/admin/audit')
-@role_required('admin', 'editor')
+@permission_required('audit.view')
 def audit_page():
     return render_template('admin/audit.html', active_page='audit', **tpl_ctx())
 
 @app.route('/admin/settings')
-@role_required('admin', 'editor')
+@permission_required('admin.settings')
 def settings_page():
     return render_template('admin/settings.html', active_page='settings', **tpl_ctx())
 
+@app.route('/admin/roles')
+@permission_required('admin.settings')
+def roles_page():
+    return render_template('admin/roles.html', active_page='roles', **tpl_ctx())
+
+@app.route('/admin/staff-roles')
+@permission_required('admin.settings')
+def staff_roles_page():
+    return render_template('admin/staff_roles.html', active_page='staff_roles', **tpl_ctx())
+
 @app.route('/api/settings')
-@role_required('admin', 'editor')
+@permission_required('admin.settings')
 def api_settings_get():
     """Return all settings as a key/value dict."""
     db   = get_db()
@@ -347,13 +570,15 @@ def api_settings_get():
     return jsonify({r['key']: r['value'] for r in rows})
 
 @app.route('/api/settings', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('admin.settings')
 def api_settings_save():
-    """Save one or more settings. Body: {key: value, ...}"""
+    """Save one or more settings. Body: {key: value, ...}
+    Only at-risk thresholds are modifiable here; register permissions
+    are now managed via the Roles system (/admin/roles)."""
     data = request.get_json() or {}
     allowed_keys = {'at_risk_threshold_tuesday', 'at_risk_threshold_thursday'}
 
-    # Editors can only update the threshold for their own session
+    # Non-admin users are scoped — can only update threshold for their own session
     scoped = _assigned_session()
     if scoped is not None:
         session_key = f'at_risk_threshold_{scoped.lower()}'
@@ -397,10 +622,37 @@ def api_login():
 
     if user and bcrypt.checkpw(password.encode('utf-8'),
                                 user['password_hash'].encode('utf-8')):
+        # Load permissions from the roles table via role_id.
+        # Fall back to the role text column if role_id is not yet set
+        # (safety net for the one-release transition period).
+        perms = []
+        role_name = user['role']
+        if user['role_id']:
+            role_row = db.execute(
+                'SELECT name, permissions FROM roles WHERE id = ?', (user['role_id'],)
+            ).fetchone()
+            if role_row:
+                role_name = role_row['name']
+                try:
+                    perms = json.loads(role_row['permissions'])
+                except (TypeError, ValueError):
+                    perms = []
+        else:
+            # Fallback: look up by role name (covers users not yet migrated)
+            role_row = db.execute(
+                'SELECT name, permissions FROM roles WHERE name = ?', (user['role'],)
+            ).fetchone()
+            if role_row:
+                try:
+                    perms = json.loads(role_row['permissions'])
+                except (TypeError, ValueError):
+                    perms = []
+
         session.permanent = True
         session['user_id']          = user['id']
         session['username']         = user['username']
-        session['role']             = user['role']
+        session['role']             = role_name          # kept for _assigned_session() + templates
+        session['permissions']      = perms              # v6.0: full permission list
         session['session_assigned'] = user['session_assigned'] or ''
 
         db.execute('UPDATE users SET last_login = ? WHERE id = ?',
@@ -414,7 +666,7 @@ def api_login():
             'redirect': '/dashboard',
             'user': {
                 'username':         user['username'],
-                'role':             user['role'],
+                'role':             role_name,
                 'session_assigned': user['session_assigned'],
             }
         })
@@ -433,6 +685,7 @@ def api_me():
         'username':         session['username'],
         'role':             session['role'],
         'session_assigned': session.get('session_assigned', ''),
+        'permissions':      session.get('permissions', []),
     })
 
 @app.route('/api/auth/change-password', methods=['POST'])
@@ -444,8 +697,9 @@ def api_change_password():
 
     if not current_pw or not new_pw:
         return jsonify({'error': 'Both current and new passwords are required'}), 400
-    if len(new_pw) < 8:
-        return jsonify({'error': 'New password must be at least 8 characters'}), 400
+    pw_error = validate_password(new_pw)
+    if pw_error:
+        return jsonify({'error': pw_error}), 400
 
     db   = get_db()
     user = db.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
@@ -463,7 +717,7 @@ def api_change_password():
 # ── BLUEPRINT: members ─────────────────────────────────────────────────────────
 
 @app.route('/api/members')
-@role_required('admin', 'editor', 'leader')
+@permission_required('members.view')
 def api_members():
     db = get_db()
 
@@ -519,7 +773,7 @@ def api_members():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/members/<int:member_id>')
-@role_required('admin', 'editor', 'leader')
+@permission_required('members.view')
 def api_member_detail(member_id):
     db     = get_db()
     member = db.execute('SELECT * FROM members WHERE id = ?', (member_id,)).fetchone()
@@ -541,7 +795,7 @@ def api_member_detail(member_id):
     return jsonify(result)
 
 @app.route('/api/members/<int:member_id>/viewed', methods=['POST'])
-@role_required('admin', 'editor', 'leader')
+@permission_required('members.view')
 def api_member_viewed(member_id):
     """Record in the audit log that a member's card was opened and their details viewed."""
     db     = get_db()
@@ -562,7 +816,7 @@ def api_member_viewed(member_id):
 
 
 @app.route('/api/members/<int:member_id>', methods=['PUT'])
-@role_required('admin', 'editor')
+@permission_required('members.edit')
 def api_member_update(member_id):
     """Edit a member record. Logs every change to the audit trail."""
     data = request.get_json() or {}
@@ -629,7 +883,7 @@ def api_member_update(member_id):
 
 
 @app.route('/api/members/<int:member_id>', methods=['DELETE'])
-@role_required('admin', 'editor')
+@permission_required('members.delete')
 def api_member_delete(member_id):
     """
     Soft-delete: mark member as Leaver. Requires a reason.
@@ -664,7 +918,7 @@ def api_member_delete(member_id):
 
 
 @app.route('/api/members/<int:member_id>/permanent', methods=['DELETE'])
-@role_required('admin')
+@permission_required('members.hard_delete')
 def api_member_permanent_delete(member_id):
     """
     Permanently and irreversibly delete a member and ALL associated data.
@@ -852,7 +1106,7 @@ def api_dashboard():
 
 
 @app.route('/api/admin/audit')
-@role_required('admin', 'editor')
+@permission_required('audit.view')
 def api_audit_log():
     """Return recent audit log entries."""
     limit  = min(int(request.args.get('limit', 200)), 500)
@@ -895,6 +1149,18 @@ def api_postcode_lookup(postcode):
 
 
 
+# ── BLUEPRINT: staff roles (public read) ──────────────────────────────────────
+
+@app.route('/api/staff-roles')
+def api_staff_roles_public():
+    """Return active staff roles ordered by display_order — no auth required (used on public registration form)."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, display_order FROM staff_roles WHERE active = 1 ORDER BY display_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
 # ── BLUEPRINT: registration (public) ──────────────────────────────────────────
 
 @app.route('/api/registration', methods=['POST'])
@@ -913,7 +1179,10 @@ def api_registration():
     if rtype == 'staff':
         # Simplified staff/volunteer registration
         applicant_role = data.get('applicant_role', '').strip()
-        if applicant_role not in ('Volunteer', 'Youth Volunteer', 'Leader'):
+        valid_roles = [r['name'] for r in db.execute(
+            'SELECT name FROM staff_roles WHERE active = 1'
+        ).fetchall()]
+        if applicant_role not in valid_roles:
             return jsonify({'error': 'Invalid role'}), 400
         session_pref = data.get('assigned_session', '').strip()
         if session_pref not in get_valid_session_names():
@@ -974,9 +1243,6 @@ def api_registration():
 
 # ── BLUEPRINT: admin ───────────────────────────────────────────────────────────
 
-VALID_ROLES = ('admin', 'editor', 'leader', 'readonly')
-
-
 # ── Session types API ──────────────────────────────────────────────────────────
 
 @app.route('/api/session-types')
@@ -987,9 +1253,9 @@ def api_session_types_list():
 
 
 @app.route('/api/admin/session-types', methods=['GET'])
-@role_required('admin')
+@permission_required('admin.session_types')
 def api_admin_session_types_get():
-    """Admin: return all session types (including inactive)."""
+    """Return all session types (including inactive)."""
     db   = get_db()
     rows = db.execute(
         'SELECT id, name, weekday, active, sort_order FROM session_types ORDER BY sort_order, name'
@@ -998,9 +1264,9 @@ def api_admin_session_types_get():
 
 
 @app.route('/api/admin/session-types', methods=['POST'])
-@role_required('admin')
+@permission_required('admin.session_types')
 def api_admin_session_types_create():
-    """Admin: create a new session type."""
+    """Create a new session type."""
     data    = request.get_json() or {}
     name    = data.get('name', '').strip()
     weekday = data.get('weekday')
@@ -1026,9 +1292,9 @@ def api_admin_session_types_create():
 
 
 @app.route('/api/admin/session-types/<int:st_id>', methods=['PUT'])
-@role_required('admin')
+@permission_required('admin.session_types')
 def api_admin_session_types_update(st_id):
-    """Admin: update a session type's name, weekday, or active status."""
+    """Update a session type's name, weekday, or active status."""
     data    = request.get_json() or {}
     db      = get_db()
     current = db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()
@@ -1066,9 +1332,9 @@ def api_admin_session_types_update(st_id):
 
 
 @app.route('/api/admin/session-types/<int:st_id>', methods=['DELETE'])
-@role_required('admin')
+@permission_required('admin.session_types')
 def api_admin_session_types_delete(st_id):
-    """Admin: delete a session type (only if no members or attendance records use it)."""
+    """Delete a session type (only if no members or attendance records use it)."""
     db  = get_db()
     row = db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()
     if not row:
@@ -1094,9 +1360,9 @@ def api_admin_session_types_delete(st_id):
 
 
 @app.route('/api/admin/session-types/reorder', methods=['POST'])
-@role_required('admin')
+@permission_required('admin.session_types')
 def api_admin_session_types_reorder():
-    """Admin: reorder session types. Body: [{id, sort_order}, ...]"""
+    """Reorder session types. Body: [{id, sort_order}, ...]"""
     items = request.get_json() or []
     db    = get_db()
     for item in items:
@@ -1108,8 +1374,97 @@ def api_admin_session_types_reorder():
     return jsonify({'success': True})
 
 
+# ── BLUEPRINT: staff roles admin CRUD ─────────────────────────────────────────
+
+@app.route('/api/admin/staff-roles', methods=['GET'])
+@permission_required('admin.settings')
+def api_admin_staff_roles_get():
+    """Return all staff roles including inactive ones (admin view)."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, active, display_order FROM staff_roles ORDER BY display_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/staff-roles', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_staff_roles_create():
+    """Create a new staff role."""
+    data = request.get_json() or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+
+    db        = get_db()
+    max_order = db.execute('SELECT COALESCE(MAX(display_order), -1) FROM staff_roles').fetchone()[0]
+    try:
+        cur = db.execute(
+            'INSERT INTO staff_roles (name, active, display_order) VALUES (?,1,?)',
+            (name, max_order + 1)
+        )
+        db.commit()
+        log_action('create_staff_role', 'staff_roles', cur.lastrowid, {'name': name})
+        row = db.execute('SELECT * FROM staff_roles WHERE id = ?', (cur.lastrowid,)).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A role named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/staff-roles/<int:role_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_admin_staff_roles_update(role_id):
+    """Update a staff role's name or active status."""
+    data    = request.get_json() or {}
+    db      = get_db()
+    current = db.execute('SELECT * FROM staff_roles WHERE id = ?', (role_id,)).fetchone()
+    if not current:
+        return jsonify({'error': 'Role not found'}), 404
+
+    name   = data.get('name', current['name']).strip()
+    active = int(data.get('active', current['active']))
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+
+    # Prevent deactivating the last active role
+    if not active:
+        active_count = db.execute(
+            'SELECT COUNT(*) FROM staff_roles WHERE active = 1 AND id != ?', (role_id,)
+        ).fetchone()[0]
+        if active_count == 0:
+            return jsonify({'error': 'Cannot deactivate the only active staff role'}), 400
+
+    try:
+        db.execute(
+            'UPDATE staff_roles SET name = ?, active = ? WHERE id = ?',
+            (name, active, role_id)
+        )
+        db.commit()
+        log_action('update_staff_role', 'staff_roles', role_id,
+                   {'name': name, 'active': active})
+        return jsonify(dict(db.execute('SELECT * FROM staff_roles WHERE id = ?', (role_id,)).fetchone()))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A role named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/staff-roles/reorder', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_staff_roles_reorder():
+    """Reorder staff roles. Body: [{id, display_order}, ...]"""
+    items = request.get_json() or []
+    db    = get_db()
+    for item in items:
+        db.execute(
+            'UPDATE staff_roles SET display_order = ? WHERE id = ?',
+            (item.get('display_order', 0), item.get('id'))
+        )
+    db.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/api/admin/users')
-@role_required('admin', 'editor')
+@permission_required('users.view')
 def api_users_list():
     db     = get_db()
     scoped = _assigned_session()
@@ -1129,7 +1484,7 @@ def api_users_list():
     return jsonify([dict(u) for u in users])
 
 @app.route('/api/admin/users', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('users.create')
 def api_users_create():
     data     = request.get_json() or {}
     username = data.get('username', '').strip()
@@ -1140,30 +1495,40 @@ def api_users_create():
 
     if not username or not password:
         return jsonify({'error': 'Username and password are required'}), 400
-    if len(password) < 8:
-        return jsonify({'error': 'Password must be at least 8 characters'}), 400
-    if role not in VALID_ROLES:
+    pw_error = validate_password(password)
+    if pw_error:
+        return jsonify({'error': pw_error}), 400
+
+    db = get_db()
+
+    # Validate role exists in the roles table
+    target_role_row = db.execute('SELECT id, permissions FROM roles WHERE name = ?', (role,)).fetchone()
+    if not target_role_row:
         return jsonify({'error': 'Invalid role'}), 400
-    # Leaders cannot create admin accounts — only admins can grant admin role
-    if role == 'admin' and session.get('role') != 'admin':
-        return jsonify({'error': 'Only admins can create admin accounts'}), 403
-    # Non-admin roles must have a session assigned
-    if role != 'admin' and not sess:
+
+    # If the target role carries admin-level privileges, require users.create.admin
+    target_perms = json.loads(target_role_row['permissions'])
+    if 'users.create.admin' in target_perms and not has_permission('users.create.admin'):
+        return jsonify({'error': 'You do not have permission to assign this role'}), 403
+
+    # Non-admin-level users must have a session assigned
+    # (sessions scope data — leaving it blank would expose all data)
+    if 'admin.maintenance' not in target_perms and not sess:
         return jsonify({'error': 'A session must be assigned for non-admin users'}), 400
     if sess and sess not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
-    # Editors can only create users for their own session
+
+    # Scoped users (Core Leaders) can only create users for their own session
     scoped = _assigned_session()
     if scoped is not None and sess != scoped:
         return jsonify({'error': 'You can only create users for your own session'}), 403
 
     pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    db = get_db()
     try:
         db.execute(
-            'INSERT INTO users (username, email, password_hash, role, session_assigned)'
-            ' VALUES (?,?,?,?,?)',
-            (username, email, pw_hash, role, sess)
+            'INSERT INTO users (username, email, password_hash, role, role_id, session_assigned)'
+            ' VALUES (?,?,?,?,?,?)',
+            (username, email, pw_hash, role, target_role_row['id'], sess)
         )
         db.commit()
         log_action('create_user', 'users', None,
@@ -1173,7 +1538,7 @@ def api_users_create():
         return jsonify({'error': 'Username already exists'}), 409
 
 @app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
-@role_required('admin', 'editor')
+@permission_required('users.edit')
 def api_users_update(user_id):
     data    = request.get_json() or {}
     db      = get_db()
@@ -1183,9 +1548,17 @@ def api_users_update(user_id):
     # Safety: cannot deactivate your own account
     if user_id == session['user_id'] and data.get('active') is False:
         return jsonify({'error': 'You cannot deactivate your own account'}), 400
-    # Leaders cannot elevate any account to admin
-    if 'role' in data and data['role'] == 'admin' and session.get('role') != 'admin':
-        return jsonify({'error': 'Only admins can assign the admin role'}), 403
+
+    # If changing role, validate the target role and check admin-level permission
+    if 'role' in data:
+        target_role_row = db.execute(
+            'SELECT id, permissions FROM roles WHERE name = ?', (data['role'],)
+        ).fetchone()
+        if not target_role_row:
+            return jsonify({'error': 'Invalid role'}), 400
+        target_perms = json.loads(target_role_row['permissions'])
+        if 'users.create.admin' in target_perms and not has_permission('users.create.admin'):
+            return jsonify({'error': 'You do not have permission to assign this role'}), 403
 
     # Editors can only modify users in their own session
     scoped = _assigned_session()
@@ -1204,10 +1577,13 @@ def api_users_update(user_id):
         params.append(data['email'])
 
     if 'role' in data:
-        if data['role'] not in VALID_ROLES:
-            return jsonify({'error': 'Invalid role'}), 400
+        # role and role_id are updated together; validation already done above
+        target_role_row = db.execute('SELECT id FROM roles WHERE name = ?', (data['role'],)).fetchone()
         updates.append('role = ?')
         params.append(data['role'])
+        if target_role_row:
+            updates.append('role_id = ?')
+            params.append(target_role_row['id'])
 
     if 'session_assigned' in data:
         updates.append('session_assigned = ?')
@@ -1218,8 +1594,9 @@ def api_users_update(user_id):
         params.append(1 if data['active'] else 0)
 
     if 'password' in data and data['password']:
-        if len(data['password']) < 8:
-            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        pw_error = validate_password(data['password'])
+        if pw_error:
+            return jsonify({'error': pw_error}), 400
         pw_hash = bcrypt.hashpw(data['password'].encode('utf-8'),
                                 bcrypt.gensalt()).decode('utf-8')
         updates.append('password_hash = ?')
@@ -1233,7 +1610,7 @@ def api_users_update(user_id):
     return jsonify({'success': True})
 
 @app.route('/api/admin/users/<int:user_id>/permanent', methods=['DELETE'])
-@role_required('admin')
+@permission_required('users.delete')
 def api_users_permanent_delete(user_id):
     """Permanently delete a portal user account.
 
@@ -1314,7 +1691,7 @@ def _next_member_id(db):
 
 
 @app.route('/api/approvals')
-@role_required('admin', 'editor')
+@permission_required('approvals.view')
 def api_approvals_list():
     """List pending registrations. ?status=pending|approved|rejected|all
     Editors (Core Leaders) only see registrations for their assigned session."""
@@ -1362,7 +1739,7 @@ def api_approvals_list():
 
 
 @app.route('/api/approvals/<int:reg_id>/approve', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('approvals.approve')
 def api_approvals_approve(reg_id):
     """Approve a pending registration — handles both member and staff types."""
     data = request.get_json() or {}
@@ -1428,16 +1805,24 @@ def api_approvals_approve(reg_id):
         if create_login:
             if not username or not temp_password:
                 return jsonify({'error': 'Username and password are required to create a login'}), 400
-            if portal_role not in VALID_ROLES:
+            pw_error = validate_password(temp_password)
+            if pw_error:
+                return jsonify({'error': pw_error}), 400
+            # Validate portal_role against the roles table
+            role_row = db.execute('SELECT id, permissions FROM roles WHERE name = ?', (portal_role,)).fetchone()
+            if not role_row:
                 return jsonify({'error': 'Invalid portal role'}), 400
+            role_perms = json.loads(role_row['permissions'])
+            if 'users.create.admin' in role_perms and not has_permission('users.create.admin'):
+                return jsonify({'error': 'You do not have permission to assign this role'}), 403
             existing = db.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
             if existing:
                 return jsonify({'error': f'Username "{username}" is already taken'}), 409
             pw_hash = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
             cur = db.execute(
-                'INSERT INTO users (username, email, password_hash, role, session_assigned, active)'
-                ' VALUES (?,?,?,?,?,1)',
-                (username, reg['email'] or '', pw_hash, portal_role, assigned_session)
+                'INSERT INTO users (username, email, password_hash, role, role_id, session_assigned, active)'
+                ' VALUES (?,?,?,?,?,?,1)',
+                (username, reg['email'] or '', pw_hash, portal_role, role_row['id'], assigned_session)
             )
             portal_user_id = cur.lastrowid
             log_action('create_user', 'users', portal_user_id, {
@@ -1503,7 +1888,7 @@ def api_approvals_approve(reg_id):
 
 
 @app.route('/api/approvals/<int:reg_id>/reject', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('approvals.reject')
 def api_approvals_reject(reg_id):
     """Reject a pending registration with optional notes."""
     data = request.get_json() or {}
@@ -1615,12 +2000,8 @@ def api_attendance_staff_get(session_type, date):
 
 
 @app.route('/api/attendance/signin', methods=['POST'])
-@login_required
+@permission_required('register.signin')
 def api_attendance_signin():
-    allowed = [r.strip() for r in get_setting('register_can_signin', 'admin,editor,leader').split(',')]
-    if session.get('role') not in allowed:
-        return jsonify({'error': 'Your role does not have permission to sign members in'}), 403
-
     data        = request.get_json() or {}
     member_id   = data.get('member_id')
     sess_type   = data.get('session_type', '').strip()
@@ -1677,12 +2058,8 @@ def api_attendance_signin():
 
 
 @app.route('/api/attendance/signout', methods=['POST'])
-@login_required
+@permission_required('register.signout')
 def api_attendance_signout():
-    allowed = [r.strip() for r in get_setting('register_can_signout', 'admin,editor,leader,readonly').split(',')]
-    if session.get('role') not in allowed:
-        return jsonify({'error': 'Your role does not have permission to sign members out'}), 403
-
     data        = request.get_json() or {}
     member_id   = data.get('member_id')
     sess_type   = data.get('session_type', '').strip()
@@ -1739,7 +2116,7 @@ def api_attendance_complete_status(session_type, date):
 
 
 @app.route('/api/attendance/complete', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('register.complete')
 def api_attendance_complete():
     """
     Mark a session register as complete (locked).
@@ -1820,7 +2197,7 @@ def api_attendance_complete():
 
 
 @app.route('/api/attendance/reset', methods=['POST'])
-@role_required('admin')
+@permission_required('register.reset')
 def api_attendance_reset():
     """
     Admin-only: completely wipe a session register.
@@ -1953,7 +2330,7 @@ def _assigned_session():
 
 
 @app.route('/api/attendance/check-at-risk')
-@role_required('admin', 'editor')
+@permission_required('register.at_risk')
 def api_attendance_check_at_risk():
     """
     Return active members who have missed their last N consecutive sessions,
@@ -2035,7 +2412,7 @@ def api_attendance_check_at_risk():
 
 
 @app.route('/api/attendance/mark-at-risk', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('register.at_risk')
 def api_attendance_mark_at_risk():
     """Flag a list of members as At Risk, with a mandatory note from the core leader."""
     data       = request.get_json() or {}
@@ -2177,7 +2554,7 @@ def api_activities_list(session_type):
 
 
 @app.route('/api/activities', methods=['POST'])
-@login_required
+@permission_required('activities.manage')
 def api_activity_add():
     """Add an activity to the display board."""
     data     = request.get_json() or {}
@@ -2199,7 +2576,7 @@ def api_activity_add():
 
 
 @app.route('/api/activities/<int:activity_id>', methods=['DELETE'])
-@login_required
+@permission_required('activities.manage')
 def api_activity_delete(activity_id):
     """Remove an activity from the display board."""
     db = get_db()
@@ -2257,7 +2634,7 @@ def api_calendar_terms():
 
 
 @app.route('/api/calendar', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('calendar.create')
 def api_calendar_add():
     """Add a single session to the calendar."""
     data         = request.get_json() or {}
@@ -2309,7 +2686,7 @@ def api_calendar_add():
 
 
 @app.route('/api/calendar/bulk', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('calendar.create')
 def api_calendar_bulk():
     """
     Bulk-generate sessions between two dates.
@@ -2383,7 +2760,7 @@ def api_calendar_bulk():
 
 
 @app.route('/api/calendar/<int:session_id>', methods=['PUT'])
-@role_required('admin', 'editor')
+@permission_required('calendar.edit')
 def api_calendar_update(session_id):
     """Update status or notes on a session."""
     data   = request.get_json() or {}
@@ -2422,7 +2799,7 @@ def api_calendar_update(session_id):
 
 
 @app.route('/api/calendar/<int:session_id>', methods=['DELETE'])
-@role_required('admin', 'editor')
+@permission_required('calendar.delete')
 def api_calendar_delete(session_id):
     """Delete a session from the calendar."""
     db  = get_db()
@@ -2481,7 +2858,7 @@ def user_can_access_doc(doc):
 
 
 @app.route('/api/documents')
-@login_required
+@permission_required('documents.view')
 def api_documents_list():
     db   = get_db()
     rows = db.execute('''
@@ -2497,7 +2874,7 @@ def api_documents_list():
 
 
 @app.route('/api/documents', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('documents.upload')
 def api_documents_upload():
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
@@ -2517,7 +2894,9 @@ def api_documents_upload():
     safe_name = secure_filename(f.filename)
     # Prefix with timestamp to avoid collisions
     stored_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-    f.save(os.path.join(UPLOAD_DIR, stored_name))
+    encrypted_data = encrypt_file(f.read())
+    with open(os.path.join(UPLOAD_DIR, stored_name), 'wb') as fh:
+        fh.write(encrypted_data)
 
     mime = f.mimetype or 'application/octet-stream'
     db   = get_db()
@@ -2541,8 +2920,13 @@ def api_documents_download(doc_id):
     if not user_can_access_doc(doc):
         return jsonify({'error': 'Forbidden'}), 403
     log_action('download_document', 'documents', doc_id, {'title': doc['title']})
-    return send_from_directory(UPLOAD_DIR, doc['file_path'],
-                               download_name=doc['filename'], as_attachment=True)
+    with open(os.path.join(UPLOAD_DIR, doc['file_path']), 'rb') as fh:
+        decrypted = decrypt_file(fh.read())
+    return app.response_class(
+        decrypted,
+        mimetype=doc['mime_type'] or 'application/octet-stream',
+        headers={'Content-Disposition': f'attachment; filename="{doc["filename"]}"'},
+    )
 
 
 @app.route('/api/documents/<int:doc_id>/view')
@@ -2556,12 +2940,17 @@ def api_documents_view(doc_id):
     if not user_can_access_doc(doc):
         return jsonify({'error': 'Forbidden'}), 403
     log_action('view_document', 'documents', doc_id, {'title': doc['title']})
-    return send_from_directory(UPLOAD_DIR, doc['file_path'],
-                               download_name=doc['filename'], as_attachment=False)
+    with open(os.path.join(UPLOAD_DIR, doc['file_path']), 'rb') as fh:
+        decrypted = decrypt_file(fh.read())
+    return app.response_class(
+        decrypted,
+        mimetype=doc['mime_type'] or 'application/octet-stream',
+        headers={'Content-Disposition': f'inline; filename="{doc["filename"]}"'},
+    )
 
 
 @app.route('/api/documents/<int:doc_id>', methods=['DELETE'])
-@role_required('admin', 'editor')
+@permission_required('documents.delete')
 def api_documents_delete(doc_id):
     db  = get_db()
     doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
@@ -2569,6 +2958,13 @@ def api_documents_delete(doc_id):
         return jsonify({'error': 'Not found'}), 404
     db.execute('UPDATE documents SET active = 0 WHERE id = ?', (doc_id,))
     db.commit()
+    # Remove the encrypted file from disk — no point keeping it once deleted from the repo
+    file_path = os.path.join(UPLOAD_DIR, doc['file_path'])
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except OSError:
+        pass  # File already gone — not a reason to fail the request
     log_action('delete_document', 'documents', doc_id, {'title': doc['title']})
     return jsonify({'success': True})
 
@@ -2576,7 +2972,7 @@ def api_documents_delete(doc_id):
 # ── BLUEPRINT: email templates ────────────────────────────────────────────────
 
 @app.route('/api/email-templates')
-@role_required('admin', 'editor')
+@permission_required('mailshots.templates')
 def api_email_templates_list():
     db   = get_db()
     rows = db.execute(
@@ -2587,7 +2983,7 @@ def api_email_templates_list():
 
 
 @app.route('/api/email-templates', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('mailshots.templates')
 def api_email_templates_create():
     data    = request.get_json() or {}
     name    = data.get('name', '').strip()
@@ -2606,7 +3002,7 @@ def api_email_templates_create():
 
 
 @app.route('/api/email-templates/<int:tmpl_id>', methods=['PUT'])
-@role_required('admin', 'editor')
+@permission_required('mailshots.templates')
 def api_email_templates_update(tmpl_id):
     data    = request.get_json() or {}
     name    = data.get('name', '').strip()
@@ -2626,7 +3022,7 @@ def api_email_templates_update(tmpl_id):
 
 
 @app.route('/api/email-templates/<int:tmpl_id>', methods=['DELETE'])
-@role_required('admin', 'editor')
+@permission_required('mailshots.templates')
 def api_email_templates_delete(tmpl_id):
     db = get_db()
     db.execute('DELETE FROM email_templates WHERE id = ?', (tmpl_id,))
@@ -2674,7 +3070,7 @@ def _get_recipients(session_filter, status_filter):
 
 
 @app.route('/api/mailshots/preview', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('mailshots.send')
 def api_mailshots_preview():
     """Return how many unique recipient emails a mailshot would reach."""
     data       = request.get_json() or {}
@@ -2683,7 +3079,7 @@ def api_mailshots_preview():
 
 
 @app.route('/api/mailshots/send', methods=['POST'])
-@role_required('admin', 'editor')
+@permission_required('mailshots.send')
 def api_mailshots_send():
     """Send a mailshot via Gmail SMTP and log it."""
     data           = request.get_json() or {}
@@ -2727,7 +3123,7 @@ def api_mailshots_send():
                 attachments.append({
                     'filename':  doc['filename'],
                     'mime_type': doc['mime_type'] or 'application/octet-stream',
-                    'data':      f.read(),
+                    'data':      decrypt_file(f.read()),
                 })
             log_action('attach_to_mailshot', 'documents', doc_id, {'title': doc['title'], 'subject': subject})
 
@@ -2795,7 +3191,7 @@ def api_mailshots_send():
 
 
 @app.route('/api/mailshots')
-@role_required('admin', 'editor')
+@permission_required('mailshots.send')
 def api_mailshots_history():
     db   = get_db()
     rows = db.execute('''
@@ -2813,7 +3209,7 @@ def api_mailshots_history():
 # ── BLUEPRINT: maintenance (admin only) ───────────────────────────────────────
 
 @app.route('/api/admin/maintenance/counts')
-@role_required('admin')
+@permission_required('admin.maintenance')
 def api_maintenance_counts():
     """Return record counts for each clearable data category."""
     db = get_db()
@@ -2826,7 +3222,7 @@ def api_maintenance_counts():
 
 
 @app.route('/api/admin/maintenance/audit-log', methods=['DELETE'])
-@role_required('admin')
+@permission_required('admin.maintenance')
 def api_maintenance_clear_audit():
     db = get_db()
     n  = db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
@@ -2839,7 +3235,7 @@ def api_maintenance_clear_audit():
 
 
 @app.route('/api/admin/maintenance/attendance', methods=['DELETE'])
-@role_required('admin')
+@permission_required('admin.maintenance')
 def api_maintenance_clear_attendance():
     db = get_db()
     n  = db.execute('SELECT COUNT(*) FROM attendance').fetchone()[0]
@@ -2851,7 +3247,7 @@ def api_maintenance_clear_attendance():
 
 
 @app.route('/api/admin/maintenance/mailshot-log', methods=['DELETE'])
-@role_required('admin')
+@permission_required('admin.maintenance')
 def api_maintenance_clear_mailshots():
     db = get_db()
     n  = db.execute('SELECT COUNT(*) FROM mailshot_log').fetchone()[0]
@@ -2863,7 +3259,7 @@ def api_maintenance_clear_mailshots():
 
 
 @app.route('/api/admin/maintenance/registrations', methods=['DELETE'])
-@role_required('admin')
+@permission_required('admin.maintenance')
 def api_maintenance_clear_registrations():
     db = get_db()
     n  = db.execute('SELECT COUNT(*) FROM pending_registrations').fetchone()[0]
@@ -2872,6 +3268,152 @@ def api_maintenance_clear_registrations():
     log_action('maintenance_clear', 'pending_registrations', None,
                {'cleared': n, 'by': session['username']})
     return jsonify({'success': True, 'deleted': n})
+
+
+# ── BLUEPRINT: roles + permissions (v6.0) ─────────────────────────────────────
+
+@app.route('/api/admin/permissions')
+@permission_required('admin.settings')
+def api_permissions_list():
+    """Return all permission codes grouped by category."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT code, name, description, category FROM permissions ORDER BY category, code'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/roles')
+@permission_required('admin.settings')
+def api_roles_list():
+    """Return all roles with their permission sets."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, is_default, permissions, created_at FROM roles ORDER BY name'
+    ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d['permissions'] = json.loads(d['permissions'])
+        except (TypeError, ValueError):
+            d['permissions'] = []
+        result.append(d)
+    return jsonify(result)
+
+
+@app.route('/api/admin/roles', methods=['POST'])
+@permission_required('admin.settings')
+def api_roles_create():
+    """Create a new custom role."""
+    data  = request.get_json() or {}
+    name  = data.get('name', '').strip()
+    perms = data.get('permissions', [])
+
+    if not name:
+        return jsonify({'error': 'Role name is required'}), 400
+    if not isinstance(perms, list):
+        return jsonify({'error': 'permissions must be a list'}), 400
+
+    # Validate all permission codes exist
+    db         = get_db()
+    valid_codes = {r['code'] for r in db.execute('SELECT code FROM permissions').fetchall()}
+    bad = [p for p in perms if p not in valid_codes]
+    if bad:
+        return jsonify({'error': f'Unknown permission code(s): {", ".join(bad)}'}), 400
+
+    # Only users with users.create.admin can include that permission in a new role
+    if 'users.create.admin' in perms and not has_permission('users.create.admin'):
+        return jsonify({'error': 'You do not have permission to assign users.create.admin'}), 403
+
+    try:
+        cur = db.execute(
+            'INSERT INTO roles (name, permissions, is_default) VALUES (?,?,0)',
+            (name, json.dumps(perms))
+        )
+        db.commit()
+        log_action('create_role', 'roles', cur.lastrowid, {'name': name, 'permissions': perms})
+        row = db.execute('SELECT id, name, is_default, permissions, created_at FROM roles WHERE id = ?',
+                         (cur.lastrowid,)).fetchone()
+        d = dict(row)
+        d['permissions'] = json.loads(d['permissions'])
+        return jsonify(d), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A role named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/roles/<int:role_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_roles_update(role_id):
+    """Update a role's name and/or permission set."""
+    data  = request.get_json() or {}
+    db    = get_db()
+    role  = db.execute('SELECT * FROM roles WHERE id = ?', (role_id,)).fetchone()
+    if not role:
+        return jsonify({'error': 'Role not found'}), 404
+
+    name  = data.get('name', role['name']).strip()
+    perms = data.get('permissions', json.loads(role['permissions']))
+
+    if not name:
+        return jsonify({'error': 'Role name is required'}), 400
+    if not isinstance(perms, list):
+        return jsonify({'error': 'permissions must be a list'}), 400
+
+    # Validate all permission codes exist
+    valid_codes = {r['code'] for r in db.execute('SELECT code FROM permissions').fetchall()}
+    bad = [p for p in perms if p not in valid_codes]
+    if bad:
+        return jsonify({'error': f'Unknown permission code(s): {", ".join(bad)}'}), 400
+
+    # Only users with users.create.admin can add that permission to a role
+    old_perms = json.loads(role['permissions'])
+    if 'users.create.admin' in perms and 'users.create.admin' not in old_perms:
+        if not has_permission('users.create.admin'):
+            return jsonify({'error': 'You do not have permission to assign users.create.admin'}), 403
+
+    try:
+        db.execute(
+            'UPDATE roles SET name = ?, permissions = ? WHERE id = ?',
+            (name, json.dumps(perms), role_id)
+        )
+        db.commit()
+        log_action('update_role', 'roles', role_id, {'name': name, 'permissions': perms})
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A role named "{name}" already exists'}), 409
+
+    # Refresh session permissions if the user's own role was updated
+    # (so changes take effect on their next page load rather than next login)
+    row = db.execute('SELECT id, name, is_default, permissions, created_at FROM roles WHERE id = ?',
+                     (role_id,)).fetchone()
+    d = dict(row)
+    d['permissions'] = json.loads(d['permissions'])
+    return jsonify(d)
+
+
+@app.route('/api/admin/roles/<int:role_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_roles_delete(role_id):
+    """Delete a custom role. Default roles and roles with assigned users cannot be deleted."""
+    db   = get_db()
+    role = db.execute('SELECT * FROM roles WHERE id = ?', (role_id,)).fetchone()
+    if not role:
+        return jsonify({'error': 'Role not found'}), 404
+
+    if role['is_default']:
+        return jsonify({'error': 'Default roles cannot be deleted'}), 400
+
+    # Prevent deletion if any users are assigned to this role
+    user_count = db.execute(
+        'SELECT COUNT(*) FROM users WHERE role_id = ?', (role_id,)
+    ).fetchone()[0]
+    if user_count:
+        return jsonify({'error': f'Cannot delete — {user_count} user(s) are assigned to this role'}), 400
+
+    db.execute('DELETE FROM roles WHERE id = ?', (role_id,))
+    db.commit()
+    log_action('delete_role', 'roles', role_id, {'name': role['name']})
+    return jsonify({'success': True})
 
 
 # ── Run ────────────────────────────────────────────────────────────────────────

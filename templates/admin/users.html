@@ -75,12 +75,7 @@
     <div class="form-group">
       <label>Role</label>
       <select id="f-role" onchange="handleRoleChange()">
-        <option value="readonly">Read-only — register sign-out and public documents only</option>
-        <option value="leader">Leader — view members, manage register, read documents, view calendar</option>
-        <option value="editor">Core Leader — full member edit, users, comms, documents</option>
-        {% if current_role == 'admin' %}
-        <option value="admin">Admin — full access including audit log and permanent delete</option>
-        {% endif %}
+        <option value="">Loading roles…</option>
       </select>
     </div>
     <div class="form-group" id="session-group" style="display:none">
@@ -107,11 +102,48 @@
 
 {% block scripts %}
 <script>
-  const USER_ROLE    = "{{ current_role }}";
+  const USER_ROLE    = "{{ current_role }}";  // kept for display
   const USER_SESSION = "{{ current_session or '' }}";
-  const IS_ADMIN     = USER_ROLE === 'admin';
-  const IS_SCOPED    = USER_ROLE !== 'admin';
-  let editingId = null;
+  const USER_PERMS   = new Set({{ user_permissions | tojson }});
+  const IS_ADMIN     = USER_PERMS.has('users.create.admin');
+  const IS_SCOPED    = USER_SESSION !== '';
+  let editingId  = null;
+  let _allRoles  = [];   // [{id, name, is_default, permissions:[...]}, ...]
+
+  /* ── Load roles and users on boot ─────────────── */
+  async function boot() {
+    await loadRoles();
+    await loadUsers();
+  }
+
+  async function loadRoles() {
+    try {
+      _allRoles = await apiFetch('/api/admin/roles');
+      populateRoleSelect('f-role', null);
+    } catch (e) {
+      showToast('Could not load roles: ' + e.message, true);
+    }
+  }
+
+  /**
+   * Populate a <select> element with available roles.
+   * Filters out roles requiring users.create.admin if current user lacks that permission.
+   * @param {string} selectId - element id
+   * @param {string|null} currentValue - pre-select this role name (null = first option)
+   */
+  function populateRoleSelect(selectId, currentValue) {
+    const el = document.getElementById(selectId);
+    if (!el) return;
+    el.innerHTML = _allRoles
+      .filter(r => {
+        // Hide roles that carry users.create.admin unless the current user has it
+        const perms = Array.isArray(r.permissions) ? r.permissions : [];
+        return IS_ADMIN || !perms.includes('users.create.admin');
+      })
+      .map(r => `<option value="${esc(r.name)}"${r.name === currentValue ? ' selected' : ''}>${esc(r.name)}</option>`)
+      .join('');
+    handleRoleChange();
+  }
 
   /* ── Load users ───────────────────────────────── */
   async function loadUsers() {
@@ -124,7 +156,7 @@
     }
   }
 
-  loadUsers();
+  boot();
 
   function roleBadge(role) {
     const map = {
@@ -191,7 +223,14 @@
     document.getElementById('f-username').value    = '';
     document.getElementById('f-username').disabled = false;
     document.getElementById('f-email').value       = '';
-    document.getElementById('f-role').value        = 'readonly';
+    // Default to the first role that requires a session (non-admin), so the
+    // session field is visible when the modal opens.
+    const firstScopedRole = _allRoles.find(r => {
+      const perms = Array.isArray(r.permissions) ? r.permissions : [];
+      const visible = IS_ADMIN || !perms.includes('users.create.admin');
+      return visible && !perms.includes('admin.maintenance');
+    });
+    populateRoleSelect('f-role', firstScopedRole ? firstScopedRole.name : null);
     // Scoped editors can only create users for their own session
     const sessEl = document.getElementById('f-session');
     sessEl.value    = IS_SCOPED ? USER_SESSION : '';
@@ -208,10 +247,11 @@
     editingId = u.id;
     document.getElementById('modal-title').textContent = `Edit — ${u.username}`;
     document.getElementById('modal-save-btn').textContent = 'Save Changes';
-    document.getElementById('f-username').value   = u.username;
+    document.getElementById('f-username').value    = u.username;
     document.getElementById('f-username').disabled = true;  // username is immutable
-    document.getElementById('f-email').value      = u.email || '';
-    document.getElementById('f-role').value       = u.role;
+    document.getElementById('f-email').value       = u.email || '';
+    // Populate role list and pre-select the user's current role
+    populateRoleSelect('f-role', u.role);
     const sessEl2 = document.getElementById('f-session');
     sessEl2.value    = u.session_assigned || '';
     sessEl2.disabled = IS_SCOPED;  // editors cannot change session assignment
@@ -227,10 +267,15 @@
   }
 
   function handleRoleChange() {
-    const role    = document.getElementById('f-role').value;
-    const sessGrp = document.getElementById('session-group');
-    // All non-admin roles require a session assignment
-    sessGrp.style.display = (role !== 'admin' && role !== '') ? 'block' : 'none';
+    const roleName = document.getElementById('f-role').value;
+    const sessGrp  = document.getElementById('session-group');
+    if (!roleName) { sessGrp.style.display = 'none'; return; }
+    // Roles that have admin.maintenance are unscoped — no session required.
+    // All other roles must have a session assigned to scope their data access.
+    const roleObj   = _allRoles.find(r => r.name === roleName);
+    const perms     = roleObj ? (Array.isArray(roleObj.permissions) ? roleObj.permissions : []) : [];
+    const isUnscoped = perms.includes('admin.maintenance');
+    sessGrp.style.display = isUnscoped ? 'none' : 'block';
   }
 
   /* ── Save ─────────────────────────────────────── */
@@ -244,7 +289,11 @@
 
     if (!editingId && !username) { showToast('Username is required.', true); return; }
     if (!editingId && !password) { showToast('Password is required for new users.', true); return; }
-    if (role !== 'admin' && !sess) { showToast('A session must be selected for this role.', true); return; }
+    // Check if session is required: roles with admin.maintenance are unscoped
+    const roleObj    = _allRoles.find(r => r.name === role);
+    const rolePerms  = roleObj ? (Array.isArray(roleObj.permissions) ? roleObj.permissions : []) : [];
+    const isUnscoped = rolePerms.includes('admin.maintenance');
+    if (!isUnscoped && !sess) { showToast('A session must be selected for this role.', true); return; }
 
     btn.disabled = true;
 

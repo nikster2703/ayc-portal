@@ -10,26 +10,61 @@ once you're logged in as admin.
 
 import getpass
 import os
-import sqlite3
 import sys
+
+import sqlcipher3 as sqlite3  # SQLCipher — transparent AES-256 encryption at rest
 
 try:
     import bcrypt
 except ImportError:
     sys.exit('bcrypt not found. Run: pip3 install bcrypt')
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    sys.exit('python-dotenv not found. Run: pip3 install python-dotenv')
+
+import re
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR   = os.path.dirname(SCRIPT_DIR)
 DB_PATH    = os.path.join(BASE_DIR, 'data', 'ayc.db')
+
+# Load .env so DB_ENCRYPTION_KEY is available
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+
+def _connect_db(path):
+    """Open a SQLCipher-encrypted DB connection. Raises if key is missing."""
+    key = os.environ.get('DB_ENCRYPTION_KEY')
+    if not key:
+        sys.exit('ERROR: DB_ENCRYPTION_KEY is not set in .env — cannot open the database.')
+    conn = sqlite3.connect(path)
+    conn.execute(f"PRAGMA key='{key}'")
+    conn.execute('SELECT count(*) FROM sqlite_master')  # verify key immediately
+    return conn
 
 
 SCHEMA_PATH = os.path.join(BASE_DIR, 'schema.sql')
 
 
+def validate_password(password):
+    """Enforce the portal password policy. Returns error string or None if valid."""
+    if len(password) < 8:
+        return 'Password must be at least 8 characters'
+    if not re.search(r'[A-Z]', password):
+        return 'Password must contain at least one uppercase letter'
+    if not re.search(r'[0-9]', password):
+        return 'Password must contain at least one number'
+    if not re.search(r'[^A-Za-z0-9]', password):
+        return 'Password must contain at least one special character'
+    return None
+
+
 def ensure_db():
     """Create or repair the database if it's missing or uninitialised."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect_db(DB_PATH)
     tables = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
     ).fetchone()
@@ -54,9 +89,10 @@ def seed():
     email = input('Email (optional, press Enter to skip): ').strip()
 
     while True:
-        password = getpass.getpass('Password (min 8 characters): ')
-        if len(password) < 8:
-            print('Password must be at least 8 characters. Try again.')
+        password = getpass.getpass('Password (min 8 chars, 1 uppercase, 1 number, 1 special): ')
+        error = validate_password(password)
+        if error:
+            print(f'{error}. Try again.')
             continue
         confirm = getpass.getpass('Confirm password: ')
         if password != confirm:
@@ -66,7 +102,7 @@ def seed():
 
     pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect_db(DB_PATH)
     try:
         conn.execute(
             'INSERT INTO users (username, email, password_hash, role) VALUES (?,?,?,?)',

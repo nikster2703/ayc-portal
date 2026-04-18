@@ -4,13 +4,13 @@
 {% block content %}
 <div class="page-header">
   <h1>📁 Document Repository</h1>
-  {% if current_role == 'admin' or current_role == 'editor' %}
+  {% if 'documents.upload' in user_permissions %}
   <button class="btn btn-primary" onclick="openUploadModal()">⬆️ Upload Document</button>
   {% endif %}
 </div>
 
-{% if current_role in ('readonly', 'leader') %}
-<!-- Readonly and Leader: public documents banner + flat grid (no category tabs) -->
+{% if 'documents.upload' not in user_permissions %}
+<!-- Users without upload permission: public documents banner + flat grid (no category tabs) -->
 <div style="background:#f0f9ff;border:2px solid #bae6fd;border-radius:12px;
             padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
   <span style="font-size:22px;flex-shrink:0">📢</span>
@@ -38,7 +38,7 @@
 </div>
 
 <!-- ── Upload Modal ─────────────────────────────────────────── -->
-{% if current_role == 'admin' or current_role == 'editor' %}
+{% if 'documents.upload' in user_permissions %}
 <div class="modal-overlay" id="upload-modal">
   <div class="modal" style="max-width:460px">
     <h2>⬆️ Upload Document</h2>
@@ -85,8 +85,9 @@
 
 {% block scripts %}
 <script>
-  const CAN_MANAGE  = "{{ current_role }}" === 'admin' || "{{ current_role }}" === 'editor';
-  const IS_READONLY = "{{ current_role }}" === 'readonly';
+  const USER_PERMS  = new Set({{ user_permissions | tojson }});
+  const CAN_MANAGE  = USER_PERMS.has('documents.upload');
+  const IS_READONLY = !USER_PERMS.has('documents.upload');
   let allDocs    = [];
   let currentCat = 'all';
 

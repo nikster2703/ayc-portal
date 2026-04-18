@@ -26,8 +26,8 @@
   </div>
 </div>
 
-<!-- ── At Risk callout — Core Leader+ only ───────────────────── -->
-{% if current_role in ('admin', 'editor') %}
+<!-- ── At Risk callout — users with at_risk permission only ─── -->
+{% if 'register.at_risk' in user_permissions %}
 <div id="at-risk-callout" style="display:none;margin-bottom:24px">
   <div class="callout callout-risk">
     <span class="callout-icon">⚠️</span>
@@ -121,10 +121,11 @@
 
 {% block scripts %}
 <script>
-  const USER_ROLE    = "{{ current_role }}";
+  const USER_ROLE    = "{{ current_role }}";  // kept for display
   const USER_SESSION = "{{ current_session or '' }}";
-  // IS_SCOPED: true for every role except admin — these users see only their session
-  const IS_SCOPED    = USER_ROLE !== 'admin';
+  const USER_PERMS   = new Set({{ user_permissions | tojson }});
+  // IS_SCOPED: true when the user has a session assigned (i.e. not an unscoped admin)
+  const IS_SCOPED    = USER_SESSION !== '';
 
   const ACTION_LABELS = {
     login:                { icon: '🔑', label: 'Logged in'           },
@@ -225,7 +226,7 @@
 
   /* ── At Risk callout ────────────────────────────────── */
   function renderAtRiskCallout(n) {
-    if (!n || (USER_ROLE !== 'admin' && USER_ROLE !== 'editor')) return;
+    if (!n || !USER_PERMS.has('register.at_risk')) return;
     const el = document.getElementById('at-risk-callout');
     document.getElementById('at-risk-callout-text').textContent =
       `${n} member${n !== 1 ? 's' : ''} flagged At Risk`;
@@ -236,8 +237,8 @@
 
   /* ── Pending approvals callout ──────────────────────── */
   function renderApprovalsCallout(n) {
-    // Only admin and editor can action approvals — hide for other roles
-    if (!n || (USER_ROLE !== 'admin' && USER_ROLE !== 'editor')) return;
+    // Only show if user has approvals permission
+    if (!n || !USER_PERMS.has('approvals.view')) return;
     const el = document.getElementById('approvals-callout');
     document.getElementById('approvals-callout-text').textContent =
       `${n} pending registration${n !== 1 ? 's' : ''}`;

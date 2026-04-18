@@ -19,7 +19,7 @@
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
     {% for st in session_types %}
-    {% if current_role == 'admin' or current_session == st.name %}
+    {% if not current_session or current_session == st.name %}
     {% set field_id = 'thresh-' + st.name | lower | replace(' ', '-') %}
     <div>
       <label class="form-label" for="{{ field_id }}">{{ st.name }} threshold</label>
@@ -51,61 +51,40 @@
   </div>
 </div>
 
-<!-- ── Register Permissions (admin only) ──────────────────────────────────── -->
-{% if current_role == 'admin' %}
+<!-- ── Staff Roles link ────────────────────────────────────────────────────── -->
+{% if 'admin.settings' in user_permissions %}
 <div class="form-card" style="max-width:560px;margin-top:24px">
   <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
-    ✅ Register Permissions
+    🏷️ Staff Roles
   </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
-    Control which roles can sign members <strong>in</strong> and sign members <strong>out</strong>
-    during a session. Admin always has both permissions.
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Customise the list of roles shown on the staff registration form, approval form and
+    reception display — add, rename, reorder or deactivate roles without any code changes.
   </p>
+  <a href="/admin/staff-roles" class="btn btn-primary" style="display:inline-block;text-decoration:none">
+    Manage Staff Roles →
+  </a>
+</div>
+{% endif %}
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-    <div>
-      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px">
-        🟢 Can Sign In
-      </div>
-      {% for role in [('admin','Admin'),('editor','Editor'),('leader','Leader'),('readonly','Read-only / Youth Worker')] %}
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;
-                    font-size:14px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
-        <input type="checkbox"
-               id="perm-signin-{{ role[0] }}"
-               data-perm="signin" data-role="{{ role[0] }}"
-               {% if role[0] == 'admin' %}checked disabled{% endif %}
-               style="width:16px;height:16px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
-        {{ role[1] }}{% if role[0] == 'admin' %} <span style="font-size:11px;color:var(--muted)">(always)</span>{% endif %}
-      </label>
-      {% endfor %}
-    </div>
-    <div>
-      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px">
-        🔴 Can Sign Out
-      </div>
-      {% for role in [('admin','Admin'),('editor','Editor'),('leader','Leader'),('readonly','Read-only / Youth Worker')] %}
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;
-                    font-size:14px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
-        <input type="checkbox"
-               id="perm-signout-{{ role[0] }}"
-               data-perm="signout" data-role="{{ role[0] }}"
-               {% if role[0] == 'admin' %}checked disabled{% endif %}
-               style="width:16px;height:16px;cursor:{% if role[0]=='admin' %}default{% else %}pointer{% endif %}">
-        {{ role[1] }}{% if role[0] == 'admin' %} <span style="font-size:11px;color:var(--muted)">(always)</span>{% endif %}
-      </label>
-      {% endfor %}
-    </div>
-  </div>
-
-  <div style="display:flex;align-items:center;gap:12px">
-    <button class="btn btn-primary" onclick="saveRegisterPerms()">Save Permissions</button>
-    <span id="perm-save-status" style="font-size:13px;color:var(--muted)"></span>
-  </div>
+<!-- ── Roles & Permissions link ───────────────────────────────────────────── -->
+{% if 'admin.settings' in user_permissions %}
+<div class="form-card" style="max-width:560px;margin-top:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    🔐 Roles &amp; Permissions
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Create and customise portal roles — control exactly which permissions each role has,
+    including register sign-in/out, approvals, documents, calendar and more.
+  </p>
+  <a href="/admin/roles" class="btn btn-primary" style="display:inline-block;text-decoration:none">
+    Manage Roles &amp; Permissions →
+  </a>
 </div>
 {% endif %}
 
 <!-- ── Session Types (admin only) ─────────────────────────────────────────── -->
-{% if current_role == 'admin' %}
+{% if 'admin.session_types' in user_permissions %}
 <div class="form-card" style="max-width:560px;margin-top:24px">
   <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
     📅 Session Types
@@ -145,7 +124,7 @@
 {% endif %}
 
 <!-- ── Maintenance (admin only) ───────────────────────────────────────────── -->
-{% if current_role == 'admin' %}
+{% if 'admin.maintenance' in user_permissions %}
 <div class="form-card" style="max-width:560px;margin-top:24px;border-color:#fecaca">
   <h2 style="font-size:17px;font-weight:800;color:#991b1b;margin-bottom:4px">
     🧹 Data Maintenance
@@ -164,8 +143,10 @@
 
 {% block scripts %}
 <script>
-  const USER_SESSION = "{{ current_session or '' }}";
-  const IS_ADMIN     = "{{ current_role }}" === 'admin';
+  const USER_SESSION      = "{{ current_session or '' }}";
+  const USER_PERMS        = new Set({{ user_permissions | tojson }});
+  const CAN_SESSION_TYPES = USER_PERMS.has('admin.session_types');
+  const CAN_MAINTENANCE   = USER_PERMS.has('admin.maintenance');
 
   const WDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
@@ -284,51 +265,9 @@
     }
   }
 
-  if (IS_ADMIN) loadSessionTypes();
+  if (CAN_SESSION_TYPES) loadSessionTypes();
 
   loadSettings();
-
-  /* ── Register permissions ─────────────────────────── */
-  async function loadRegisterPerms() {
-    try {
-      const s = await apiFetch('/api/settings');
-      const signinRoles  = (s.register_can_signin  || 'admin,editor,leader').split(',').map(r => r.trim());
-      const signoutRoles = (s.register_can_signout || 'admin,editor,leader,readonly').split(',').map(r => r.trim());
-
-      ['editor', 'leader', 'readonly'].forEach(role => {
-        const si = document.getElementById(`perm-signin-${role}`);
-        const so = document.getElementById(`perm-signout-${role}`);
-        if (si) si.checked = signinRoles.includes(role);
-        if (so) so.checked = signoutRoles.includes(role);
-      });
-    } catch (e) {
-      showToast('Could not load register permissions: ' + e.message, true);
-    }
-  }
-
-  async function saveRegisterPerms() {
-    const ROLES   = ['admin', 'editor', 'leader', 'readonly'];
-    const getList = perm => ROLES
-      .filter(r => r === 'admin' || document.getElementById(`perm-${perm}-${r}`)?.checked)
-      .join(',');
-
-    const status = document.getElementById('perm-save-status');
-    try {
-      await apiFetch('/api/settings', {
-        method: 'POST',
-        body: JSON.stringify({
-          register_can_signin:  getList('signin'),
-          register_can_signout: getList('signout'),
-        }),
-      });
-      status.textContent = '✓ Saved';
-      setTimeout(() => status.textContent = '', 2500);
-    } catch (e) {
-      showToast('Save failed: ' + e.message, true);
-    }
-  }
-
-  if (IS_ADMIN) loadRegisterPerms();
 
   /* ── Maintenance ─────────────────────────────────── */
   const MAINTENANCE_ITEMS = [
@@ -408,7 +347,7 @@
     }
   }
 
-  if (IS_ADMIN) loadMaintenanceCounts();
+  if (CAN_MAINTENANCE) loadMaintenanceCounts();
 </script>
 
 <style>

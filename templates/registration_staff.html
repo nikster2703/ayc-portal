@@ -190,7 +190,7 @@
 <div class="reg-header">
   <span class="brand-icon">🏅</span>
   <h1>Ashford Youth Club<br>Staff / Volunteer Registration</h1>
-  <p>Volunteer, Youth Volunteer &amp; Leader sign-up</p>
+  <p>Staff &amp; Volunteer sign-up</p>
   <a href="/registration" class="back-link">← Back to registration options</a>
 </div>
 
@@ -274,10 +274,7 @@
         <div class="field">
           <label>Role <span class="req">*</span></label>
           <select id="applicant-role">
-            <option value="">— Select role —</option>
-            <option value="Volunteer">Volunteer</option>
-            <option value="Youth Volunteer">Youth Volunteer</option>
-            <option value="Leader">Leader</option>
+            <option value="">— Loading roles… —</option>
           </select>
         </div>
         <div class="field">
@@ -509,6 +506,19 @@ document.querySelectorAll("input, select").forEach(el => {
   el.addEventListener("input", () => el.classList.remove("error"));
   el.addEventListener("change", () => el.classList.remove("error"));
 });
+
+/* ── Populate role dropdown from DB ─────────────────────────────── */
+(async function loadRoles() {
+  const sel = document.getElementById('applicant-role');
+  try {
+    const res   = await fetch('/api/staff-roles');
+    const roles = await res.json();
+    sel.innerHTML = '<option value="">— Select role —</option>' +
+      roles.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+  } catch {
+    sel.innerHTML = '<option value="">— Could not load roles —</option>';
+  }
+})();
 </script>
 </body>
 </html>

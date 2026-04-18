@@ -11,18 +11,38 @@ the spreadsheet are picked up cleanly.
 
 import os
 import sys
-import sqlite3
+
+import sqlcipher3 as sqlite3  # SQLCipher — transparent AES-256 encryption at rest
 
 try:
     import openpyxl
 except ImportError:
     sys.exit('openpyxl not found. Run: pip3 install openpyxl')
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    sys.exit('python-dotenv not found. Run: pip3 install python-dotenv')
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR     = os.path.dirname(SCRIPT_DIR)
 DB_PATH      = os.path.join(BASE_DIR, 'data', 'ayc.db')
+
+# Load .env so DB_ENCRYPTION_KEY is available
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+
+def _connect_db(path):
+    """Open a SQLCipher-encrypted DB connection. Raises if key is missing."""
+    key = os.environ.get('DB_ENCRYPTION_KEY')
+    if not key:
+        sys.exit('ERROR: DB_ENCRYPTION_KEY is not set in .env — cannot open the database.')
+    conn = sqlite3.connect(path)
+    conn.execute(f"PRAGMA key='{key}'")
+    conn.execute('SELECT count(*) FROM sqlite_master')  # verify key immediately
+    return conn
 
 # The spreadsheet lives one level up (inside the AYC Member Lookup folder)
 XLSX_PATH    = os.path.join(BASE_DIR, '..', 'SYC Member Details-2.xlsx')
@@ -83,7 +103,7 @@ def migrate():
     headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
     print(f'Columns found: {headers}')
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect_db(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON')
 
     counter    = next_member_id(conn)

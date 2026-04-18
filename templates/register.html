@@ -192,7 +192,7 @@
 </div>
 
 <!-- ── Activities board panel ────────────────────────────────── -->
-{% if current_role in ('admin', 'editor', 'leader') %}
+{% if 'activities.manage' in user_permissions %}
 <div style="margin-top:32px;border-top:2px solid var(--border);padding-top:24px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
     <div>
@@ -434,14 +434,13 @@
 <script>
   const USER_ROLE       = "{{ current_role }}";
   const SESSION_TYPES   = {{ session_types | tojson }};  // [{id, name, weekday}, ...]
-  const CAN_MANAGE      = USER_ROLE === 'admin' || USER_ROLE === 'editor' || USER_ROLE === 'leader';
-  // Role lists driven by club settings (Admin → Settings → Register Permissions)
-  const SIGNIN_ROLES    = new Set({{ signin_roles  | tojson }});
-  const SIGNOUT_ROLES   = new Set({{ signout_roles | tojson }});
-  const CAN_SIGNIN      = SIGNIN_ROLES.has(USER_ROLE);
-  const CAN_SIGNOUT     = SIGNOUT_ROLES.has(USER_ROLE);
-  const CAN_MARK_LEAVER = USER_ROLE === 'admin';
-  const CAN_COMPLETE    = USER_ROLE === 'admin' || USER_ROLE === 'editor';
+  // v6.0: permissions are driven by the database Roles system
+  const USER_PERMS      = new Set({{ user_permissions | tojson }});
+  const CAN_MANAGE      = USER_PERMS.has('activities.manage');
+  const CAN_SIGNIN      = USER_PERMS.has('register.signin');
+  const CAN_SIGNOUT     = USER_PERMS.has('register.signout');
+  const CAN_MARK_LEAVER = USER_PERMS.has('register.at_risk');
+  const CAN_COMPLETE    = USER_PERMS.has('register.complete');
 
   // Tracks whether the current register is locked
   let _registerLocked = false;
@@ -513,7 +512,7 @@
     }
   }
 
-  const CAN_RESET = USER_ROLE === 'admin';
+  const CAN_RESET = USER_PERMS.has('register.reset');
 
   function _applyCompletionState(completion) {
     _registerLocked = completion.completed;
@@ -1107,7 +1106,7 @@
   }
 
   /* ── Activities board ───────────────────────────────── */
-  {% if current_role in ('admin', 'editor', 'leader') %}
+  {% if 'activities.manage' in user_permissions %}
   async function loadActivities() {
     const sess = document.getElementById('session-picker').value;
     const el   = document.getElementById('activities-list');

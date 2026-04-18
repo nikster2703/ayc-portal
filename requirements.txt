@@ -2,3 +2,13 @@ flask>=3.0
 bcrypt>=4.1
 openpyxl>=3.1
 python-dotenv>=1.0
+
+# Document encryption at rest
+cryptography>=42.0
+
+# SQLCipher for full database encryption at rest (replaces plain sqlite3)
+# Requires SQLCipher to be installed via Homebrew first:
+#   brew install sqlcipher
+# Then install with:
+#   LDFLAGS="-L/opt/homebrew/opt/sqlcipher/lib" CFLAGS="-I/opt/homebrew/opt/sqlcipher/include/sqlcipher" pip install sqlcipher3
+sqlcipher3>=0.5.3
