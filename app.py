@@ -88,6 +88,7 @@ ALL_PERMISSIONS = [
     ('register.complete',   'Complete Register',        'Lock the register at end of session',                  'register'),
     ('register.reset',      'Reset Register',           'Wipe all sign-in/out data for a session',             'register'),
     ('register.at_risk',    'Mark At Risk',             'Run the at-risk check and flag members',               'register'),
+    ('register.print',      'Print Register',           'Print a paper copy of the session register',           'register'),
     # Approvals
     ('approvals.view',      'View Approvals',           'View pending self-registration submissions',           'approvals'),
     ('approvals.approve',   'Approve Registrations',    'Approve a pending registration',                       'approvals'),
@@ -125,7 +126,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     'admin': [
         'members.view', 'members.edit', 'members.delete', 'members.hard_delete',
         'register.signin', 'register.signout', 'register.complete', 'register.reset',
-        'register.at_risk',
+        'register.at_risk', 'register.print',
         'approvals.view', 'approvals.approve', 'approvals.reject',
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
@@ -137,7 +138,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     ],
     'editor': [
         'members.view', 'members.edit', 'members.delete',
-        'register.signin', 'register.signout', 'register.complete', 'register.at_risk',
+        'register.signin', 'register.signout', 'register.complete', 'register.at_risk', 'register.print',
         'approvals.view', 'approvals.approve', 'approvals.reject',
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
@@ -168,6 +169,10 @@ SMTP_PORT = int(os.environ.get('MAIL_PORT', 587))
 SMTP_USER = os.environ.get('MAIL_USERNAME', '')
 SMTP_PASS = os.environ.get('MAIL_PASSWORD', '')
 SMTP_FROM = os.environ.get('MAIL_FROM', SMTP_USER)
+
+# ── Club identity (multi-tenant) ──────────────────────────────────────────────
+CLUB_NAME       = os.environ.get('CLUB_NAME',       'Ashford Youth Club')
+CLUB_SHORT_NAME = os.environ.get('CLUB_SHORT_NAME', 'AYC')
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
@@ -481,6 +486,8 @@ def tpl_ctx():
         'app_version':      APP_VERSION,
         'session_types':    get_session_types(),        # [{id, name, weekday}, ...]
         'user_permissions': session.get('permissions', []),  # list of permission codes
+        'club_name':        CLUB_NAME,
+        'club_short_name':  CLUB_SHORT_NAME,
     }
 
 # ── Page routes ────────────────────────────────────────────────────────────────
@@ -489,7 +496,8 @@ def tpl_ctx():
 def login_page():
     if 'user_id' in session:
         return redirect(url_for('dashboard_page'))
-    return render_template('index.html', app_version=APP_VERSION)
+    return render_template('index.html', app_version=APP_VERSION,
+                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
 @app.route('/dashboard')
 @login_required
@@ -511,20 +519,77 @@ def approvals_page():
 def register_page():
     return render_template('register.html', active_page='register', **tpl_ctx())
 
+
+@app.route('/register/print')
+@login_required
+def print_register_page():
+    """
+    Render a printable paper register for a given session and date.
+    Accessible to editors and admins only (register.print permission).
+    Query params: ?session=Tuesday&date=2026-04-18
+    """
+    if not has_permission('register.print'):
+        return 'Access denied', 403
+
+    session_type = request.args.get('session', '').strip()
+    date         = request.args.get('date', '').strip()
+
+    if not session_type or not date:
+        return 'Missing session or date parameter', 400
+
+    # Validate session type
+    valid_sessions = get_valid_session_names()
+    if session_type not in valid_sessions:
+        return 'Invalid session type', 400
+
+    db = get_db()
+
+    # Fetch all active members for this session, sorted alphabetically
+    members = db.execute('''
+        SELECT  m.id, m.first_name, m.surname, m.unattended_exit
+        FROM    members m
+        WHERE   m.status     != "Leaver"
+          AND   m.member_type = "member"
+          AND   m.session     = ?
+        ORDER   BY m.first_name, m.surname
+    ''', (session_type,)).fetchall()
+
+    # Format date nicely for display (YYYY-MM-DD → DD/MM/YYYY)
+    try:
+        from datetime import datetime as _dt
+        display_date = _dt.strptime(date, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except ValueError:
+        display_date = date
+
+    return render_template(
+        'print_register.html',
+        session_type=session_type,
+        date=date,
+        display_date=display_date,
+        members=[dict(r) for r in members],
+        club_name=CLUB_NAME,
+        club_short_name=CLUB_SHORT_NAME,
+    )
+
+
 @app.route('/registration')
 def registration_page():
     """Landing page — choose member or staff registration."""
-    return render_template('registration_landing.html')
+    return render_template('registration_landing.html',
+                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
 @app.route('/registration/member')
 def registration_member_page():
     """Full member self-registration form — no login required."""
-    return render_template('registration.html', version=APP_VERSION)
+    return render_template('registration.html', version=APP_VERSION,
+                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
 @app.route('/registration/staff')
 def registration_staff_page():
     """Simplified staff/volunteer registration form — no login required."""
-    return render_template('registration_staff.html', version=APP_VERSION, session_types=get_session_types())
+    return render_template('registration_staff.html', version=APP_VERSION,
+                           session_types=get_session_types(),
+                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
 @app.route('/documents')
 @permission_required('documents.view')
@@ -1675,19 +1740,21 @@ def api_users_permanent_delete(user_id):
 # ── BLUEPRINT: approvals ──────────────────────────────────────────────────────
 
 def _next_member_id(db):
-    """Generate the next sequential AYC member ID, e.g. AYC042."""
+    """Generate the next sequential member ID using CLUB_SHORT_NAME, e.g. AYC042."""
+    prefix = CLUB_SHORT_NAME
+    prefix_len = len(prefix)
     row = db.execute(
-        "SELECT member_id FROM members WHERE member_id LIKE 'AYC%'"
-        " ORDER BY CAST(SUBSTR(member_id, 4) AS INTEGER) DESC LIMIT 1"
+        f"SELECT member_id FROM members WHERE member_id LIKE '{prefix}%'"
+        f" ORDER BY CAST(SUBSTR(member_id, {prefix_len + 1}) AS INTEGER) DESC LIMIT 1"
     ).fetchone()
     if row:
         try:
-            num = int(row['member_id'][3:]) + 1
+            num = int(row['member_id'][prefix_len:]) + 1
         except (ValueError, AttributeError):
             num = 1
     else:
         num = 1
-    return f'AYC{num:03d}'
+    return f'{prefix}{num:03d}'
 
 
 @app.route('/api/approvals')
@@ -2476,7 +2543,8 @@ def display_page():
     """Full-screen reception TV display — no login required."""
     return render_template('display.html',
                            current_session=session.get('session_assigned', ''),
-                           session_types=get_session_types())
+                           session_types=get_session_types(),
+                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
 
 @app.route('/api/display/<session_type>')

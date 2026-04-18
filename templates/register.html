@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}AYC Portal — Session Register{% endblock %}
+{% block title %}{{ club_short_name }} Portal — Session Register{% endblock %}
 
 {% block content %}
 <div class="page-header" style="margin-bottom:12px">
@@ -11,6 +11,13 @@
     </select>
     <input type="date" id="date-picker" class="session-select"
            style="width:auto" onchange="loadRegister()">
+    {% if 'register.print' in user_permissions %}
+    <button class="btn btn-ghost btn-sm" id="print-register-btn"
+            onclick="openPrintRegister()"
+            title="Print a paper copy of this session register">
+      🖨 Print Register
+    </button>
+    {% endif %}
     <button class="btn btn-ghost btn-sm" id="at-risk-check-btn"
             onclick="checkAtRisk()" title="Check for members who have missed their session threshold"
             style="display:none">
@@ -1103,6 +1110,14 @@
     } finally {
       btn.disabled = false;
     }
+  }
+
+  /* ── Print register ─────────────────────────────────── */
+  function openPrintRegister() {
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    if (!sess || !date) { showToast('Please select a session and date first.', true); return; }
+    window.open(`/register/print?session=${encodeURIComponent(sess)}&date=${encodeURIComponent(date)}`, '_blank');
   }
 
   /* ── Activities board ───────────────────────────────── */

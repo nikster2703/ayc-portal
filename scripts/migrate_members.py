@@ -71,15 +71,19 @@ def yn_to_int(val):
     s = clean(val).upper()
     return 1 if s in ('YES', 'TRUE', '1') else 0
 
+CLUB_SHORT_NAME = os.environ.get('CLUB_SHORT_NAME', 'AYC')
+
 def next_member_id(conn):
-    """Find the highest existing AYC number and return the next one."""
+    """Find the highest existing member number and return the next one."""
+    prefix = CLUB_SHORT_NAME
+    prefix_len = len(prefix)
     row = conn.execute(
-        "SELECT member_id FROM members WHERE member_id LIKE 'AYC%'"
-        " ORDER BY CAST(SUBSTR(member_id, 4) AS INTEGER) DESC LIMIT 1"
+        f"SELECT member_id FROM members WHERE member_id LIKE '{prefix}%'"
+        f" ORDER BY CAST(SUBSTR(member_id, {prefix_len + 1}) AS INTEGER) DESC LIMIT 1"
     ).fetchone()
     if row:
         try:
-            return int(row[0][3:]) + 1
+            return int(row[0][prefix_len:]) + 1
         except (ValueError, AttributeError):
             pass
     return 1
@@ -121,7 +125,7 @@ def migrate():
             skipped += 1
             continue
 
-        member_id = f'AYC{str(counter).zfill(3)}'
+        member_id = f'{CLUB_SHORT_NAME}{str(counter).zfill(3)}'
 
         existing = conn.execute(
             'SELECT id FROM members WHERE first_name = ? AND surname = ? AND date_of_birth = ?',

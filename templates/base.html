@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}AYC Portal{% endblock %}</title>
+  <title>{% block title %}{{ club_short_name }} Portal{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/shared.css">
   {% block head %}{% endblock %}
 </head>
@@ -14,7 +14,7 @@
     <div class="brand">
       <a href="/dashboard">
         <span class="brand-icon">🏅</span>
-        <span class="brand-label">Ashford Youth Club</span>
+        <span class="brand-label">{{ club_name }}</span>
       </a>
     </div>
     <div class="header-right">
@@ -133,7 +133,7 @@
 
   <!-- Version footer -->
   <footer class="app-footer">
-    <span>Ashford Youth Club Portal</span>
+    <span>{{ club_name }} Portal</span>
     <span class="footer-version">{{ app_version }}</span>
   </footer>
 

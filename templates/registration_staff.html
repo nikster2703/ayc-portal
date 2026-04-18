@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ashford Youth Club — Staff / Volunteer Registration</title>
+  <title>{{ club_name }} — Staff / Volunteer Registration</title>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -189,7 +189,7 @@
 
 <div class="reg-header">
   <span class="brand-icon">🏅</span>
-  <h1>Ashford Youth Club<br>Staff / Volunteer Registration</h1>
+  <h1>{{ club_name }}<br>Staff / Volunteer Registration</h1>
   <p>Staff &amp; Volunteer sign-up</p>
   <a href="/registration" class="back-link">← Back to registration options</a>
 </div>
@@ -298,14 +298,14 @@
 </div><!-- /form-wrap -->
 
 <p style="text-align:center;font-size:11px;color:var(--muted);margin-top:-8px;padding-bottom:24px;opacity:.6;">
-  Ashford Youth Club Staff Registration &nbsp;·&nbsp; {{ version }}
+  {{ club_name }} Staff Registration &nbsp;·&nbsp; {{ version }}
 </p>
 
 <!-- Success screen -->
 <div id="success-screen">
   <div class="success-icon">✅</div>
   <h2>Registration submitted!</h2>
-  <p>Thank you for registering with Ashford Youth Club. A leader will review your application shortly and be in touch to confirm your details.</p>
+  <p>Thank you for registering with {{ club_name }}. A leader will review your application shortly and be in touch to confirm your details.</p>
   <div class="success-note">
     If you have any questions in the meantime, please contact the club directly.
   </div>

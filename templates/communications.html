@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}AYC Portal — Communications{% endblock %}
+{% block title %}{{ club_short_name }} Portal — Communications{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -33,7 +33,7 @@
 
       <div class="form-group">
         <label>Subject <span style="color:var(--red)">*</span></label>
-        <input type="text" id="s-subject" placeholder="e.g. AYC Session Update — this week">
+        <input type="text" id="s-subject" placeholder="e.g. {{ club_short_name }} Session Update — this week">
       </div>
 
       <div class="form-group">
@@ -154,7 +154,7 @@
     </div>
     <div class="form-group">
       <label>Subject</label>
-      <input type="text" id="t-subject" placeholder="e.g. AYC — Session Cancelled">
+      <input type="text" id="t-subject" placeholder="e.g. {{ club_short_name }} — Session Cancelled">
     </div>
     <div class="form-group">
       <label>Message Body (HTML supported)</label>

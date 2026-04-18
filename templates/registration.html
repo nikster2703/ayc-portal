@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ashford Youth Club — Member Registration</title>
+  <title>{{ club_name }} — Member Registration</title>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -221,7 +221,7 @@
 
 <div class="reg-header">
   <span class="brand-icon">🏅</span>
-  <h1>Ashford Youth Club<br>Member Registration</h1>
+  <h1>{{ club_name }}<br>Member Registration</h1>
   <p>Please complete all required fields and sign at the bottom.</p>
 </div>
 
@@ -336,7 +336,7 @@
     <div class="section-body" style="gap:0;padding:18px">
 
       <div class="declaration-row" data-key="consent-attend">
-        <p>I am the parent / guardian of the young person named above and I give consent for them to attend activities organised by the Ashford Youth Club.</p>
+        <p>I am the parent / guardian of the young person named above and I give consent for them to attend activities organised by the {{ club_name }}.</p>
         <div class="yn-group">
           <button class="yn-btn yes" onclick="setDeclaration('consent-attend','yes',this)">Yes</button>
           <button class="yn-btn no"  onclick="setDeclaration('consent-attend','no',this)">No</button>
@@ -352,7 +352,7 @@
       </div>
 
       <div class="declaration-row" data-key="consent-comms">
-        <p>I am happy to be emailed or texted with up-and-coming events or important information regarding Ashford Youth Club.</p>
+        <p>I am happy to be emailed or texted with up-and-coming events or important information regarding {{ club_name }}.</p>
         <div class="yn-group">
           <button class="yn-btn yes" onclick="setDeclaration('consent-comms','yes',this)">Yes</button>
           <button class="yn-btn no"  onclick="setDeclaration('consent-comms','no',this)">No</button>
@@ -360,7 +360,7 @@
       </div>
 
       <div class="declaration-row" data-key="consent-belongings">
-        <p>I understand that Ashford Youth Club is <strong>NOT</strong> responsible for personal belongings.</p>
+        <p>I understand that {{ club_name }} is <strong>NOT</strong> responsible for personal belongings.</p>
         <div class="yn-group">
           <button class="yn-btn yes" onclick="setDeclaration('consent-belongings','yes',this)">Yes</button>
           <button class="yn-btn no"  onclick="setDeclaration('consent-belongings','no',this)">No</button>
@@ -397,7 +397,7 @@
       <p style="font-size:13px;color:var(--muted);line-height:1.55;">
         By typing your name above you confirm that you are the legal parent or guardian of the child named on this form,
         and that all details provided are correct and up to date. It is your responsibility to ensure that
-        Ashford Youth Club is able to contact you in case of emergency.
+        {{ club_name }} is able to contact you in case of emergency.
       </p>
     </div>
   </div>
@@ -411,7 +411,7 @@
 </div><!-- /form-wrap -->
 
 <p style="text-align:center;font-size:11px;color:var(--muted);margin-top:-8px;padding-bottom:24px;opacity:.6;">
-  Ashford Youth Club Member Registration &nbsp;·&nbsp; {{ version }}
+  {{ club_name }} Member Registration &nbsp;·&nbsp; {{ version }}
 </p>
 
 <!-- Success screen -->
