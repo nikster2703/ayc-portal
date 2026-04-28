@@ -4595,6 +4595,313 @@ def api_maintenance_restore():
     })
 
 
+# ── BLUEPRINT: data import (v8.4) ────────────────────────────────────────────
+import csv as _csv_mod
+import uuid as _uuid_mod
+
+# Core members-table columns available for import mapping.
+# 'email' is a special case — it writes to member_contacts, not members directly.
+_IMPORT_CORE_FIELDS = [
+    {'key': 'first_name',      'label': 'First Name',       'field_type': 'text',     'required': True},
+    {'key': 'surname',         'label': 'Surname',           'field_type': 'text',     'required': True},
+    {'key': 'email',           'label': 'Email Address',     'field_type': 'email',    'required': False},
+    {'key': 'postcode',        'label': 'Postcode',          'field_type': 'text',     'required': False},
+    {'key': 'address',         'label': 'Address',           'field_type': 'text',     'required': False},
+    {'key': 'date_of_birth',   'label': 'Date of Birth',     'field_type': 'date',     'required': False},
+    {'key': 'date_registered', 'label': 'Date Registered',   'field_type': 'date',     'required': False},
+    {'key': 'comments',        'label': 'Notes / Comments',  'field_type': 'textarea', 'required': False},
+    {'key': 'status',          'label': 'Status',            'field_type': 'select',   'required': False,
+     'options': 'Active,Inactive,Leaver'},
+]
+
+def _fmt_cell(v):
+    """Normalise a spreadsheet cell value to a plain string."""
+    import datetime as _dt
+    if v is None:
+        return ''
+    if isinstance(v, _dt.datetime):
+        return v.strftime('%Y-%m-%d')
+    if isinstance(v, _dt.date):
+        return v.strftime('%Y-%m-%d')
+    if isinstance(v, _dt.time):
+        return ''  # time-only cells are not useful for member data
+    if isinstance(v, float):
+        return str(int(v)) if v == int(v) else str(v)
+    return str(v).strip()
+
+def _read_xlsx_file(path, sheet_name=None):
+    """Return (sheet_names, active_sheet, headers, data_rows) from an xlsx file."""
+    import openpyxl
+    wb          = openpyxl.load_workbook(path, data_only=True)
+    sheet_names = wb.sheetnames
+    ws          = wb[sheet_name] if (sheet_name and sheet_name in wb.sheetnames) else wb.active
+    active      = ws.title
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return sheet_names, active, [], []
+
+    # Headers — trim trailing empty/None columns
+    raw_headers = [str(c).strip() if c is not None else '' for c in rows[0]]
+    last_col = len(raw_headers)
+    while last_col > 0 and not raw_headers[last_col - 1]:
+        last_col -= 1
+    headers = raw_headers[:last_col]
+
+    # Data rows — skip entirely blank rows
+    data_rows = []
+    for row in rows[1:]:
+        vals = [_fmt_cell(v) for v in row[:last_col]]
+        if any(vals):
+            data_rows.append(vals)
+
+    return sheet_names, active, headers, data_rows
+
+def _read_csv_file(path):
+    """Return (headers, data_rows) from a CSV file."""
+    with open(path, 'r', encoding='utf-8-sig', errors='replace') as fh:
+        reader = list(_csv_mod.reader(fh))
+    if not reader:
+        return [], []
+    headers   = [h.strip() for h in reader[0]]
+    data_rows = [r for r in reader[1:] if any(c.strip() for c in r)]
+    return headers, data_rows
+
+
+@app.route('/admin/settings/import')
+@permission_required('admin.maintenance')
+def import_page():
+    return render_template('admin/import.html', active_page='settings', **tpl_ctx())
+
+
+@app.route('/api/admin/import/analyse', methods=['POST'])
+@permission_required('admin.maintenance')
+def api_import_analyse():
+    """Upload a file and return sheet names, column headers, and preview rows.
+
+    Form fields:
+        file        — multipart .xlsx/.csv upload
+        sheet_name  — (optional) which xlsx sheet to use; defaults to first sheet
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in ('xlsx', 'xls', 'csv'):
+        return jsonify({'error': 'Only .xlsx, .xls and .csv files are supported'}), 400
+
+    imports_dir = os.path.join(INSTANCE_DIR, 'data', 'imports')
+    os.makedirs(imports_dir, exist_ok=True)
+    file_id   = str(_uuid_mod.uuid4())
+    save_path = os.path.join(imports_dir, f'{file_id}.{ext}')
+    f.save(save_path)
+
+    sheet_name = (request.form.get('sheet_name') or '').strip() or None
+
+    try:
+        if ext in ('xlsx', 'xls'):
+            sheet_names, active_sheet, headers, data_rows = _read_xlsx_file(save_path, sheet_name)
+        else:
+            sheet_names, active_sheet = [], ''
+            headers, data_rows = _read_csv_file(save_path)
+    except Exception as exc:
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
+        return jsonify({'error': f'Could not read file: {exc}'}), 400
+
+    return jsonify({
+        'file_id':      file_id,
+        'file_ext':     ext,
+        'sheet_names':  sheet_names,
+        'active_sheet': active_sheet,
+        'columns':      headers,
+        'preview':      data_rows[:5],
+        'total_rows':   len(data_rows),
+    })
+
+
+@app.route('/api/admin/import/fields/<int:type_id>')
+@permission_required('admin.maintenance')
+def api_import_fields(type_id):
+    """Return core + custom fields available for column mapping for a member type."""
+    db = get_db()
+    if not db.execute('SELECT id FROM member_types WHERE id = ?', (type_id,)).fetchone():
+        return jsonify({'error': 'Member type not found'}), 404
+
+    custom = db.execute('''
+        SELECT  fd.id, fd.key, fd.label, fd.field_type, fd.options
+        FROM    member_type_fields  mtf
+        JOIN    field_definitions   fd  ON fd.id = mtf.field_id
+        WHERE   mtf.member_type_id = ? AND fd.active = 1
+        ORDER   BY mtf.sort_order, fd.label
+    ''', (type_id,)).fetchall()
+
+    return jsonify({
+        'core_fields':   _IMPORT_CORE_FIELDS,
+        'custom_fields': [dict(f) for f in custom],
+    })
+
+
+@app.route('/api/admin/import/run', methods=['POST'])
+@permission_required('admin.maintenance')
+def api_import_run():
+    """Execute the import with the provided column-to-field mapping.
+
+    Body (JSON):
+        file_id         — UUID returned by /analyse
+        file_ext        — extension returned by /analyse
+        sheet_name      — xlsx sheet (may be omitted for csv)
+        member_type_id  — int
+        mapping         — { "col_index": "field_key" | "_skip" }
+        skip_duplicates — bool (default true); skips rows where
+                          first_name + surname + postcode already exist
+    """
+    data       = request.get_json() or {}
+    file_id    = (data.get('file_id') or '').strip()
+    file_ext   = (data.get('file_ext') or '').strip()
+    sheet_name = (data.get('sheet_name') or '').strip() or None
+    type_id    = data.get('member_type_id')
+    mapping    = data.get('mapping', {})
+    skip_dupes = data.get('skip_duplicates', True)
+
+    if not all([file_id, file_ext, type_id, mapping]):
+        return jsonify({'error': 'Missing required parameters'}), 400
+
+    imports_dir = os.path.join(INSTANCE_DIR, 'data', 'imports')
+    save_path   = os.path.join(imports_dir, f'{file_id}.{file_ext}')
+    if not os.path.exists(save_path):
+        return jsonify({'error': 'Upload not found — please re-upload the file'}), 404
+
+    db = get_db()
+    mt = db.execute('SELECT * FROM member_types WHERE id = ?', (type_id,)).fetchone()
+    if not mt:
+        return jsonify({'error': 'Member type not found'}), 404
+
+    # Index custom fields by key
+    custom_fields = {}
+    for fd in db.execute('''
+        SELECT fd.id, fd.key, fd.field_type
+        FROM   member_type_fields mtf
+        JOIN   field_definitions  fd ON fd.id = mtf.field_id
+        WHERE  mtf.member_type_id = ?
+    ''', (type_id,)).fetchall():
+        custom_fields[fd['key']] = dict(fd)
+
+    # Load all data rows from the saved file
+    try:
+        if file_ext in ('xlsx', 'xls'):
+            _, _, _headers, data_rows = _read_xlsx_file(save_path, sheet_name)
+        else:
+            _headers, data_rows = _read_csv_file(save_path)
+    except Exception as exc:
+        return jsonify({'error': f'Could not read file: {exc}'}), 400
+
+    CORE_KEYS = {'first_name', 'surname', 'date_of_birth', 'address',
+                 'postcode', 'date_registered', 'comments', 'status'}
+
+    imported = 0
+    skipped  = 0
+    errors   = []
+
+    for row_num, row in enumerate(data_rows, start=2):
+        try:
+            core        = {}
+            custom_vals = {}
+            email_val   = None
+
+            for col_str, field_key in mapping.items():
+                if field_key == '_skip':
+                    continue
+                col_idx = int(col_str)
+                val     = row[col_idx] if col_idx < len(row) else ''
+                if not val:
+                    continue
+
+                if field_key == 'email':
+                    email_val = val
+                elif field_key in CORE_KEYS:
+                    core[field_key] = val
+                elif field_key in custom_fields:
+                    custom_vals[field_key] = val
+
+            # Skip rows with no name data at all
+            if not core.get('first_name') and not core.get('surname'):
+                skipped += 1
+                continue
+
+            # Duplicate check
+            if skip_dupes and db.execute(
+                'SELECT id FROM members WHERE first_name=? AND surname=? AND postcode=?',
+                (core.get('first_name', ''), core.get('surname', ''), core.get('postcode', ''))
+            ).fetchone():
+                skipped += 1
+                continue
+
+            # Insert member record
+            member_id = _next_member_id(db)
+            db.execute('''
+                INSERT INTO members
+                    (member_id, first_name, surname, date_of_birth, address,
+                     postcode, date_registered, comments, status, member_type)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            ''', (
+                member_id,
+                core.get('first_name', ''),
+                core.get('surname', ''),
+                core.get('date_of_birth') or None,
+                core.get('address') or None,
+                core.get('postcode') or None,
+                core.get('date_registered') or None,
+                core.get('comments') or None,
+                core.get('status', 'Active'),
+                mt['slug'],
+            ))
+            new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+
+            # Primary contact email
+            if email_val:
+                db.execute(
+                    'INSERT INTO member_contacts (member_id, contact_order, contact_email) VALUES (?,1,?)',
+                    (new_id, email_val)
+                )
+
+            # Custom field values
+            for fkey, fval in custom_vals.items():
+                fd = custom_fields[fkey]
+                db.execute(
+                    'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
+                    (new_id, fd['id'], str(fval))
+                )
+
+            db.commit()
+            imported += 1
+
+        except Exception as exc:
+            errors.append({'row': row_num, 'error': str(exc)})
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+    # Clean up temp file regardless of outcome
+    try:
+        os.remove(save_path)
+    except OSError:
+        pass
+
+    log_action('import.run', 'members', None, {
+        'imported': imported, 'skipped': skipped,
+        'errors':   len(errors), 'member_type': mt['slug'],
+    })
+
+    return jsonify({'imported': imported, 'skipped': skipped, 'errors': errors})
+
+
 # ── BLUEPRINT: roles + permissions (v6.0) ─────────────────────────────────────
 
 @app.route('/api/admin/permissions')
