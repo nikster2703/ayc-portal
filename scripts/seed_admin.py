@@ -26,12 +26,20 @@ except ImportError:
 
 import re
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR   = os.path.dirname(SCRIPT_DIR)
-DB_PATH    = os.path.join(BASE_DIR, 'data', 'ayc.db')
+SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
+APP_DIR      = os.path.dirname(SCRIPT_DIR)
+# INSTANCE_DIR separates runtime data from code — used in Docker deployments.
+# Falls back to APP_DIR for direct (non-Docker) installs.
+INSTANCE_DIR = os.environ.get('INSTANCE_DIR', APP_DIR)
+DB_PATH      = os.path.join(INSTANCE_DIR, 'data', 'ayc.db')
 
-# Load .env so DB_ENCRYPTION_KEY is available
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+# Schema lives with the code, not the instance data
+SCHEMA_PATH  = os.path.join(APP_DIR, 'schema.sql')
+
+# Load .env — try instance dir first (Docker passes vars via env, so this is
+# a no-op there), then fall back to app dir for direct installs.
+load_dotenv(os.path.join(INSTANCE_DIR, '.env'))
+load_dotenv(os.path.join(APP_DIR, '.env'))
 
 
 def _connect_db(path):
@@ -45,7 +53,6 @@ def _connect_db(path):
     return conn
 
 
-SCHEMA_PATH = os.path.join(BASE_DIR, 'schema.sql')
 
 
 def validate_password(password):
