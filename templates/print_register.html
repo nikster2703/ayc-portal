@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AYC Session Register — {{ session_type }} {{ display_date }}</title>
+  <title>{{ club_short_name }} Session Register — {{ session_type }} {{ display_date }}</title>
   <style>
     /* ── Base ─────────────────────────────────────────── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -17,7 +17,7 @@
 
     /* ── Screen: show a print button and some padding ── */
     @media screen {
-      body { padding: 24px; max-width: 900px; margin: 0 auto; }
+      body { padding: 24px; max-width: 960px; margin: 0 auto; }
 
       .print-controls {
         display: flex;
@@ -76,8 +76,8 @@
       .page-header-repeat:first-child { page-break-before: auto; }
 
       @page {
-        size: A4 portrait;
-        margin: 15mm 12mm 15mm 12mm;
+        size: A4 landscape;
+        margin: 12mm 10mm 12mm 10mm;
       }
     }
 
@@ -90,20 +90,20 @@
     }
 
     .page-header img.logo {
-      height: 64px;
+      height: 60px;
       width: auto;
       flex-shrink: 0;
     }
 
     .page-header h1 {
-      font-size: 16pt;
+      font-size: 15pt;
       font-weight: 700;
       color: #1e3a5f;
       margin-bottom: 2px;
     }
 
     .page-header .subtitle {
-      font-size: 11pt;
+      font-size: 10pt;
       color: #475569;
     }
 
@@ -112,42 +112,44 @@
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 8px;
+      table-layout: fixed;
     }
 
     thead th {
       background: #1e3a5f;
       color: #fff;
-      font-size: 10pt;
+      font-size: 9pt;
       font-weight: 700;
-      padding: 7px 8px;
+      padding: 6px 7px;
       text-align: left;
       border: 1px solid #1e3a5f;
+      word-wrap: break-word;
     }
 
-    thead th.col-num    { width: 38px;  text-align: center; }
-    thead th.col-home   { width: 140px; text-align: center; }
-    thead th.col-tick   { width: 100px; text-align: center; }
+    thead th.col-num  { width: 32px;  text-align: center; }
+    thead th.col-name { width: 100px; }
+    thead th.col-tick { width: 85px;  text-align: center; }
 
     tbody tr:nth-child(even) { background: #f8fafc; }
     tbody tr:nth-child(odd)  { background: #ffffff; }
 
     tbody td {
-      padding: 6px 8px;
+      padding: 5px 7px;
       border: 1px solid #cbd5e1;
-      font-size: 10pt;
+      font-size: 9pt;
       vertical-align: middle;
+      word-wrap: break-word;
     }
 
-    tbody td.col-num  { text-align: center; color: #64748b; font-size: 9pt; }
-    tbody td.col-home { text-align: center; font-weight: 700; }
-    tbody td.col-home.yes { color: #166534; }
-    tbody td.col-home.no  { color: #b91c1c; }
+    tbody td.col-num  { text-align: center; color: #64748b; font-size: 8pt; }
     tbody td.col-tick { text-align: center; }
+    tbody td.bool-yes { text-align: center; font-weight: 700; color: #166534; }
+    tbody td.bool-no  { text-align: center; font-weight: 700; color: #b91c1c; }
 
     /* ── Footer note ────────────────────────────────── */
     .print-footer {
       margin-top: 10px;
-      font-size: 9pt;
+      font-size: 8pt;
       color: #94a3b8;
       text-align: right;
     }
@@ -208,21 +210,55 @@
 </head>
 <body>
 
+{# ── Jinja macro: render a single field value for a member ───── #}
+{% macro field_val(field, member) -%}
+  {%- if field.system_field -%}
+    {%- set val = member.get(field.column_name) -%}
+  {%- else -%}
+    {%- set val = (member.get('custom_fields') or {}).get(field.key) -%}
+  {%- endif -%}
+  {%- if val is none or val == '' -%}
+    <span style="color:#cbd5e1">—</span>
+  {%- elif field.field_type == 'boolean' -%}
+    {%- if val == 1 or val == '1' or val == 'true' or val == 'yes' -%}
+      YES
+    {%- else -%}
+      NO
+    {%- endif -%}
+  {%- else -%}
+    {{- val | e -}}
+  {%- endif -%}
+{%- endmacro %}
+
+{# ── Boolean CSS class helper ─────────────────────────────────── #}
+{% macro bool_cls(field, member) -%}
+  {%- if field.field_type == 'boolean' -%}
+    {%- if field.system_field -%}
+      {%- set val = member.get(field.column_name) -%}
+    {%- else -%}
+      {%- set val = (member.get('custom_fields') or {}).get(field.key) -%}
+    {%- endif -%}
+    {%- if val == 1 or val == '1' or val == 'true' or val == 'yes' -%} bool-yes
+    {%- elif val is not none and val != '' -%} bool-no
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
 <!-- ── Screen controls ──────────────────────────────── -->
 <div class="print-controls">
   <button class="btn-print" onclick="window.print()">🖨 Print</button>
   <a class="btn-back" href="/register">← Back to Register</a>
   <span class="controls-hint">
-    Tip: In your print dialog, set paper to A4 and enable "Print headers and footers" off.
+    Tip: In your print dialog, set paper to A4 landscape and disable "Print headers and footers".
   </span>
 </div>
 
 <!-- ── Register table ───────────────────────────────── -->
 <div class="page-header">
-  <img class="logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="Spelthorne Youth">
+  <img class="logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="{{ club_short_name }}">
   <div>
-    <h1>Session Register — {{ session_type }}</h1>
-    <div class="subtitle">{{ display_date }} &nbsp;·&nbsp; {{ members | length }} member{{ 's' if members | length != 1 else '' }}</div>
+    <h1>Session Register — {{ session_type }}{% if mtype and mtype.name %} &nbsp;·&nbsp; {{ mtype.name }}s{% endif %}</h1>
+    <div class="subtitle">{{ display_date }} &nbsp;·&nbsp; {{ members | length }} {{ mtype.name | lower if mtype and mtype.name else 'member' }}{{ 's' if members | length != 1 else '' }}</div>
   </div>
 </div>
 
@@ -230,9 +266,11 @@
   <thead>
     <tr>
       <th class="col-num">#</th>
-      <th>First Name</th>
-      <th>Surname</th>
-      <th class="col-home">Able To Go Home Alone</th>
+      <th class="col-name">First Name</th>
+      <th class="col-name">Surname</th>
+      {% for field in dynamic_fields %}
+      <th>{{ field.label }}</th>
+      {% endfor %}
       <th class="col-tick">Tick on Arrival</th>
       <th class="col-tick">Tick When Leaving</th>
     </tr>
@@ -243,20 +281,22 @@
       <td class="col-num">{{ loop.index }}</td>
       <td>{{ m.first_name }}</td>
       <td>{{ m.surname }}</td>
-      <td class="col-home {{ 'yes' if m.unattended_exit else 'no' }}">
-        {{ 'YES' if m.unattended_exit else 'NO' }}
-      </td>
+      {% for field in dynamic_fields %}
+      <td class="{{ bool_cls(field, m) }}">{{ field_val(field, m) }}</td>
+      {% endfor %}
       <td class="col-tick"></td>
       <td class="col-tick"></td>
     </tr>
     {% endfor %}
-    {# Add a few blank rows at the bottom for late arrivals / walk-ins #}
+    {# Blank rows at the bottom for late arrivals / walk-ins #}
     {% for i in range(5) %}
     <tr>
       <td class="col-num" style="color:#cbd5e1">{{ members | length + i + 1 }}</td>
       <td></td>
       <td></td>
-      <td class="col-home"></td>
+      {% for field in dynamic_fields %}
+      <td></td>
+      {% endfor %}
       <td class="col-tick"></td>
       <td class="col-tick"></td>
     </tr>

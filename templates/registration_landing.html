@@ -150,32 +150,33 @@
 
   <div class="landing-intro">
     <h2>Who is registering?</h2>
-    <p>Choose the option that applies to you. Both forms are quick to complete and will be reviewed by a leader before your place is confirmed.</p>
+    <p>Choose the option that applies to you. The form takes just a few minutes to complete and will be reviewed by a leader before your place is confirmed.</p>
   </div>
 
-  <a href="/registration/member" class="choice-card">
-    <div class="card-inner">
-      <div class="card-icon">👦</div>
-      <div class="card-text">
-        <div class="card-title">Young Person (Member)</div>
-        <div class="card-desc">Registering a child or young person to join {{ club_name }} sessions.</div>
+  {% if reg_types %}
+    {% for mtype in reg_types %}
+    <a href="/registration/{{ mtype.slug }}" class="choice-card" style="border-color:{{ mtype.colour }}22">
+      <div class="card-inner">
+        <div class="card-icon" style="background:{{ mtype.colour }}18">{{ mtype.icon }}</div>
+        <div class="card-text">
+          <div class="card-title">{{ mtype.name }}</div>
+          {% if mtype.description %}
+          <div class="card-desc">{{ mtype.description }}</div>
+          {% endif %}
+        </div>
+        <span class="card-arrow">›</span>
       </div>
-      <span class="card-arrow">›</span>
-    </div>
-  </a>
-
-  <div class="divider">or</div>
-
-  <a href="/registration/staff" class="choice-card staff">
-    <div class="card-inner">
-      <div class="card-icon">🧑‍🤝‍🧑</div>
-      <div class="card-text">
-        <div class="card-title">Volunteer / Leader (Staff)</div>
-        <div class="card-desc">Registering as a volunteer, youth volunteer, or leader to help run club sessions.</div>
-      </div>
-      <span class="card-arrow">›</span>
-    </div>
-  </a>
+    </a>
+    {% if not loop.last %}
+    <div class="divider">or</div>
+    {% endif %}
+    {% endfor %}
+  {% else %}
+  <div style="text-align:center;padding:40px 0;color:var(--muted)">
+    <p style="font-size:15px">Registration is not currently available online.</p>
+    <p style="font-size:13px;margin-top:8px">Please speak to a club leader directly.</p>
+  </div>
+  {% endif %}
 
 </div>
 

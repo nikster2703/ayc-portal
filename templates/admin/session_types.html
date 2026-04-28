@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Session Types{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/admin/settings" class="btn btn-ghost btn-sm"
+     style="text-decoration:none">← Settings</a>
+  <h1 style="margin-top:10px">📅 Session Types</h1>
+</div>
+
+<div class="form-card" style="max-width:520px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6">
+    Define which nights the club runs. The name appears throughout the portal
+    and the weekday controls which calendar day is auto-detected on the register.
+  </p>
+
+  <div id="session-types-list" style="margin-bottom:20px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;
+              border-top:1.5px solid var(--border);padding-top:16px">
+    <div>
+      <label class="form-label" style="margin-bottom:4px">Name</label>
+      <input id="st-name" class="form-input" placeholder="e.g. Monday Crew" style="width:170px">
+    </div>
+    <div>
+      <label class="form-label" style="margin-bottom:4px">Weekday</label>
+      <select id="st-weekday" class="form-input" style="width:140px">
+        <option value="0">Monday</option>
+        <option value="1">Tuesday</option>
+        <option value="2">Wednesday</option>
+        <option value="3">Thursday</option>
+        <option value="4">Friday</option>
+        <option value="5">Saturday</option>
+        <option value="6">Sunday</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="addSessionType()">+ Add</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const WDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+  async function loadSessionTypes() {
+    const el = document.getElementById('session-types-list');
+    try {
+      const types = await apiFetch('/api/admin/session-types');
+      if (!types.length) {
+        el.innerHTML = '<p style="color:var(--muted);font-size:13px">No session types defined yet.</p>';
+        return;
+      }
+      el.innerHTML = types.map(st => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;
+                    border-bottom:1px solid var(--border)">
+          <span style="flex:1;font-weight:700;font-size:14px">${esc(st.name)}</span>
+          <span style="font-size:12px;color:var(--muted);min-width:84px">${WDAY_NAMES[st.weekday] || '?'}</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;
+                       background:${st.active ? '#dcfce7' : '#f1f5f9'};
+                       color:${st.active ? '#166534' : '#64748b'}">
+            ${st.active ? 'Active' : 'Inactive'}
+          </span>
+          <button class="btn btn-ghost btn-sm"
+                  onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})"
+                  style="font-size:12px">
+            ${st.active ? 'Deactivate' : 'Activate'}
+          </button>
+          <button class="btn btn-ghost btn-sm"
+                  onclick="deleteSessionType(${st.id}, '${esc(st.name)}')"
+                  style="font-size:12px;color:var(--red)">
+            Delete
+          </button>
+        </div>`).join('');
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load session types.</p>`;
+    }
+  }
+
+  async function addSessionType() {
+    const name    = document.getElementById('st-name').value.trim();
+    const weekday = parseInt(document.getElementById('st-weekday').value);
+    if (!name) { showToast('Please enter a session name.', true); return; }
+    try {
+      await apiFetch('/api/admin/session-types', {
+        method: 'POST',
+        body:   JSON.stringify({ name, weekday }),
+      });
+      document.getElementById('st-name').value = '';
+      showToast(`"${name}" added.`);
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function toggleSessionType(id, active) {
+    try {
+      await apiFetch(`/api/admin/session-types/${id}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ active }),
+      });
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function deleteSessionType(id, name) {
+    if (!confirm(`Delete session type "${name}"? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/api/admin/session-types/${id}`, { method: 'DELETE' });
+      showToast(`"${name}" deleted.`);
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  loadSessionTypes();
+</script>
+{% endblock %}

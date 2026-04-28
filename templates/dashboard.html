@@ -26,16 +26,17 @@
   </div>
 </div>
 
-<!-- ── At Risk callout — users with at_risk permission only ─── -->
-{% if 'register.at_risk' in user_permissions %}
-<div id="at-risk-callout" style="display:none;margin-bottom:24px">
-  <div class="callout callout-risk">
-    <span class="callout-icon">⚠️</span>
-    <div>
-      <strong id="at-risk-callout-text"></strong>
-      <span id="at-risk-callout-sub" style="font-size:13px;color:var(--muted);margin-left:8px"></span>
+<!-- ── Member Alerts callout — users with alerts.view permission only ─── -->
+{% if 'alerts.view' in user_permissions %}
+<div id="alerts-callout" style="display:none;margin-bottom:24px">
+  <div class="callout" style="background:#fff8e1;border-color:#f59e0b;border-radius:12px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <span style="font-size:20px;flex-shrink:0">🚨</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:800;font-size:14px;color:#92400e;margin-bottom:6px">Member Alerts</div>
+      <div id="alerts-flags-list"></div>
+      <div style="font-size:11px;color:#78350f;margin-top:6px">Last check: <span id="alerts-last-run">—</span></div>
     </div>
-    <a href="/members?status=at_risk" class="btn btn-sm" style="margin-left:auto;background:#b45309;color:#fff;border:none">Review →</a>
+    <a href="/admin/alerts" class="btn btn-sm" style="margin-left:auto;background:#f59e0b;color:#fff;border:none;flex-shrink:0">Manage Rules →</a>
   </div>
 </div>
 {% endif %}
@@ -56,35 +57,30 @@
   <div class="dash-section-title" style="margin-bottom:12px">Registration Links</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
 
+    {% for mtype in reg_types %}
     <div style="background:white;border:2px solid var(--border);border-radius:14px;
                 padding:16px 18px;display:flex;align-items:center;gap:14px">
-      <span style="font-size:28px;flex-shrink:0">👦</span>
+      <span style="font-size:28px;flex-shrink:0">{{ mtype.icon }}</span>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:14px;color:var(--navy);margin-bottom:2px">Member Registration</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Young person sign-up form</div>
+        <div style="font-weight:800;font-size:14px;color:var(--navy);margin-bottom:2px">
+          {{ mtype.name }} Registration
+          {% if not mtype.public_registration %}
+          <span style="font-size:10px;font-weight:700;background:#f1f5f9;color:var(--muted);
+                       border-radius:4px;padding:1px 6px;margin-left:4px">Staff only</span>
+          {% endif %}
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+          {{ mtype.description or (mtype.name + ' sign-up form') }}
+        </div>
         <div style="display:flex;gap:6px">
-          <a href="/registration/member" target="_blank"
+          <a href="/registration/{{ mtype.slug }}" target="_blank"
              class="btn btn-ghost btn-sm" style="font-size:12px">Open form ↗</a>
           <button class="btn btn-ghost btn-sm" style="font-size:12px"
-                  onclick="copyLink('/registration/member', this)">Copy link</button>
+                  onclick="copyLink('/registration/{{ mtype.slug }}', this)">Copy link</button>
         </div>
       </div>
     </div>
-
-    <div style="background:white;border:2px solid var(--border);border-radius:14px;
-                padding:16px 18px;display:flex;align-items:center;gap:14px">
-      <span style="font-size:28px;flex-shrink:0">🧑‍🤝‍🧑</span>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:14px;color:var(--navy);margin-bottom:2px">Staff / Volunteer Registration</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Leader &amp; volunteer sign-up form</div>
-        <div style="display:flex;gap:6px">
-          <a href="/registration/staff" target="_blank"
-             class="btn btn-ghost btn-sm" style="font-size:12px">Open form ↗</a>
-          <button class="btn btn-ghost btn-sm" style="font-size:12px"
-                  onclick="copyLink('/registration/staff', this)">Copy link</button>
-        </div>
-      </div>
-    </div>
+    {% endfor %}
 
     <div style="background:white;border:2px solid #dce3ef55;border-radius:14px;
                 padding:16px 18px;display:flex;align-items:center;gap:14px;opacity:.8">
@@ -131,8 +127,10 @@
     login:                { icon: '🔑', label: 'Logged in'           },
     view_member:          { icon: '👁',  label: 'Viewed member'       },
     edit_member:          { icon: '✏️',  label: 'Edited member'       },
-    mark_at_risk:         { icon: '⚠️', label: 'Flagged At Risk'      },
-    reinstate_member:     { icon: '✅', label: 'Member reinstated'    },
+    raise_flag:           { icon: '🚨', label: 'Alert flag raised'     },
+    dismiss_flag:         { icon: '✅', label: 'Flag dismissed'        },
+    auto_resolve_flags:   { icon: '✅', label: 'Flags auto-resolved'   },
+    run_alert_rules:      { icon: '🔍', label: 'Alert checks run'      },
     update_settings:      { icon: '⚙️', label: 'Settings updated'     },
     soft_delete_member:        { icon: '👤', label: 'Marked as Leaver'        },
     permanent_delete_member:   { icon: '🗑️', label: 'Permanently deleted'     },
@@ -170,7 +168,7 @@
     try {
       const d = await apiFetch('/api/dashboard');
       renderStats(d);
-      renderAtRiskCallout(d.members?.at_risk);
+      renderAlertsCallout(d.alert_flags, d.alerts_last_run);
       renderApprovalsCallout(d.pending_approvals);
       renderToday(d.today_attendance);
       renderActivity(d.recent_activity);
@@ -224,14 +222,24 @@
     `).join('');
   }
 
-  /* ── At Risk callout ────────────────────────────────── */
-  function renderAtRiskCallout(n) {
-    if (!n || !USER_PERMS.has('register.at_risk')) return;
-    const el = document.getElementById('at-risk-callout');
-    document.getElementById('at-risk-callout-text').textContent =
-      `${n} member${n !== 1 ? 's' : ''} flagged At Risk`;
-    document.getElementById('at-risk-callout-sub').textContent =
-      'missed their consecutive session threshold — review and decide next steps';
+  /* ── Alerts callout ─────────────────────────────────── */
+  function renderAlertsCallout(flags, lastRun) {
+    if (!USER_PERMS.has('alerts.view')) return;
+    const el = document.getElementById('alerts-callout');
+    if (!el) return;
+    const active = (flags || []).filter(f => f.flag_count > 0);
+    if (!active.length) return;
+    document.getElementById('alerts-last-run').textContent = lastRun || 'Never';
+    document.getElementById('alerts-flags-list').innerHTML = active.map(f => `
+      <a href="/members?status=flagged&flag_rule_id=${f.id}"
+         style="display:inline-flex;align-items:center;gap:6px;margin:3px 4px 3px 0;text-decoration:none">
+        <span style="display:inline-block;padding:2px 9px;border-radius:20px;
+                     background:${esc(f.flag_colour)};color:white;font-size:11px;font-weight:700">
+          ${esc(f.flag_label)}
+        </span>
+        <span style="font-size:12px;color:#78350f;font-weight:600">${f.flag_count}</span>
+      </a>
+    `).join('');
     el.style.display = '';
   }
 

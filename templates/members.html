@@ -45,6 +45,15 @@
   <input type="hidden" id="show-leavers" value="">
   {% endif %}
 
+  {% if 'alerts.view' in user_permissions %}
+  <label class="leaver-toggle" id="flagged-toggle" onclick="toggleFlagged()" title="Show only flagged members">
+    <input type="checkbox" id="show-flagged">
+    <span>🚨 Flagged only</span>
+  </label>
+  {% else %}
+  <input type="hidden" id="show-flagged" value="">
+  {% endif %}
+
   <div class="count-pill" id="count-pill" onclick="showAll()">Loading…</div>
 </div>
 
@@ -232,15 +241,28 @@
 
   /* ── Data ──────────────────────────────────────────── */
   let allMembers  = [];
+  let fieldConfig = {};
   let editingId   = null;
 
   async function loadMembers() {
     try {
-      allMembers = await apiFetch('/api/members?status=all');
+      [allMembers, fieldConfig] = await Promise.all([
+        apiFetch('/api/members?status=all'),
+        apiFetch('/api/field-config'),
+      ]);
       const pool = getPool();
       document.getElementById('count-pill').textContent =
         `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
-      showSearchPrompt();
+
+      // Auto-render if a filter was pre-applied from URL params or toggle state
+      const flaggedOn = document.getElementById('show-flagged').checked;
+      const leaversOn = document.getElementById('show-leavers').checked;
+      if (flaggedOn || leaversOn) {
+        document.getElementById('count-pill').classList.add('showing-all');
+        renderMembers(pool);
+      } else {
+        showSearchPrompt();
+      }
     } catch (e) {
       document.getElementById('members-container').innerHTML = `
         <div class="alert-box err">
@@ -249,16 +271,24 @@
     }
   }
 
-  // Pre-select dropdown if arriving from a dashboard card link (e.g. ?view=staff)
+  // ── URL params — handle ?view=staff and ?status=flagged&flag_rule_id=N ────────
+  let activeFlagRuleId = null;   // null = show all flagged; N = specific rule
   (function applyViewParam() {
-    const view = new URLSearchParams(window.location.search).get('view');
-    if (!view) return;
+    const params = new URLSearchParams(window.location.search);
+    const view   = params.get('view');
+    const status = params.get('status');
+    const ruleId = params.get('flag_rule_id');
+
     const sel = document.getElementById('session-filter');
-    if (!sel) return;
-    if (view === 'staff' && [...sel.options].some(o => o.value === '__staff__')) {
+    if (view === 'staff' && sel && [...sel.options].some(o => o.value === '__staff__')) {
       sel.value = '__staff__';
     }
-    // Clean the URL without triggering a reload
+    if (status === 'flagged') {
+      const cb = document.getElementById('show-flagged');
+      const tg = document.getElementById('flagged-toggle');
+      if (cb) { cb.checked = true; if (tg) tg.classList.add('active'); }
+      if (ruleId) activeFlagRuleId = parseInt(ruleId);
+    }
     history.replaceState(null, '', window.location.pathname);
   })();
 
@@ -268,22 +298,35 @@
   function getPool() {
     const sessionVal = document.getElementById('session-filter').value;
     const leaversOn  = document.getElementById('show-leavers').checked;
+    const flaggedOn  = document.getElementById('show-flagged').checked;
     return allMembers.filter(m => {
       const status   = (m.status || '').toLowerCase();
       const sess     = (m.session || '').trim();
       const mtype    = (m.member_type || 'member');
-      const statusOk = leaversOn ? status === 'leaver' : status !== 'leaver';
-      let   sessOk;
+
+      // Status filter — leavers, flagged, and normal active are mutually exclusive
+      let statusOk;
+      if (leaversOn)       statusOk = status === 'leaver';
+      else if (flaggedOn)  statusOk = status !== 'leaver' && hasActiveFlag(m, activeFlagRuleId);
+      else                 statusOk = status !== 'leaver';
+
+      let sessOk;
       if (sessionVal === 'all') {
         sessOk = true;
       } else if (sessionVal === '__staff__') {
         sessOk = mtype === 'staff';
       } else {
-        // Only show non-staff members when filtering by session night
         sessOk = mtype !== 'staff' && sess === sessionVal;
       }
       return statusOk && sessOk;
     });
+  }
+
+  function hasActiveFlag(m, ruleId) {
+    const flags = m.flags || [];
+    if (!flags.length) return false;
+    if (!ruleId) return true;
+    return flags.some(f => f.rule_id === ruleId);
   }
 
   function toggleLeavers() {
@@ -291,6 +334,33 @@
     const toggle = document.getElementById('leaver-toggle');
     cb.checked   = !cb.checked;
     toggle.classList.toggle('active', cb.checked);
+    // Leavers and Flagged are mutually exclusive
+    if (cb.checked) {
+      const fcb = document.getElementById('show-flagged');
+      const ftg = document.getElementById('flagged-toggle');
+      if (fcb) { fcb.checked = false; if (ftg) ftg.classList.remove('active'); }
+      activeFlagRuleId = null;
+    }
+    document.getElementById('count-pill').classList.remove('showing-all');
+    const pool = getPool();
+    document.getElementById('count-pill').textContent =
+      `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+    showSearchPrompt();
+    document.getElementById('search').value = '';
+  }
+
+  function toggleFlagged() {
+    const cb     = document.getElementById('show-flagged');
+    const toggle = document.getElementById('flagged-toggle');
+    cb.checked   = !cb.checked;
+    toggle.classList.toggle('active', cb.checked);
+    activeFlagRuleId = null;
+    // Leavers and Flagged are mutually exclusive
+    if (cb.checked) {
+      const lcb = document.getElementById('show-leavers');
+      const ltg = document.getElementById('leaver-toggle');
+      if (lcb) { lcb.checked = false; if (ltg) ltg.classList.remove('active'); }
+    }
     document.getElementById('count-pill').classList.remove('showing-all');
     const pool = getPool();
     document.getElementById('count-pill').textContent =
@@ -357,37 +427,189 @@
   const COLOURS = ['#1b2d4f','#0096b4','#2d6a4f','#6d3fa0','#b5451b','#155e8a','#7c6e00'];
   let cardIdx = 0;
 
+  function renderFieldVal(field, member) {
+    let val;
+    if (field.system_field) {
+      val = member[field.column_name];
+    } else {
+      val = (member.custom_fields || {})[field.key];
+    }
+    // Treat empty/null as missing
+    if (val === null || val === undefined || val === '') return '—';
+    if (field.field_type === 'boolean') {
+      // SQLite stores booleans as 0/1 integers; JS coerces 0 to falsy
+      const truthy = val === true || val === 1 || val === '1' || val === 'true' || val === 'yes';
+      return truthy
+        ? '<span class="badge badge-yes">Yes</span>'
+        : '<span class="badge badge-no">No</span>';
+    }
+    if (field.field_type === 'date') return esc(fmtDate(val) || String(val));
+    if (field.field_type === 'textarea') {
+      return `<span style="white-space:pre-wrap">${esc(String(val))}</span>`;
+    }
+    return esc(String(val));
+  }
+
   function memberCard(m) {
-    const idx    = cardIdx++;
-    const fn     = m.first_name || '';
-    const sn     = m.surname    || '';
-    const full   = `${fn} ${sn}`.trim() || 'Unknown';
-    const init   = ((fn[0] || '?') + (sn[0] || '?')).toUpperCase();
-    const colour = COLOURS[init.charCodeAt(0) % COLOURS.length];
+    const idx      = cardIdx++;
+    const fn       = m.first_name || '';
+    const sn       = m.surname    || '';
+    const full     = `${fn} ${sn}`.trim() || 'Unknown';
+    const init     = ((fn[0] || '?') + (sn[0] || '?')).toUpperCase();
+    const colour   = COLOURS[init.charCodeAt(0) % COLOURS.length];
     const isLeaver = (m.status || '').toLowerCase() === 'leaver';
+    const typeSlug = m.member_type || 'member';
+    const typeConf = fieldConfig[typeSlug] || fieldConfig['member'] || { list: [], detail: [] };
 
-    const unattBadge = m.unattended_exit
-      ? `<span class="badge badge-yes">Yes</span>`
-      : `<span class="badge badge-no">No</span>`;
+    // Fields that belong in the header are always excluded from the body sections
+    const HEADER_KEYS = new Set(['first_name', 'surname']);
 
-    const isStaff   = (m.member_type || 'member') === 'staff';
-    const staffBadge = isStaff
-      ? `<span style="display:inline-flex;align-items:center;gap:3px;background:#ede9fe;color:#7c3aed;
-                      border:1.5px solid #c4b5fd;border-radius:6px;padding:1px 8px;
-                      font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
-                      margin-left:6px">🧑‍🤝‍🧑 ${esc(m.staff_role || 'Staff Member')}</span>`
+    // ── List-view supplementary info (show_on_list fields, below name) ──────────
+    const listFields = (typeConf.list || []).filter(f => !HEADER_KEYS.has(f.key));
+    const listInfoHtml = listFields.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+           ${listFields.map(f => `
+             <span style="font-size:11px;color:var(--muted)">
+               <span style="font-weight:700;color:var(--navy)">${esc(f.label)}:</span>
+               ${renderFieldVal(f, m)}
+             </span>`).join('<span style="color:var(--border)"> · </span>')}
+         </div>`
       : '';
 
-    const addr     = [m.address, m.postcode].filter(Boolean).join(', ') || '—';
-    const hasC2    = m.contact2_name || m.contact2_phone;
-    const comments = m.comments
-      ? `<div class="di full"><div class="lbl">Comments</div><div class="val">${esc(m.comments)}</div></div>` : '';
+    // ── Type badge (staff / custom types) ───────────────────────────────────────
+    const isStaff    = typeSlug === 'staff';
+    const typeInfo   = (typeConf.type) || {};
+    const showBadge  = typeSlug !== 'member';
+    const typeBadge  = showBadge
+      ? `<span style="display:inline-flex;align-items:center;gap:3px;
+                      background:#ede9fe;color:#7c3aed;
+                      border:1.5px solid #c4b5fd;border-radius:6px;padding:1px 8px;
+                      font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+                      margin-left:6px">
+           ${esc(typeInfo.icon || '')} ${esc(m.staff_role || typeInfo.name || typeSlug)}
+         </span>`
+      : '';
 
-    // Action buttons — shown to editors/admins only, rendered below the name row
-    const actionBtns = (CAN_EDIT && !isLeaver) ? `
+    // ── Session / status subline ─────────────────────────────────────────────────
+    const sessionLabel = isStaff
+      ? (esc(v(m.session)) + ' sessions')
+      : esc(v(m.session));
+    const statusBadge  = `<span class="badge ${isLeaver ? 'badge-leaver' : 'badge-active'}" style="font-size:11px">${esc(m.status || 'Active')}</span>`;
+
+    // ── Alert flag badges ────────────────────────────────────────────────────────
+    const activeFlags  = (m.flags || []);
+    const flagBadgesHtml = activeFlags.length
+      ? `<span style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px;vertical-align:middle">
+           ${activeFlags.map(f =>
+             `<span style="display:inline-block;padding:1px 7px;border-radius:20px;
+                           background:${esc(f.flag_colour)};color:white;
+                           font-size:10px;font-weight:700;letter-spacing:.2px">
+               ${esc(f.flag_label)}
+             </span>`
+           ).join('')}
+         </span>`
+      : '';
+
+    // ── Action buttons ───────────────────────────────────────────────────────────
+    // Edit is always available (including leavers, so status can be corrected)
+    // "Mark Leaver" is hidden for members who are already leavers
+    const actionBtns = CAN_EDIT ? `
       <div class="card-actions" onclick="event.stopPropagation()">
-        ${CAN_EDIT ? `<button class="btn btn-ghost btn-sm" onclick="openEditModal(${m.id})">✏️ Edit</button>` : ''}
-        ${CAN_DELETE ? `<button class="btn btn-danger btn-sm" onclick="softDelete(${m.id},'${esc(full)}')">Mark Leaver</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="openEditModal(${m.id})">✏️ Edit</button>
+        ${(CAN_DELETE && !isLeaver) ? `<button class="btn btn-danger btn-sm" onclick="softDelete(${m.id},'${esc(full)}')">Mark Leaver</button>` : ''}
+      </div>` : '';
+
+    // ── Dynamic detail fields ────────────────────────────────────────────────────
+    const detailFields = (typeConf.detail || []).filter(f => !HEADER_KEYS.has(f.key));
+
+    // Decide which fields are "wide" (full-width)
+    const WIDE_TYPES = new Set(['textarea']);
+    const WIDE_KEYS  = new Set(['address', 'medical_sen', 'gp_contact', 'ethnicity_religion', 'comments', 'help_text']);
+
+    const detailRowsHtml = detailFields.map(f => {
+      const wide = WIDE_TYPES.has(f.field_type) || WIDE_KEYS.has(f.key);
+      return `<div class="di${wide ? ' full' : ''}">
+        <div class="lbl">${esc(f.label)}</div>
+        <div class="val">${renderFieldVal(f, m)}</div>
+      </div>`;
+    }).join('');
+
+    const detailSectionHtml = detailRowsHtml
+      ? `<div class="detail-section">
+           <div class="sec-title">📋 Details</div>
+           <div class="dg">${detailRowsHtml}</div>
+         </div>`
+      : '';
+
+    // ── Contacts ─────────────────────────────────────────────────────────────────
+    const hasC2 = m.contact2_name || m.contact2_phone;
+    const contactsHtml = `
+      <div class="detail-section">
+        <div class="sec-title">📞 Contact 1</div>
+        <div class="dg">
+          <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact1_name))}</div></div>
+          <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact1_phone))}</div></div>
+          <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact1_email))}</div></div>
+        </div>
+      </div>
+      ${hasC2 ? `
+      <div class="detail-section">
+        <div class="sec-title">📞 Contact 2</div>
+        <div class="dg">
+          <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact2_name))}</div></div>
+          <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact2_phone))}</div></div>
+          <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact2_email))}</div></div>
+        </div>
+      </div>` : ''}`;
+
+    // ── Tags section ─────────────────────────────────────────────────────────────
+    const tagsHtml = `
+      <div class="detail-section" id="member-tags-detail-section-${m.id}">
+        <div class="sec-title">🎖 Skills &amp; Badges</div>
+        <div id="member-tags-detail-${m.id}" style="display:flex;flex-wrap:wrap;gap:6px;min-height:22px">
+          <span style="font-size:13px;color:var(--muted)">No skills or badges assigned.</span>
+        </div>
+      </div>`;
+
+    // ── Alert flags panel ─────────────────────────────────────────────────────────
+    const CAN_DISMISS_FLAGS = USER_PERMS && USER_PERMS.has('alerts.dismiss');
+    const flagsPanelHtml = (activeFlags.length || CAN_DISMISS_FLAGS)
+      ? `<div class="detail-section" id="flags-section-${m.id}">
+           <div class="sec-title">🚨 Alert Flags</div>
+           <div id="flags-list-${m.id}">
+             ${activeFlags.length
+               ? activeFlags.map(f => `
+                 <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+                   <span style="padding:2px 9px;border-radius:20px;background:${esc(f.flag_colour)};color:white;font-size:11px;font-weight:700;white-space:nowrap">${esc(f.flag_label)}</span>
+                   <span style="color:var(--muted)">Since ${esc(f.flagged_at ? f.flagged_at.slice(0,10) : '\u2014')}</span>
+                   ${CAN_DISMISS_FLAGS
+                     ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px;color:var(--muted)"
+                                onclick="event.stopPropagation();dismissFlag(${m.id},${f.flag_id},'${esc(f.flag_label)}')">Dismiss</button>`
+                     : ''}
+                 </div>`).join('')
+               : '<span style="font-size:13px;color:var(--muted)">No active flags.</span>'}
+           </div>
+         </div>`
+      : '';
+
+    // ── Attendance section ────────────────────────────────────────────────────────
+    const attHtml = `
+      <div class="detail-section">
+        <div class="sec-title">📅 Attendance History</div>
+        <div id="att-${m.id}" class="att-history">
+          <span style="font-size:13px;color:var(--muted)">Loading…</span>
+        </div>
+      </div>`;
+
+    // ── Admin delete button ───────────────────────────────────────────────────────
+    const permDeleteHtml = IS_ADMIN ? `
+      <div style="border-top:1px dashed var(--border);margin-top:18px;padding-top:12px;
+                  display:flex;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm"
+                style="color:var(--red);opacity:.6;font-size:12px"
+                onclick="event.stopPropagation();openPermDeleteModal(${m.id},'${esc(full)}',${m.session ? `'${esc(m.session)}'` : 'null'})">
+          🗑 Permanently delete record
+        </button>
       </div>` : '';
 
     return `
@@ -395,91 +617,20 @@
   <div class="card-head">
     <div class="avatar" style="background:${colour}">${esc(init)}</div>
     <div class="card-name-wrap">
-      <h3>${esc(full)}${staffBadge}</h3>
-      <p>${isStaff ? (esc(v(m.session)) + ' sessions') : esc(v(m.session))} · <span class="badge ${isLeaver ? 'badge-leaver' : 'badge-active'}" style="font-size:11px">${esc(m.status || 'Active')}</span></p>
+      <h3>${esc(full)}${typeBadge}</h3>
+      <p>${sessionLabel} · ${statusBadge}${flagBadgesHtml}</p>
+      ${listInfoHtml}
     </div>
     <div class="chevron">▼</div>
   </div>
   ${actionBtns}
   <div class="card-body">
-
-    ${isStaff ? `
-    <div class="detail-section">
-      <div class="sec-title">👤 Staff Details</div>
-      <div class="dg">
-        <div class="di"><div class="lbl">Role</div><div class="val">${esc(m.staff_role || '—')}</div></div>
-        <div class="di"><div class="lbl">Session</div><div class="val">${esc(v(m.session))}</div></div>
-      </div>
-    </div>` : ''}
-
-    <div class="detail-section">
-      <div class="sec-title">📍 Address</div>
-      <div class="di"><div class="val">${esc(addr)}</div></div>
-    </div>
-
-    <div class="detail-section">
-      <div class="sec-title">📞 Contact 1</div>
-      <div class="dg">
-        <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact1_name))}</div></div>
-        <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact1_phone))}</div></div>
-        <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact1_email))}</div></div>
-      </div>
-    </div>
-
-    ${hasC2 ? `
-    <div class="detail-section">
-      <div class="sec-title">📞 Contact 2</div>
-      <div class="dg">
-        <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact2_name))}</div></div>
-        <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact2_phone))}</div></div>
-        <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact2_email))}</div></div>
-      </div>
-    </div>` : ''}
-
-    <div class="detail-section">
-      <div class="sec-title">🏥 Health &amp; Safeguarding</div>
-      <div class="dg">
-        <div class="di full"><div class="lbl">Medical / SEN Notes</div><div class="val">${esc(v(m.medical_sen))}</div></div>
-        <div class="di"><div class="lbl">GP Contact</div><div class="val">${esc(v(m.gp_contact))}</div></div>
-        <div class="di"><div class="lbl">Unattended Exit</div><div class="val">${unattBadge}</div></div>
-      </div>
-    </div>
-
-    <div class="detail-section" id="member-tags-detail-section-${m.id}">
-      <div class="sec-title">🎖 Skills &amp; Badges</div>
-      <div id="member-tags-detail-${m.id}" style="display:flex;flex-wrap:wrap;gap:6px;min-height:22px">
-        <span style="font-size:13px;color:var(--muted)">No skills or badges assigned.</span>
-      </div>
-    </div>
-
-    <div class="detail-section">
-      <div class="sec-title">📋 Registration</div>
-      <div class="dg">
-        <div class="di"><div class="lbl">Date of Birth</div><div class="val">${esc(fmtDate(m.date_of_birth))}</div></div>
-        <div class="di"><div class="lbl">Date Registered</div><div class="val">${esc(fmtDate(m.date_registered))}</div></div>
-        <div class="di"><div class="lbl">Ethnicity / Religion</div><div class="val">${esc(v(m.ethnicity_religion))}</div></div>
-        <div class="di"><div class="lbl">Member ID</div><div class="val">${esc(v(m.member_id))}</div></div>
-        ${comments}
-      </div>
-    </div>
-
-    <div class="detail-section">
-      <div class="sec-title">📅 Attendance History</div>
-      <div id="att-${m.id}" class="att-history">
-        <span style="font-size:13px;color:var(--muted)">Loading…</span>
-      </div>
-    </div>
-
-    ${IS_ADMIN ? `
-    <div style="border-top:1px dashed var(--border);margin-top:18px;padding-top:12px;
-                display:flex;justify-content:flex-end">
-      <button class="btn btn-ghost btn-sm"
-              style="color:var(--red);opacity:.6;font-size:12px"
-              onclick="event.stopPropagation();openPermDeleteModal(${m.id},'${esc(full)}',${m.session ? `'${esc(m.session)}'` : 'null'})">
-        🗑 Permanently delete record
-      </button>
-    </div>` : ''}
-
+    ${detailSectionHtml}
+    ${contactsHtml}
+    ${flagsPanelHtml}
+    ${tagsHtml}
+    ${attHtml}
+    ${permDeleteHtml}
   </div>
 </div>`;
   }
@@ -788,6 +939,25 @@
       showToast(e.message, true);
     } finally {
       btn.disabled = false;
+    }
+  }
+
+  /* ── Dismiss flag ──────────────────────────────────── */
+  async function dismissFlag(memberId, flagId, flagLabel) {
+    const note = prompt(`Dismiss "${flagLabel}" flag?\n\nOptional note (leave blank to dismiss without a note):`);
+    if (note === null) return;  // cancelled
+    try {
+      await apiFetch(`/api/members/${memberId}/flags/${flagId}/dismiss`, {
+        method: 'POST',
+        body: JSON.stringify({ note: note.trim() || null }),
+      });
+      showToast(`Flag dismissed.`);
+      // Reload members to refresh flag badges
+      const prevSearch = document.getElementById('search').value.trim();
+      await loadMembers();
+      if (prevSearch) { document.getElementById('search').value = prevSearch; filterMembers(); }
+    } catch(e) {
+      showToast('Could not dismiss flag: ' + e.message, true);
     }
   }
 

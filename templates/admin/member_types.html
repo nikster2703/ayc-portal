@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Member Types{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <h1>👥 Member Types</h1>
+  <button class="btn btn-primary" onclick="openAddModal()">+ Add Type</button>
+</div>
+
+<style>
+  .mt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .mt-card {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .mt-card:hover {
+    border-color: var(--teal);
+    box-shadow: 0 4px 16px rgba(0,150,180,.1);
+  }
+  .mt-card__header {
+    padding: 18px 20px 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .mt-card__icon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .mt-card__title-block { flex: 1; min-width: 0; }
+  .mt-card__name {
+    font-size: 16px;
+    font-weight: 900;
+    color: var(--navy);
+    margin: 0 0 4px;
+  }
+  .mt-card__slug {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 11px;
+    background: var(--cream);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 7px;
+    color: var(--muted);
+  }
+  .mt-card__desc {
+    padding: 0 20px 12px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+    flex: 1;
+  }
+  .mt-card__badges {
+    padding: 0 20px 14px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+  }
+  .badge-active   { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .badge-inactive { background: #f3f4f6; color: var(--muted); border-color: var(--border); }
+  .badge-pub      { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+  .badge-priv     { background: #f3f4f6; color: var(--muted); border-color: var(--border); }
+  .mt-card__footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--cream);
+  }
+  .mt-card__footer-meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .mt-card__actions { display: flex; gap: 6px; align-items: center; }
+</style>
+
+<!-- Type cards grid -->
+<div id="mt-grid">
+  <div class="loading-state" style="padding:24px 0">
+    <div class="spinner"></div><p>Loading…</p>
+  </div>
+</div>
+
+<!-- ── Add / Edit modal ───────────────────────────────────────────────────── -->
+<div id="mt-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:500px">
+    <h2 id="mt-modal-title">Add Member Type</h2>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Name <span style="color:var(--red)">*</span></label>
+      <input id="mt-name" class="form-input" placeholder="e.g. Volunteer" maxlength="80"
+             oninput="onNameInput()">
+    </div>
+
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Slug <span style="color:var(--red)">*</span></label>
+      <input id="mt-slug" class="form-input" placeholder="e.g. volunteer" maxlength="80"
+             oninput="_slugManuallyEdited=true">
+    </div>
+    <p id="mt-slug-help" style="font-size:12px;color:var(--muted);margin:0 0 14px">
+      Used in URLs — cannot be changed after creation.
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group">
+        <label class="form-label">Icon <span style="color:var(--muted);font-weight:400">(emoji)</span></label>
+        <input id="mt-icon" class="form-input" placeholder="👤" maxlength="4"
+               style="font-size:20px;text-align:center">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Colour</label>
+        <input type="color" id="mt-colour" value="#1b2d4f"
+               style="width:100%;height:40px;border:2px solid var(--border);border-radius:8px;
+                      background:none;cursor:pointer;padding:2px">
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Description</label>
+      <textarea id="mt-description" class="form-input" rows="2"
+                placeholder="Brief description of this member type"></textarea>
+    </div>
+
+    <div class="form-group" style="margin-bottom:20px">
+      <label class="form-label">Public Registration</label>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button type="button" id="mt-pub-yes" class="btn btn-sm"
+                onclick="setPublicReg(1)"
+                style="border:2px solid var(--border);border-radius:8px;padding:6px 16px">
+          Yes
+        </button>
+        <button type="button" id="mt-pub-no" class="btn btn-sm"
+                onclick="setPublicReg(0)"
+                style="border:2px solid var(--border);border-radius:8px;padding:6px 16px">
+          No
+        </button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:4px 0 0">
+        Whether this type is available for self-registration.
+      </p>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button id="mt-save-btn" class="btn btn-primary" onclick="saveType()">Add Type</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let _types            = [];
+  let _editingId        = null;
+  let _slugManuallyEdited = false;
+  let _publicReg        = 0;
+
+  /* ── Boot ─────────────────────────────────────────────── */
+  (function init() {
+    loadTypes();
+  })();
+
+  /* ── Slug helpers ─────────────────────────────────────── */
+  function slugify(str) {
+    return str.toLowerCase().trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function onNameInput() {
+    if (!_slugManuallyEdited) {
+      document.getElementById('mt-slug').value = slugify(document.getElementById('mt-name').value);
+    }
+  }
+
+  /* ── Public reg toggle ────────────────────────────────── */
+  function setPublicReg(val) {
+    _publicReg = val;
+    const yes = document.getElementById('mt-pub-yes');
+    const no  = document.getElementById('mt-pub-no');
+    if (val) {
+      yes.style.cssText = 'background:var(--teal);color:white;border-color:var(--teal);border-radius:8px;padding:6px 16px';
+      no.style.cssText  = 'background:white;color:var(--navy);border:2px solid var(--border);border-radius:8px;padding:6px 16px';
+    } else {
+      yes.style.cssText = 'background:white;color:var(--navy);border:2px solid var(--border);border-radius:8px;padding:6px 16px';
+      no.style.cssText  = 'background:var(--teal);color:white;border-color:var(--teal);border-radius:8px;padding:6px 16px';
+    }
+  }
+
+  /* ── Load & render ─────────────────────────────────────── */
+  async function loadTypes() {
+    const el = document.getElementById('mt-grid');
+    try {
+      _types = await apiFetch('/api/admin/member-types');
+      renderTypes();
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load member types: ${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderTypes() {
+    const el = document.getElementById('mt-grid');
+    if (!_types.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px;margin-top:20px">No member types defined yet.</p>';
+      return;
+    }
+    el.innerHTML = `<div class="mt-grid">${_types.map(renderCard).join('')}</div>`;
+  }
+
+  function renderCard(t) {
+    const activeBadge = t.active
+      ? `<span class="badge badge-active">Active</span>`
+      : `<span class="badge badge-inactive">Inactive</span>`;
+    const pubBadge = t.public_registration
+      ? `<span class="badge badge-pub">Public Registration On</span>`
+      : `<span class="badge badge-priv">Registration Private</span>`;
+    const fieldCount = t.field_count || 0;
+    return `
+      <div class="mt-card" style="border-left: 4px solid ${esc(t.colour || '#1b2d4f')}">
+        <div class="mt-card__header">
+          <div class="mt-card__icon">${esc(t.icon || '👤')}</div>
+          <div class="mt-card__title-block">
+            <div class="mt-card__name">${esc(t.name)}</div>
+            <code class="mt-card__slug">${esc(t.slug)}</code>
+          </div>
+        </div>
+        ${t.description ? `<div class="mt-card__desc">${esc(t.description)}</div>` : '<div class="mt-card__desc" style="color:var(--border);font-style:italic">No description</div>'}
+        <div class="mt-card__badges">
+          ${activeBadge}
+          ${pubBadge}
+        </div>
+        <div class="mt-card__footer">
+          <span class="mt-card__footer-meta">${fieldCount} field${fieldCount !== 1 ? 's' : ''} configured</span>
+          <div class="mt-card__actions">
+            <a href="/admin/field-builder/${t.id}" class="btn btn-sm btn-primary">Configure Fields →</a>
+            <button class="btn btn-ghost btn-sm" onclick="openEditModal(${t.id})">Edit</button>
+            <button class="btn btn-ghost btn-sm" onclick="deleteType(${t.id})"
+                    style="color:var(--red)">Delete</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* ── Modal ─────────────────────────────────────────────── */
+  function openAddModal() {
+    _editingId            = null;
+    _slugManuallyEdited   = false;
+    document.getElementById('mt-modal-title').textContent = 'Add Member Type';
+    document.getElementById('mt-name').value              = '';
+    document.getElementById('mt-slug').value              = '';
+    document.getElementById('mt-icon').value              = '👤';
+    document.getElementById('mt-colour').value            = '#1b2d4f';
+    document.getElementById('mt-description').value       = '';
+    document.getElementById('mt-slug').disabled           = false;
+    document.getElementById('mt-slug-help').style.display = '';
+    document.getElementById('mt-save-btn').textContent    = 'Add Type';
+    setPublicReg(0);
+    document.getElementById('mt-modal').classList.add('open');
+    document.getElementById('mt-name').focus();
+  }
+
+  function openEditModal(id) {
+    const t = _types.find(x => x.id === id);
+    if (!t) return;
+    _editingId            = id;
+    _slugManuallyEdited   = true;
+    document.getElementById('mt-modal-title').textContent = `Edit: ${t.name}`;
+    document.getElementById('mt-name').value              = t.name;
+    document.getElementById('mt-slug').value              = t.slug;
+    document.getElementById('mt-icon').value              = t.icon || '👤';
+    document.getElementById('mt-colour').value            = t.colour || '#1b2d4f';
+    document.getElementById('mt-description').value       = t.description || '';
+    document.getElementById('mt-slug').disabled           = true;
+    document.getElementById('mt-slug-help').style.display = 'none';
+    document.getElementById('mt-save-btn').textContent    = 'Save Changes';
+    setPublicReg(t.public_registration ? 1 : 0);
+    document.getElementById('mt-modal').classList.add('open');
+    document.getElementById('mt-name').focus();
+  }
+
+  function closeModal() {
+    document.getElementById('mt-modal').classList.remove('open');
+    _editingId = null;
+  }
+
+  async function saveType() {
+    const name        = document.getElementById('mt-name').value.trim();
+    const slug        = document.getElementById('mt-slug').value.trim();
+    const icon        = document.getElementById('mt-icon').value.trim() || '👤';
+    const colour      = document.getElementById('mt-colour').value;
+    const description = document.getElementById('mt-description').value.trim();
+
+    if (!name) { showToast('Please enter a name.', true); return; }
+    if (!slug) { showToast('Please enter a slug.', true); return; }
+
+    const btn = document.getElementById('mt-save-btn');
+    btn.disabled = true;
+    try {
+      if (_editingId) {
+        await apiFetch(`/api/admin/member-types/${_editingId}`, {
+          method: 'PUT',
+          body:   JSON.stringify({ name, icon, colour, description, public_registration: _publicReg }),
+        });
+        showToast('Member type updated.');
+      } else {
+        await apiFetch('/api/admin/member-types', {
+          method: 'POST',
+          body:   JSON.stringify({ name, slug, icon, colour, description, public_registration: _publicReg }),
+        });
+        showToast(`"${name}" created.`);
+      }
+      closeModal();
+      loadTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteType(id) {
+    const t = _types.find(x => x.id === id);
+    if (!t) return;
+    if (!confirm(`Delete member type "${t.name}"? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/api/admin/member-types/${id}`, { method: 'DELETE' });
+      showToast(`"${t.name}" deleted.`);
+      loadTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+</script>
+{% endblock %}

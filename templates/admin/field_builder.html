@@ -1,0 +1,491 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Field Builder{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:8px">
+  <a href="/admin/member-types" style="font-size:13px;color:var(--teal);text-decoration:none;font-weight:700">
+    ← Member Types
+  </a>
+</div>
+<div class="page-header" style="margin-bottom:24px">
+  <h1>Field Builder — {{ mtype.icon }} {{ mtype.name }}</h1>
+</div>
+
+<style>
+  .fb-section {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .fb-section h2 {
+    font-size: 15px;
+    font-weight: 900;
+    color: var(--navy);
+    margin: 0 0 16px;
+  }
+  .fields-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .fields-table th {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  .fields-table td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .fields-table tr:last-child td { border-bottom: none; }
+  .fields-table tr:hover td { background: var(--cream); }
+  .type-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    white-space: nowrap;
+  }
+  .type-badge.decl {
+    background: #fef3c7;
+    color: #92400e;
+    border-color: #fde68a;
+  }
+  .system-lock {
+    font-size: 11px;
+    margin-left: 4px;
+    opacity: .7;
+    cursor: default;
+  }
+  /* Toggle pill buttons */
+  .toggle-pill {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    background: white;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+    white-space: nowrap;
+  }
+  .toggle-pill.on {
+    background: var(--teal);
+    color: white;
+    border-color: var(--teal);
+  }
+  .toggle-pill:hover:not(.on) {
+    border-color: var(--teal);
+    color: var(--teal);
+  }
+  .toggle-group {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .order-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .order-btn {
+    font-size: 12px;
+    width: 22px;
+    height: 20px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .1s;
+  }
+  .order-btn:hover { background: var(--cream); }
+  .required-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--teal); }
+  .fb-empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+</style>
+
+<!-- ── Section 1: Assigned Fields ─────────────────────────────────────── -->
+<div class="fb-section">
+  <h2>Assigned Fields</h2>
+  <div id="assigned-fields-wrap">
+    <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
+  </div>
+</div>
+
+<!-- ── Section 2: Add from catalogue ─────────────────────────────────── -->
+<div class="fb-section">
+  <h2>Add Existing Field</h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+    Choose a field from the catalogue to add to this member type.
+  </p>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <select id="catalogue-select" class="form-input" style="flex:1;min-width:200px;max-width:360px">
+      <option value="">— select a field —</option>
+    </select>
+    <button class="btn btn-primary" onclick="addFromCatalogue()">Add</button>
+  </div>
+</div>
+
+<!-- ── Section 3: Create new custom field ─────────────────────────────── -->
+<div class="fb-section">
+  <h2>Create New Custom Field</h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+    Define a brand-new field and add it to this member type in one step.
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div class="form-group">
+      <label class="form-label">Label <span style="color:var(--red)">*</span></label>
+      <input id="new-field-label" class="form-input" placeholder="e.g. Emergency Contact">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <select id="new-field-type" class="form-input" onchange="onNewFieldTypeChange()">
+        <option value="text">Text</option>
+        <option value="textarea">Text Area</option>
+        <option value="date">Date</option>
+        <option value="number">Number</option>
+        <option value="boolean">Yes / No</option>
+        <option value="select">Select (dropdown)</option>
+        <option value="email">Email</option>
+        <option value="tel">Phone</option>
+        <option value="declaration">Declaration (consent question)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Hint shown only for declaration type -->
+  <div id="declaration-hint" style="display:none;margin-bottom:12px;padding:10px 14px;
+       background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1e40af">
+    💡 The <strong>Label</strong> field above is the full question text shown to parents on the
+    registration form. Use <code>{club}</code> anywhere in the text and it will be replaced
+    with the club name automatically (e.g. <em>"I consent to activities organised by {club}."</em>).
+    Placeholder and help text are not used for declaration fields.
+  </div>
+
+  <div id="new-field-placeholder-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div class="form-group">
+      <label class="form-label">Placeholder</label>
+      <input id="new-field-placeholder" class="form-input" placeholder="Hint text inside the input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Help Text</label>
+      <input id="new-field-help" class="form-input" placeholder="Displayed below the field">
+    </div>
+  </div>
+
+  <div class="form-group" id="new-field-options-wrap" style="display:none;margin-bottom:12px">
+    <label class="form-label">Options <span style="color:var(--muted);font-weight:400">(one per line)</span></label>
+    <textarea id="new-field-options" class="form-input" rows="4"
+              placeholder="Option A&#10;Option B&#10;Option C"></textarea>
+  </div>
+
+  <button class="btn btn-primary" onclick="createAndAddField()" id="create-field-btn">
+    Create &amp; Add
+  </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const TYPE_ID = {{ mtype.id }};
+
+  let _assignedFields = [];
+  let _allFields      = [];
+
+  /* ── Boot ──────────────────────────────────────────────── */
+  (function init() {
+    loadAll();
+  })();
+
+  async function loadAll() {
+    await Promise.all([loadAssigned(), loadAllFields()]);
+    refreshCatalogue();
+  }
+
+  /* ── Load assigned fields ──────────────────────────────── */
+  async function loadAssigned() {
+    const wrap = document.getElementById('assigned-fields-wrap');
+    try {
+      _assignedFields = await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`);
+      renderAssigned();
+    } catch (e) {
+      wrap.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderAssigned() {
+    const wrap = document.getElementById('assigned-fields-wrap');
+    if (!_assignedFields.length) {
+      wrap.innerHTML = '<p class="fb-empty">No fields assigned yet. Add one below.</p>';
+      return;
+    }
+    const rows = _assignedFields.map((f, idx) => {
+      const isFirst   = idx === 0;
+      const isLast    = idx === _assignedFields.length - 1;
+      const isProtected = (f.key === 'first_name' || f.key === 'surname');
+      const lockBadge = f.system_field ? `<span class="system-lock" title="System field">🔒</span>` : '';
+      const removeBtn = isProtected
+        ? ''
+        : `<button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                   onclick="removeField(${f.field_id})" title="Remove from type">✕</button>`;
+
+      function pill(key, label, val) {
+        const active = val ? 'on' : '';
+        return `<button class="toggle-pill ${active}"
+                        data-field="${f.field_id}" data-key="${key}"
+                        onclick="togglePill(this, ${f.field_id}, '${key}', ${val ? 0 : 1})">
+                  ${label}
+                </button>`;
+      }
+
+      return `<tr id="field-row-${f.field_id}">
+        <td style="width:44px">
+          <div class="order-btns">
+            ${!isFirst ? `<button class="order-btn" onclick="moveField(${idx}, -1)" title="Move up">▲</button>` : '<div style="height:22px"></div>'}
+            ${!isLast  ? `<button class="order-btn" onclick="moveField(${idx}, +1)" title="Move down">▼</button>` : '<div style="height:22px"></div>'}
+          </div>
+        </td>
+        <td>
+          <span style="font-weight:700;color:var(--navy);font-size:14px">${esc(f.label)}</span>
+          ${lockBadge}
+          <br>
+          <code style="font-size:11px;color:var(--muted)">${esc(f.key)}</code>
+        </td>
+        <td style="width:90px"><span class="type-badge${f.field_type === 'declaration' ? ' decl' : ''}">${esc(f.field_type)}</span></td>
+        <td style="width:60px;text-align:center">
+          <input type="checkbox" class="required-chk"
+                 ${f.required ? 'checked' : ''}
+                 onchange="toggleRequired(${f.field_id}, this.checked ? 1 : 0)"
+                 title="Required">
+        </td>
+        <td>
+          <div class="toggle-group">
+            ${pill('show_on_registration', 'Reg',    f.show_on_registration)}
+            ${pill('show_on_list',         'List',   f.show_on_list)}
+            ${pill('show_on_card',         'Card',   f.show_on_card)}
+            ${pill('show_on_detail',       'Detail', f.show_on_detail)}
+            ${pill('show_on_print',        'Print',  f.show_on_print)}
+            ${pill('show_on_export',       'Export', f.show_on_export)}
+          </div>
+        </td>
+        <td style="width:40px;text-align:right">${removeBtn}</td>
+      </tr>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <table class="fields-table">
+        <thead>
+          <tr>
+            <th style="width:44px"></th>
+            <th>Field</th>
+            <th>Type</th>
+            <th title="Required">Req.</th>
+            <th>Show on…</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  /* ── Load all field definitions ────────────────────────── */
+  async function loadAllFields() {
+    try {
+      _allFields = await apiFetch('/api/admin/field-definitions');
+    } catch (e) {
+      // Non-fatal — catalogue just won't populate
+    }
+  }
+
+  function refreshCatalogue() {
+    const sel = document.getElementById('catalogue-select');
+    const assignedIds = new Set(_assignedFields.map(f => f.field_id));
+    const available   = _allFields.filter(f => !assignedIds.has(f.id) && f.active);
+    sel.innerHTML = '<option value="">— select a field —</option>' +
+      available.map(f =>
+        `<option value="${f.id}">${esc(f.label)} (${esc(f.field_type)}${f.system_field ? ' 🔒' : ''})</option>`
+      ).join('');
+  }
+
+  /* ── Toggle pill ───────────────────────────────────────── */
+  async function togglePill(btn, fieldId, key, newVal) {
+    btn.disabled = true;
+    try {
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields/${fieldId}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ [key]: newVal }),
+      });
+      // Update local state
+      const f = _assignedFields.find(x => x.field_id === fieldId);
+      if (f) f[key] = newVal;
+      if (newVal) {
+        btn.classList.add('on');
+        btn.setAttribute('onclick', `togglePill(this, ${fieldId}, '${key}', 0)`);
+      } else {
+        btn.classList.remove('on');
+        btn.setAttribute('onclick', `togglePill(this, ${fieldId}, '${key}', 1)`);
+      }
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function toggleRequired(fieldId, newVal) {
+    try {
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields/${fieldId}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ required: newVal }),
+      });
+      const f = _assignedFields.find(x => x.field_id === fieldId);
+      if (f) f.required = newVal;
+    } catch (e) {
+      showToast(e.message, true);
+      // Revert checkbox
+      await loadAssigned();
+      refreshCatalogue();
+    }
+  }
+
+  /* ── Reorder ───────────────────────────────────────────── */
+  async function moveField(idx, direction) {
+    const swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= _assignedFields.length) return;
+
+    // Swap locally
+    const tmp               = _assignedFields[idx];
+    _assignedFields[idx]    = _assignedFields[swapIdx];
+    _assignedFields[swapIdx] = tmp;
+
+    // Assign new sort_orders
+    const payload = _assignedFields.map((f, i) => ({ field_id: f.field_id, sort_order: i + 1 }));
+    _assignedFields.forEach((f, i) => { f.sort_order = i + 1; });
+
+    renderAssigned();
+    try {
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields/reorder`, {
+        method: 'POST',
+        body:   JSON.stringify(payload),
+      });
+    } catch (e) {
+      showToast('Could not save order: ' + e.message, true);
+    }
+  }
+
+  /* ── Remove field ──────────────────────────────────────── */
+  async function removeField(fieldId) {
+    const f = _assignedFields.find(x => x.field_id === fieldId);
+    if (!f) return;
+    if (!confirm(`Remove "${f.label}" from this member type?`)) return;
+    try {
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields/${fieldId}`, { method: 'DELETE' });
+      showToast(`"${f.label}" removed.`);
+      await loadAssigned();
+      refreshCatalogue();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Add from catalogue ────────────────────────────────── */
+  async function addFromCatalogue() {
+    const sel     = document.getElementById('catalogue-select');
+    const fieldId = parseInt(sel.value, 10);
+    if (!fieldId) { showToast('Please select a field.', true); return; }
+    try {
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {
+        method: 'POST',
+        body:   JSON.stringify({ field_id: fieldId }),
+      });
+      const fd = _allFields.find(x => x.id === fieldId);
+      showToast(`"${fd ? fd.label : 'Field'}" added.`);
+      sel.value = '';
+      await loadAssigned();
+      refreshCatalogue();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Create new custom field ───────────────────────────── */
+  function onNewFieldTypeChange() {
+    const type = document.getElementById('new-field-type').value;
+    const isDecl = type === 'declaration';
+    document.getElementById('new-field-options-wrap').style.display =
+      type === 'select' ? '' : 'none';
+    document.getElementById('new-field-placeholder-wrap').style.display =
+      isDecl ? 'none' : '';
+    document.getElementById('declaration-hint').style.display =
+      isDecl ? '' : 'none';
+    // For declarations, update the label placeholder to guide the admin
+    document.getElementById('new-field-label').placeholder =
+      isDecl ? 'e.g. I give consent for my child to attend activities organised by {club}.'
+             : 'e.g. Emergency Contact';
+  }
+
+  async function createAndAddField() {
+    const label       = document.getElementById('new-field-label').value.trim();
+    const field_type  = document.getElementById('new-field-type').value;
+    const placeholder = document.getElementById('new-field-placeholder').value.trim() || null;
+    const help_text   = document.getElementById('new-field-help').value.trim() || null;
+    const options     = field_type === 'select'
+      ? (document.getElementById('new-field-options').value.trim() || null)
+      : null;
+
+    if (!label) { showToast('Please enter a field label.', true); return; }
+
+    const btn = document.getElementById('create-field-btn');
+    btn.disabled = true;
+    try {
+      // Step 1: Create the field definition
+      const newField = await apiFetch('/api/admin/field-definitions', {
+        method: 'POST',
+        body:   JSON.stringify({ label, field_type, placeholder, help_text, options }),
+      });
+
+      // Step 2: Assign to this type
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {
+        method: 'POST',
+        body:   JSON.stringify({ field_id: newField.id }),
+      });
+
+      showToast(`"${label}" created and added.`);
+
+      // Reset form
+      document.getElementById('new-field-label').value       = '';
+      document.getElementById('new-field-label').placeholder = 'e.g. Emergency Contact';
+      document.getElementById('new-field-type').value        = 'text';
+      document.getElementById('new-field-placeholder').value = '';
+      document.getElementById('new-field-help').value        = '';
+      document.getElementById('new-field-options').value     = '';
+      document.getElementById('new-field-options-wrap').style.display      = 'none';
+      document.getElementById('new-field-placeholder-wrap').style.display  = '';
+      document.getElementById('declaration-hint').style.display             = 'none';
+
+      // Reload both sections
+      await loadAllFields();
+      await loadAssigned();
+      refreshCatalogue();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+{% endblock %}

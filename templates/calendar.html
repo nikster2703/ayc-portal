@@ -211,6 +211,8 @@
   }
   .cal-day {
     min-height: 72px;
+    max-height: 72px;
+    overflow: hidden;
     background: white;
     border: 1.5px solid var(--border);
     border-radius: 10px;
@@ -247,8 +249,6 @@
   .cal-pill.planned  { background: #dcfce7; color: #166534; }
   .cal-pill.special  { background: #fef9c3; color: #854d0e; }
   .cal-pill.cancelled{ background: #fee2e2; color: #991b1b; text-decoration: line-through; }
-  .cal-pill.tuesday  { border-left: 3px solid var(--teal); }
-  .cal-pill.thursday { border-left: 3px solid #6d3fa0; }
 
   /* Session list in sidebar */
   .sess-item {
@@ -426,10 +426,10 @@
       let html = `<div class="cal-day-num">${d}</div>`;
       daySess.forEach(s => {
         const typeClass = s.session_type.toLowerCase();
-        const label     = s.notes ? `${s.session_type} · ${s.notes}` : s.session_type;
+        const tooltip   = s.notes ? `${s.session_type} · ${s.notes}` : s.session_type;
         html += `<span class="cal-pill ${s.status} ${typeClass}"
                        onclick="openEditModal(${JSON.stringify(s).replace(/"/g,'&quot;')})"
-                       data-id="${s.id}" title="${esc(label)}">${esc(label)}</span>`;
+                       data-id="${s.id}" title="${esc(tooltip)}">${esc(s.session_type)}</span>`;
       });
       cell.innerHTML = html;
       grid.appendChild(cell);

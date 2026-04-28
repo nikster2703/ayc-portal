@@ -26,11 +26,11 @@
       📝 Add Note
     </button>
     {% endif %}
-    <button class="btn btn-ghost btn-sm" id="at-risk-check-btn"
-            onclick="checkAtRisk()" title="Check for members who have missed their session threshold"
-            style="display:none">
-      ⚠️ Check attendance
-    </button>
+    {% if 'alerts.view' in user_permissions %}
+    <a href="/admin/alerts" class="btn btn-ghost btn-sm" title="View and manage member alert rules">
+      🚨 Alerts
+    </a>
+    {% endif %}
     <button class="btn btn-sm" id="complete-register-btn"
             onclick="openCompleteModal()"
             style="display:none;background:#166534;color:#fff;border:none">
@@ -43,6 +43,37 @@
     </button>
   </div>
 </div>
+
+<!-- ── QR quick-session panel ──────────────────────────────────── -->
+{% if 'register.signin' in user_permissions %}
+<div id="qr-panel" style="display:none;background:#f0f9ff;border:2px solid #bae6fd;
+     border-radius:12px;padding:14px 18px;margin-bottom:14px;
+     align-items:center;gap:18px;flex-wrap:wrap">
+  <!-- QR thumbnail -->
+  <div id="qr-thumb" style="flex-shrink:0;border-radius:8px;overflow:hidden;line-height:0;
+       background:#fff;padding:6px"></div>
+  <!-- Info -->
+  <div style="flex:1;min-width:180px">
+    <div style="font-size:14px;font-weight:800;color:#0c4a6e;margin-bottom:4px">
+      📱 QR Quick Sign-In
+    </div>
+    <div id="qr-stats" style="font-size:13px;color:#0369a1;margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      {% if 'register.qr_manage' in user_permissions %}
+      <button id="qr-regenerate-btn" onclick="regenerateQr()"
+              style="padding:6px 14px;border-radius:8px;border:1.5px solid #0096b4;
+                     background:#fff;color:#0096b4;font-size:13px;font-weight:800;cursor:pointer">
+        🔄 Regenerate QR
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  <!-- Locked state message (replaces above when register is completed) -->
+  <div id="qr-locked-msg" style="display:none;font-size:13px;color:#64748b;font-weight:700">
+    🔒 QR session access disabled — register is locked.
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Locked banner (shown when register is completed) ─────────── -->
 <div id="register-locked-banner" style="display:none;
@@ -226,36 +257,7 @@
   <div class="loading-state"><div class="spinner"></div><p>Loading register…</p></div>
 </div>
 
-<!-- ── At Risk modal ──────────────────────────────────────────── -->
-<div class="modal-overlay" id="at-risk-modal">
-  <div class="modal" style="max-width:540px">
-    <h2>⚠️ Attendance Check</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:4px">
-      These members have missed their consecutive session threshold and may need follow-up.
-      Select the ones to flag as <strong>At Risk</strong> and add a note for the record.
-    </p>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
-      <em>Members who attend a future session will be automatically reinstated to Active.</em>
-    </p>
-    <div id="at-risk-list" style="max-height:280px;overflow-y:auto;margin-bottom:14px"></div>
-    <div id="at-risk-note-wrap" style="display:none;margin-bottom:14px">
-      <label class="form-label" style="margin-bottom:4px">
-        Note / reason <span style="color:var(--red)">*</span>
-        <span style="font-weight:400;color:var(--muted)">(required — saved to member record)</span>
-      </label>
-      <textarea id="at-risk-note" class="form-input" rows="2"
-                placeholder="e.g. No contact made, parent notified, holiday period…"
-                style="resize:vertical"></textarea>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeAtRiskModal()">Cancel</button>
-      <button class="btn btn-warning" id="at-risk-save-btn" onclick="markAtRisk()"
-              style="display:none;background:#b45309;color:#fff;border:none">
-        Flag Selected as At Risk
-      </button>
-    </div>
-  </div>
-</div>
+<!-- At Risk modal removed in v8.0 — attendance flagging is now handled by Member Alert Rules (/admin/alerts) -->
 
 </div><!-- /reg-tab-members -->
 
@@ -378,6 +380,11 @@
     border-color: #e2e8f0;
     opacity: .65;
   }
+
+  /* Unattended exit — subtle amber tint on the default (not-yet-arrived) state */
+  .reg-card--unattended                { background: #fffbeb; border-color: #fde68a; }
+  .reg-card--unattended.state-in       { background: #f0fdf4; border-color: #86efac; }
+  .reg-card--unattended.state-out      { background: var(--cream); border-color: #e2e8f0; }
 
   .reg-card__name {
     font-size: 14px;
@@ -528,14 +535,17 @@
   const CAN_MANAGE      = USER_PERMS.has('activities.manage');
   const CAN_SIGNIN      = USER_PERMS.has('register.signin');
   const CAN_SIGNOUT     = USER_PERMS.has('register.signout');
-  const CAN_MARK_LEAVER = USER_PERMS.has('register.at_risk');
+  const CAN_MARK_LEAVER = USER_PERMS.has('register.complete');
   const CAN_COMPLETE    = USER_PERMS.has('register.complete');
 
   // Tracks whether the current register is locked
   let _registerLocked = false;
 
+  // Field config for card rendering — loaded once at startup
+  let _fieldConfig = {};
+
   /* ── Initialise ─────────────────────────────────────── */
-  (function init() {
+  (async function init() {
     const today = new Date();
     document.getElementById('date-picker').value = today.toISOString().slice(0, 10);
 
@@ -553,13 +563,14 @@
       picker.disabled = true;
     }
 
-    if (CAN_MARK_LEAVER) {
-      document.getElementById('at-risk-check-btn').style.display = '';
-    }
-
     if (CAN_COMPLETE) {
       document.getElementById('complete-register-btn').style.display = '';
     }
+
+    // Load field config once — used by memberCard() to render configured fields
+    try {
+      _fieldConfig = await apiFetch('/api/field-config');
+    } catch (_) { /* non-fatal — cards fall back to name-only display */ }
 
     loadRegister();
   })();
@@ -623,11 +634,13 @@
       if (completeBtn) completeBtn.style.display = 'none';
       if (resetBtn && CAN_RESET) resetBtn.style.display = '';
       if (exportBtn && CAN_EXPORT) exportBtn.style.display = '';
+      if (typeof updateQrLockedState === 'function') updateQrLockedState(true);
     } else {
       banner.style.display = 'none';
       if (completeBtn && CAN_COMPLETE) completeBtn.style.display = '';
       if (resetBtn) resetBtn.style.display = 'none';
       if (exportBtn) exportBtn.style.display = 'none';
+      if (typeof updateQrLockedState === 'function') updateQrLockedState(false);
     }
   }
 
@@ -683,16 +696,35 @@
     container.innerHTML = html;
   }
 
+  /* ── Render a single value for a field (compact card format) ── */
+  function _cardFieldVal(field, member) {
+    const val = field.system_field
+      ? member[field.column_name]
+      : (member.custom_fields || {})[field.key];
+    if (val === null || val === undefined || val === '') return null;
+    if (field.field_type === 'boolean') {
+      const truthy = val === true || val === 1 || val === '1' || val === 'true' || val === 'yes';
+      return truthy ? 'Yes' : 'No';
+    }
+    if (field.field_type === 'date') {
+      // Format YYYY-MM-DD → DD Mon YYYY
+      const d = new Date(val + 'T00:00:00');
+      if (isNaN(d)) return esc(String(val));
+      return d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+    }
+    return esc(String(val));
+  }
+
   function memberCard(m, sess, date, locked = false) {
     const isIn  = !!m.signed_in_at && !m.signed_out_at;
     const isOut = !!m.signed_out_at;
 
     const stateClass = isIn ? 'state-in' : isOut ? 'state-out' : '';
 
-    const medFlag = m.medical_sen
-      ? `<span class="flag-badge flag-medical" title="${esc(m.medical_sen)}">⚕</span>` : '';
     const unaFlag = m.unattended_exit
-      ? `<span class="flag-badge flag-unattended" title="Unattended exit permitted">🚪</span>` : '';
+      ? `<span title="Unattended exit permitted"
+              style="position:absolute;top:8px;right:8px;
+                     font-size:13px;line-height:1;opacity:.75">🚪</span>` : '';
 
     const tagBadges = (m.tags && m.tags.length)
       ? m.tags.map(t =>
@@ -736,11 +768,38 @@
         : '';
     }
 
+    const unaShade = m.unattended_exit ? 'reg-card--unattended' : '';
+
+    // Build configured card-detail fields (show_on_card), skipping name fields
+    // and the unattended_exit which is already shown as the overlay icon.
+    const SKIP_CARD_KEYS = new Set(['first_name','surname','unattended_exit']);
+    const typeSlug = (m.member_type || 'member').toLowerCase();
+    const typeConf = _fieldConfig[typeSlug];
+    let cardDetailsHtml = '';
+    if (typeConf && typeConf.card && typeConf.card.length) {
+      const detailPairs = typeConf.card
+        .filter(f => !SKIP_CARD_KEYS.has(f.key))
+        .map(f => {
+          const val = _cardFieldVal(f, m);
+          if (!val) return null;
+          return `<span style="color:var(--muted)">${esc(f.label)}:</span> ${val}`;
+        })
+        .filter(Boolean);
+      if (detailPairs.length) {
+        cardDetailsHtml = `
+          <div style="font-size:11px;line-height:1.5;color:var(--navy);
+                      margin:3px 0;padding:4px 0;border-top:1px solid var(--border)">
+            ${detailPairs.join('<br>')}
+          </div>`;
+      }
+    }
+
     return `
-      <div class="reg-card ${stateClass}" id="card-${m.id}">
+      <div class="reg-card ${stateClass} ${unaShade}" id="card-${m.id}">
+        ${unaFlag}
         <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
-        <div class="reg-card__flags">${medFlag}${unaFlag}</div>
         ${tagBadges ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:3px 0">${tagBadges}</div>` : ''}
+        ${cardDetailsHtml}
         <div class="reg-card__time">${timeText}</div>
         ${btnHtml}
       </div>`;
@@ -863,75 +922,7 @@
     } catch (e) { showToast(e.message, true); }
   }
 
-  /* ── At Risk check ──────────────────────────────────── */
-  let atRiskCandidates = [];
-
-  async function checkAtRisk() {
-    try {
-      atRiskCandidates = await apiFetch('/api/attendance/check-at-risk');
-      renderAtRiskList();
-      document.getElementById('at-risk-modal').classList.add('open');
-    } catch (e) { showToast(e.message, true); }
-  }
-
-  function renderAtRiskList() {
-    const list    = document.getElementById('at-risk-list');
-    const noteWrap = document.getElementById('at-risk-note-wrap');
-    const saveBtn  = document.getElementById('at-risk-save-btn');
-    if (!atRiskCandidates.length) {
-      list.innerHTML = '<p style="color:var(--muted);font-size:14px">All members are within their attendance threshold — no action needed.</p>';
-      noteWrap.style.display = 'none';
-      saveBtn.style.display  = 'none';
-      return;
-    }
-    noteWrap.style.display = '';
-    saveBtn.style.display  = '';
-    list.innerHTML = atRiskCandidates.map(m => `
-      <label style="display:flex;align-items:center;gap:10px;padding:8px 0;
-                    border-bottom:1px solid var(--border);cursor:pointer">
-        <input type="checkbox" value="${m.id}" checked style="width:16px;height:16px">
-        <span>
-          <strong>${esc(m.first_name)} ${esc(m.surname)}</strong>
-          <span style="font-size:12px;color:var(--muted)">
-            (${esc(m.trigger_session || m.session || '?')} — missed ${m.missed_sessions} sessions)
-            — last attended: ${m.last_attendance ? fmtDate(m.last_attendance) : 'never'}
-          </span>
-        </span>
-      </label>
-    `).join('');
-  }
-
-  async function markAtRisk() {
-    const checked = [...document.querySelectorAll('#at-risk-list input[type=checkbox]:checked')]
-      .map(cb => parseInt(cb.value));
-    const note = document.getElementById('at-risk-note').value.trim();
-    if (!checked.length) { showToast('No members selected.', true); return; }
-    if (!note) { showToast('A note is required before flagging members.', true); return; }
-    const btn = document.getElementById('at-risk-save-btn');
-    btn.disabled = true;
-    try {
-      const res = await apiFetch('/api/attendance/mark-at-risk', {
-        method: 'POST',
-        body:   JSON.stringify({ member_ids: checked, note }),
-      });
-      showToast(`${res.marked_count} member${res.marked_count !== 1 ? 's' : ''} flagged as At Risk.`);
-      closeAtRiskModal();
-      loadRegister();
-    } catch (e) {
-      showToast(e.message, true);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  function closeAtRiskModal() {
-    document.getElementById('at-risk-modal').classList.remove('open');
-    document.getElementById('at-risk-note').value = '';
-  }
-
-  document.getElementById('at-risk-modal').addEventListener('click', e => {
-    if (e.target === document.getElementById('at-risk-modal')) closeAtRiskModal();
-  });
+  // At Risk check functions removed in v8.0 — replaced by Member Alert Rules system
 
   /* ── Staff confirm helper (uses full card ID, not numeric member ID) ── */
   function requestConfirm(cardId, action, sess, date) {
@@ -1458,14 +1449,63 @@
     }
     el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">` +
       items.map(a => `
-        <div style="display:flex;align-items:center;justify-content:space-between;
+        <div id="activity-row-${a.id}"
+             style="display:flex;align-items:center;justify-content:space-between;
                     background:var(--cream);border:1px solid var(--border);
-                    border-radius:10px;padding:10px 14px">
-          <span style="font-size:14px;font-weight:700">🎯 ${esc(a.activity)}</span>
-          <button class="btn btn-ghost btn-sm" style="color:var(--red)"
-                  onclick="deleteActivity(${a.id})">✕ Remove</button>
+                    border-radius:10px;padding:10px 14px;gap:10px">
+          <span id="activity-text-${a.id}"
+                style="font-size:14px;font-weight:700;flex:1">🎯 ${esc(a.activity)}</span>
+          <input id="activity-edit-input-${a.id}" type="text"
+                 class="search-input" maxlength="120"
+                 style="flex:1;display:none;font-size:14px"
+                 value="${esc(a.activity)}"
+                 onkeydown="if(event.key==='Enter') saveActivity(${a.id}); if(event.key==='Escape') cancelEdit(${a.id})">
+          <div id="activity-view-btns-${a.id}" style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm"
+                    onclick="editActivity(${a.id})">✏️ Edit</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                    onclick="deleteActivity(${a.id})">✕ Remove</button>
+          </div>
+          <div id="activity-edit-btns-${a.id}" style="display:none;gap:6px;flex-shrink:0">
+            <button class="btn btn-primary btn-sm"
+                    onclick="saveActivity(${a.id})">Save</button>
+            <button class="btn btn-ghost btn-sm"
+                    onclick="cancelEdit(${a.id})">Cancel</button>
+          </div>
         </div>`
       ).join('') + `</div>`;
+  }
+
+  function editActivity(id) {
+    document.getElementById(`activity-text-${id}`).style.display        = 'none';
+    document.getElementById(`activity-edit-input-${id}`).style.display  = 'block';
+    document.getElementById(`activity-view-btns-${id}`).style.display   = 'none';
+    document.getElementById(`activity-edit-btns-${id}`).style.display   = 'flex';
+    document.getElementById(`activity-edit-input-${id}`).focus();
+  }
+
+  function cancelEdit(id) {
+    document.getElementById(`activity-text-${id}`).style.display        = 'inline';
+    document.getElementById(`activity-edit-input-${id}`).style.display  = 'none';
+    document.getElementById(`activity-view-btns-${id}`).style.display   = 'flex';
+    document.getElementById(`activity-edit-btns-${id}`).style.display   = 'none';
+  }
+
+  async function saveActivity(id) {
+    const input = document.getElementById(`activity-edit-input-${id}`);
+    const text  = input.value.trim();
+    if (!text) { showToast('Activity text cannot be empty.', true); return; }
+    try {
+      const updated = await apiFetch(`/api/activities/${id}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ activity: text }),
+      });
+      document.getElementById(`activity-text-${id}`).textContent = `🎯 ${updated.activity}`;
+      cancelEdit(id);
+      showToast('Activity updated.');
+    } catch (e) {
+      showToast(e.message, true);
+    }
   }
 
   async function addActivity() {
@@ -1499,8 +1539,106 @@
   const _origOnSessionChange = onSessionChange;
   onSessionChange = function() { _origOnSessionChange(); loadActivities(); };
 
-
   loadActivities();
+  {% endif %}
+
+  {% if 'register.signin' in user_permissions %}
+  /* ── QR quick-session panel ────────────────────────── */
+  let _qrInstance  = null;
+  let _lastQrUrl   = null;
+
+  async function loadQrPanel() {
+    const sess = document.getElementById('session-picker').value;
+    if (!sess) return;
+    try {
+      const data = await apiFetch(`/api/quick-signin/token/${encodeURIComponent(sess)}`);
+      const panel = document.getElementById('qr-panel');
+      if (!panel) return;
+      panel.style.display = 'flex';
+
+      // Stats
+      const stats = document.getElementById('qr-stats');
+      const inCnt  = data.qr_signin_count  || 0;
+      const outCnt = data.qr_signout_count || 0;
+      let statParts = [`${inCnt} signed in via QR`];
+      if (outCnt > 0) statParts.push(`${outCnt} signed out via QR`);
+      stats.textContent = statParts.join(' · ');
+
+      // Render QR thumbnail
+      if (data.qr_url && data.qr_url !== _lastQrUrl) {
+        _lastQrUrl = data.qr_url;
+        const thumb = document.getElementById('qr-thumb');
+        thumb.innerHTML = '';
+        if (typeof QRCode !== 'undefined') {
+          new QRCode(thumb, {
+            text: data.qr_url, width: 88, height: 88,
+            colorDark: '#000000', colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+  }
+
+  async function regenerateQr() {
+    const sess = document.getElementById('session-picker').value;
+    const btn  = document.getElementById('qr-regenerate-btn');
+    btn.disabled    = true;
+    btn.textContent = '…';
+    try {
+      const data = await apiFetch(
+        `/api/quick-signin/token/${encodeURIComponent(sess)}/regenerate`,
+        { method: 'POST' }
+      );
+      _lastQrUrl = null; // force redraw
+      await loadQrPanel();
+      showToast('QR code regenerated — the old code is now invalid.');
+    } catch (e) {
+      showToast('Could not regenerate QR: ' + e.message, true);
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = '🔄 Regenerate QR';
+    }
+  }
+
+  // Show the locked message when the register is completed
+  function updateQrLockedState(isLocked) {
+    const lockedMsg   = document.getElementById('qr-locked-msg');
+    const regenBtn    = document.getElementById('qr-regenerate-btn'); // null for User role
+    const statsEl     = document.getElementById('qr-stats');
+    const thumbEl     = document.getElementById('qr-thumb');
+    if (!lockedMsg) return;
+    if (isLocked) {
+      lockedMsg.style.display  = '';
+      if (regenBtn) regenBtn.style.display = 'none';
+      thumbEl.style.display    = 'none';
+      statsEl.style.display    = 'none';
+    } else {
+      lockedMsg.style.display  = 'none';
+      if (regenBtn) regenBtn.style.display = '';
+      thumbEl.style.display    = '';
+      statsEl.style.display    = '';
+    }
+  }
+
+  // Patch the session change to reload QR panel
+  const _qrOrigOnChange = onSessionChange;
+  onSessionChange = function() { _qrOrigOnChange(); _lastQrUrl = null; loadQrPanel(); };
+
+  // Patch loadRegister to refresh QR stats on each reload
+  const _qrOrigLoad = loadRegister;
+  loadRegister = async function() {
+    await _qrOrigLoad.apply(this, arguments);
+    loadQrPanel();
+  };
+
+  // Load qrcodejs synchronously then init the panel
+  (function loadQrLib() {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = loadQrPanel;
+    document.head.appendChild(s);
+  })();
   {% endif %}
 </script>
 {% endblock %}

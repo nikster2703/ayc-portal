@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>{{ club_name }} — Quick Sign-In</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:    #1b2d4f;
+      --teal:    #0096b4;
+      --green:   #16a34a;
+      --red:     #dc2626;
+      --amber:   #d97706;
+      --gold:    #f5c842;
+      --bg:      #f0f4f8;
+      --white:   #ffffff;
+      --muted:   #64748b;
+      --border:  #cbd5e1;
+      --radius:  16px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      font-family: 'Nunito', sans-serif;
+      color: var(--navy);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 20px 40px;
+      gap: 0;
+    }
+
+    /* ── Header ── */
+    .top-bar {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .club-emoji { font-size: 36px; line-height: 1; }
+    .club-name  { font-size: 18px; font-weight: 900; color: var(--navy); line-height: 1.2; }
+    .club-sub   { font-size: 13px; color: var(--muted); font-weight: 700; }
+
+    /* ── Card ── */
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 24px rgba(0,0,0,.09);
+      padding: 28px 24px;
+    }
+
+    /* ── Screen states — only the active one is shown ── */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── Error state ── */
+    .error-icon  { font-size: 56px; text-align: center; margin-bottom: 16px; }
+    .error-title { font-size: 22px; font-weight: 900; text-align: center; margin-bottom: 10px; color: var(--red); }
+    .error-msg   { font-size: 15px; color: var(--muted); text-align: center; line-height: 1.6; }
+
+    /* ── Mode choice ── */
+    .mode-title  { font-size: 24px; font-weight: 900; text-align: center; margin-bottom: 8px; }
+    .mode-sub    { font-size: 15px; color: var(--muted); text-align: center; margin-bottom: 28px; line-height: 1.5; }
+    .mode-btns   { display: flex; flex-direction: column; gap: 14px; }
+    .mode-btn    {
+      display: flex; align-items: center; gap: 16px;
+      padding: 20px 22px; border-radius: 14px;
+      border: 2.5px solid transparent;
+      cursor: pointer; font-family: inherit;
+      font-size: 20px; font-weight: 900;
+      transition: transform .1s, box-shadow .1s;
+      width: 100%; text-align: left;
+    }
+    .mode-btn:active { transform: scale(.97); }
+    .mode-btn.signin  { background: #e0f2fe; border-color: #0096b4; color: #0c4a6e; }
+    .mode-btn.signout { background: #fef3c7; border-color: #d97706; color: #78350f; }
+    .mode-btn .mode-icon { font-size: 32px; }
+
+    /* ── Search ── */
+    .search-title { font-size: 24px; font-weight: 900; margin-bottom: 6px; }
+    .search-sub   { font-size: 15px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .search-row   { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+    .search-input {
+      width: 100%; padding: 16px 18px; border-radius: 12px;
+      border: 2px solid var(--border); font-family: inherit;
+      font-size: 20px; font-weight: 800; color: var(--navy);
+      outline: none; background: var(--bg);
+    }
+    .search-input:focus { border-color: var(--teal); background: var(--white); }
+    .search-btn {
+      width: 100%; padding: 18px; border-radius: 12px; border: none;
+      background: var(--navy); color: var(--white);
+      font-family: inherit; font-size: 18px; font-weight: 900;
+      cursor: pointer;
+    }
+    .search-btn:active { opacity: .8; }
+
+    .results-list  { display: flex; flex-direction: column; gap: 10px; }
+    .result-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 18px; border-radius: 12px;
+      border: 2px solid var(--border); background: var(--bg);
+      cursor: pointer; font-family: inherit; width: 100%;
+      text-align: left; transition: border-color .1s, background .1s;
+    }
+    .result-item:active { background: #e0f2fe; border-color: var(--teal); }
+    .result-item.taken  { opacity: .45; cursor: not-allowed; }
+    .result-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 900; color: #fff;
+      flex-shrink: 0;
+    }
+    .result-name   { font-size: 20px; font-weight: 900; }
+    .result-status { font-size: 13px; color: var(--green); font-weight: 700; margin-top: 2px; }
+    .no-results    { text-align: center; color: var(--muted); font-size: 15px; padding: 20px 0; }
+
+    .back-link {
+      display: inline-block; margin-top: 20px;
+      font-size: 14px; font-weight: 700; color: var(--muted);
+      cursor: pointer; text-decoration: underline;
+    }
+
+    /* ── Confirm ── */
+    .confirm-icon  { font-size: 56px; text-align: center; margin-bottom: 12px; }
+    .confirm-q     { font-size: 16px; color: var(--muted); font-weight: 700; text-align: center; margin-bottom: 6px; }
+    .confirm-name  { font-size: 30px; font-weight: 900; text-align: center; margin-bottom: 28px; }
+    .confirm-btns  { display: flex; flex-direction: column; gap: 12px; }
+    .btn-yes {
+      padding: 18px; border-radius: 14px; border: none;
+      background: var(--navy); color: var(--white);
+      font-family: inherit; font-size: 20px; font-weight: 900;
+      cursor: pointer; width: 100%;
+    }
+    .btn-yes:active { opacity: .85; }
+    .btn-yes.signin-yes  { background: var(--teal); }
+    .btn-yes.signout-yes { background: var(--amber); }
+    .btn-no {
+      padding: 16px; border-radius: 14px;
+      border: 2px solid var(--border); background: transparent;
+      color: var(--muted); font-family: inherit; font-size: 16px;
+      font-weight: 800; cursor: pointer; width: 100%;
+    }
+    .btn-no:active { background: var(--bg); }
+
+    /* ── Welcome / Goodbye ── */
+    .success-icon { font-size: 72px; text-align: center; margin-bottom: 16px; animation: pop .4s ease; }
+    @keyframes pop { 0% { transform: scale(0.5); opacity: 0; } 80% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+    .success-msg  { font-size: 26px; font-weight: 900; text-align: center; line-height: 1.3; color: var(--navy); }
+    .success-sub  { font-size: 15px; color: var(--muted); text-align: center; margin-top: 12px; }
+    .close-hint   {
+      font-size: 14px; color: var(--muted); text-align: center;
+      margin-top: 24px; font-weight: 700; padding: 12px 16px;
+      background: var(--bg); border-radius: 10px; line-height: 1.5;
+    }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      width: 40px; height: 40px; border: 4px solid var(--border);
+      border-top-color: var(--teal); border-radius: 50%;
+      animation: spin .7s linear infinite; margin: 40px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="top-bar">
+    <div class="club-emoji">🏅</div>
+    <div>
+      <div class="club-name">{{ club_name }}</div>
+      <div class="club-sub">Quick Sign-In</div>
+    </div>
+  </div>
+
+  <div class="card">
+
+    <!-- Loading -->
+    <div class="screen active" id="screen-loading">
+      <div class="spinner"></div>
+    </div>
+
+    <!-- Error -->
+    <div class="screen" id="screen-error">
+      <div class="error-icon">⚠️</div>
+      <div class="error-title">Link not valid</div>
+      <div class="error-msg" id="error-msg">This sign-in link has expired. Ask a leader for help.</div>
+    </div>
+
+    <!-- Mode choice (shown only when both modes enabled) -->
+    <div class="screen" id="screen-mode">
+      <div class="mode-title">What would you like to do?</div>
+      <div class="mode-sub">Tap the option that applies to you.</div>
+      <div class="mode-btns">
+        <button class="mode-btn signin" onclick="chooseMode('signin')">
+          <span class="mode-icon">✅</span>
+          <span>Sign In<br><span style="font-size:14px;font-weight:700;opacity:.7">Just arrived</span></span>
+        </button>
+        <button class="mode-btn signout" onclick="chooseMode('signout')">
+          <span class="mode-icon">👋</span>
+          <span>Sign Out<br><span style="font-size:14px;font-weight:700;opacity:.7">Heading home</span></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="screen" id="screen-search">
+      <div class="search-title" id="search-title">What's your first name?</div>
+      <div class="search-sub"  id="search-sub">Type your first name and tap Search.</div>
+      <div class="search-row">
+        <input type="text" class="search-input" id="search-input"
+               placeholder="e.g. Jamie"
+               autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"
+               onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="search-btn" onclick="doSearch()">Search</button>
+      </div>
+      <div id="results-container"></div>
+      <span class="back-link" id="back-to-mode" onclick="goBack()" style="display:none">← Back</span>
+    </div>
+
+    <!-- Confirm -->
+    <div class="screen" id="screen-confirm">
+      <div class="confirm-icon" id="confirm-icon">🤔</div>
+      <div class="confirm-q"    id="confirm-q">Is this you?</div>
+      <div class="confirm-name" id="confirm-name"></div>
+      <div class="confirm-btns">
+        <button class="btn-yes" id="confirm-yes-btn" onclick="confirmAction()">Yes!</button>
+        <button class="btn-no"  onclick="showSearch()">No, go back</button>
+      </div>
+    </div>
+
+    <!-- Success -->
+    <div class="screen" id="screen-success">
+      <div class="success-icon" id="success-icon">🎉</div>
+      <div class="success-msg"  id="success-msg"></div>
+      <div class="success-sub"  id="success-sub"></div>
+      <div class="close-hint">You're all done — you can close this page now 👍</div>
+    </div>
+
+  </div><!-- /card -->
+</div><!-- /page -->
+
+<script>
+  /* ── State ──────────────────────────────────────────── */
+  const TOKEN      = new URLSearchParams(location.search).get('t') || '';
+  let MODE         = '';    // 'signin' | 'signout'
+  let SESSION_INFO = {};    // from /verify
+  let SELECTED     = null;  // { id, first_name, surname }
+
+  const AVATAR_COLOURS = [
+    '#0096b4','#2d6a4f','#6d3fa0','#b5451b',
+    '#155e8a','#7c6e00','#9b2335','#1b6b56',
+  ];
+  function avatarColour(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xfffffff;
+    return AVATAR_COLOURS[h % AVATAR_COLOURS.length];
+  }
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ── Screen management ───────────────────────────────── */
+  function show(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-' + id).classList.add('active');
+  }
+
+  /* ── Initialise: verify token ────────────────────────── */
+  async function init() {
+    if (!TOKEN) { showError('No sign-in token found. Scan the QR code again.'); return; }
+    try {
+      const r = await fetch(`/api/quick-signin/verify?t=${encodeURIComponent(TOKEN)}`);
+      const d = await r.json();
+      if (!d.valid) { showError(d.reason || 'This link is no longer valid.'); return; }
+      SESSION_INFO = d;
+      // Decide first screen
+      const bothEnabled = d.signin_enabled && d.signout_enabled;
+      const onlyIn   = d.signin_enabled  && !d.signout_enabled;
+      const onlyOut  = d.signout_enabled && !d.signin_enabled;
+      if (bothEnabled) { show('mode'); return; }
+      if (onlyIn)  { chooseMode('signin');  return; }
+      if (onlyOut) { chooseMode('signout'); return; }
+      showError('Sign-in is not currently available. Ask a leader for help.');
+    } catch (e) {
+      showError('Could not connect to the server. Please try again.');
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById('error-msg').textContent = msg;
+    show('error');
+  }
+
+  /* ── Mode selection ──────────────────────────────────── */
+  function chooseMode(mode) {
+    MODE = mode;
+    const bothEnabled = SESSION_INFO.signin_enabled && SESSION_INFO.signout_enabled;
+    document.getElementById('back-to-mode').style.display = bothEnabled ? '' : 'none';
+    if (mode === 'signin') {
+      document.getElementById('search-title').textContent = "What's your first name?";
+      document.getElementById('search-sub').textContent   = 'Type your name and tap Search to sign in.';
+    } else {
+      document.getElementById('search-title').textContent = 'Who is leaving?';
+      document.getElementById('search-sub').textContent   = 'Type your name and tap Search to sign out.';
+    }
+    showSearch();
+  }
+
+  function goBack() { show('mode'); }
+
+  /* ── Search ──────────────────────────────────────────── */
+  function showSearch() {
+    show('search');
+    document.getElementById('results-container').innerHTML = '';
+    const inp = document.getElementById('search-input');
+    inp.value = '';
+    setTimeout(() => inp.focus(), 100);
+  }
+
+  async function doSearch() {
+    const q = document.getElementById('search-input').value.trim();
+    if (q.length < 2) {
+      document.getElementById('results-container').innerHTML =
+        '<div class="no-results">Type at least 2 letters to search.</div>';
+      return;
+    }
+    document.getElementById('results-container').innerHTML =
+      '<div class="spinner" style="width:32px;height:32px;margin:20px auto"></div>';
+    try {
+      const r = await fetch(
+        `/api/quick-signin/search?t=${encodeURIComponent(TOKEN)}&q=${encodeURIComponent(q)}&mode=${MODE}`
+      );
+      if (!r.ok) { throw new Error('Server error'); }
+      const members = await r.json();
+      renderResults(members);
+    } catch (e) {
+      document.getElementById('results-container').innerHTML =
+        '<div class="no-results">Could not search — please try again.</div>';
+    }
+  }
+
+  function renderResults(members) {
+    const c = document.getElementById('results-container');
+    if (!members.length) {
+      c.innerHTML = '<div class="no-results">No members found — try a different spelling.</div>';
+      return;
+    }
+    const html = members.map(m => {
+      const colour   = avatarColour(m.first_name + (m.surname || ''));
+      const initial  = (m.first_name[0] || '?').toUpperCase();
+      const fullName = (m.first_name + ' ' + (m.surname || '')).trim();
+      const taken    = m.already_signed_in ? ' taken' : '';
+      const status   = m.already_signed_in
+        ? (MODE === 'signout' ? '' : '<div class="result-status">✓ Already signed in</div>')
+        : '';
+      const disabled = m.already_signed_in && MODE === 'signin' ? 'disabled' : '';
+      const onclick  = (!m.already_signed_in || MODE === 'signout')
+        ? `selectMember(${m.id}, '${esc(m.first_name)}', '${esc(m.surname || '')}')`
+        : '';
+      return `<button class="result-item${taken}" ${disabled} onclick="${onclick}">
+                <div class="result-avatar" style="background:${colour}">${esc(initial)}</div>
+                <div>
+                  <div class="result-name">${esc(fullName)}</div>
+                  ${status}
+                </div>
+              </button>`;
+    }).join('');
+    c.innerHTML = `<div class="results-list">${html}</div>`;
+  }
+
+  /* ── Confirm ─────────────────────────────────────────── */
+  function selectMember(id, firstName, surname) {
+    SELECTED = { id, first_name: firstName, surname };
+    if (MODE === 'signin') {
+      document.getElementById('confirm-icon').textContent = '🙋';
+      document.getElementById('confirm-q').textContent    = 'Is this you?';
+      document.getElementById('confirm-yes-btn').textContent = "Yes, sign me in!";
+      document.getElementById('confirm-yes-btn').className   = 'btn-yes signin-yes';
+    } else {
+      document.getElementById('confirm-icon').textContent = '👋';
+      document.getElementById('confirm-q').textContent    = 'Leaving now?';
+      document.getElementById('confirm-yes-btn').textContent = "Yes, sign me out";
+      document.getElementById('confirm-yes-btn').className   = 'btn-yes signout-yes';
+    }
+    document.getElementById('confirm-name').textContent =
+      (firstName + ' ' + (surname || '')).trim();
+    show('confirm');
+  }
+
+  /* ── Submit ──────────────────────────────────────────── */
+  async function confirmAction() {
+    document.getElementById('confirm-yes-btn').disabled    = true;
+    document.getElementById('confirm-yes-btn').textContent = '…';
+    const endpoint = MODE === 'signin'
+      ? '/api/quick-signin/signin'
+      : '/api/quick-signin/signout';
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: TOKEN, member_id: SELECTED.id }),
+      });
+      const d = await r.json();
+      if (!r.ok) { throw new Error(d.error || 'Server error'); }
+      showSuccess(d);
+    } catch (e) {
+      document.getElementById('confirm-yes-btn').disabled    = false;
+      document.getElementById('confirm-yes-btn').textContent =
+        MODE === 'signin' ? "Yes, sign me in!" : "Yes, sign me out";
+      alert('Something went wrong: ' + e.message + '\nPlease try again or ask a leader.');
+    }
+  }
+
+  /* ── Success screen ──────────────────────────────────── */
+  function showSuccess(data) {
+    if (MODE === 'signin') {
+      document.getElementById('success-icon').textContent = data.already_signed_in ? '✅' : '🎉';
+      document.getElementById('success-msg').textContent  = data.welcome_message;
+      document.getElementById('success-sub').textContent  = data.already_signed_in
+        ? '' : "You're on the register — enjoy the session!";
+    } else {
+      document.getElementById('success-icon').textContent = '👋';
+      document.getElementById('success-msg').textContent  = data.goodbye_message;
+      document.getElementById('success-sub').textContent  = data.already_signed_out
+        ? '' : 'Your sign-out has been recorded.';
+    }
+    show('success');
+    // No auto-reset — the next kid scans the QR for a fresh page load.
+  }
+
+  /* ── Boot ────────────────────────────────────────────── */
+  init();
+</script>
+</body>
+</html>

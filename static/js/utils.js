@@ -13,16 +13,31 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
+// ── CSRF token ────────────────────────────────────────────────────────────────
+// Read once from the <meta name="csrf-token"> tag rendered by base.html.
+// The token is re-read on every call so it stays fresh after Turbo/PJAX
+// navigation (if ever adopted), but for now the meta tag is static per page.
+function _getCsrfToken() {
+  const el = document.querySelector('meta[name="csrf-token"]');
+  return el ? el.getAttribute('content') : '';
+}
+
 /**
  * Wrapper around fetch for API calls.
- * - Automatically redirects to / on 401 (session expired).
+ * - Automatically sends X-CSRFToken on every state-changing request.
+ * - Automatically redirects to / on 401 (session expired / token rotated).
  * - Returns the parsed JSON body, or throws on non-2xx.
  * - When body is FormData, does NOT set Content-Type so the browser
  *   can add the correct multipart boundary automatically.
  */
 async function apiFetch(url, options = {}) {
-  const isFormData = options.body instanceof FormData;
+  const method      = (options.method || 'GET').toUpperCase();
+  const isFormData  = options.body instanceof FormData;
+  const isMutating  = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+
   const baseHeaders = isFormData ? {} : { 'Content-Type': 'application/json' };
+  if (isMutating) baseHeaders['X-CSRFToken'] = _getCsrfToken();
+
   const res = await fetch(url, {
     credentials: 'same-origin',
     ...options,
@@ -85,6 +100,7 @@ function v(val) {
 
 /** Sign the user out. */
 async function doLogout() {
-  await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  // Use apiFetch so the CSRF token is included; ignore any error and redirect regardless.
+  try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
   window.location.href = '/';
 }

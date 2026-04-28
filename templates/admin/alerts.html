@@ -1,0 +1,596 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Member Alerts{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+    <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none;margin-bottom:6px">← Settings</a>
+    <h1 style="margin-top:4px">🚨 Member Alerts</h1>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span id="last-run-label" style="font-size:12px;color:var(--muted)">
+      Last check: <span id="last-run-val">{{ alerts_last_run or 'Never' }}</span>
+    </span>
+    {% if 'alerts.run' in user_permissions %}
+    <button class="btn btn-primary btn-sm" onclick="runChecks()" id="run-btn">▶ Run Checks Now</button>
+    {% endif %}
+    {% if 'alerts.manage' in user_permissions %}
+    <button class="btn btn-secondary btn-sm" onclick="openRuleModal()">+ New Rule</button>
+    {% endif %}
+  </div>
+</div>
+
+<p style="font-size:13px;color:var(--muted);margin-bottom:24px;max-width:620px;line-height:1.6">
+  Alert rules flag members automatically when they meet a defined condition — missed sessions, overdue dates, empty fields, or numeric thresholds.
+  Flags appear as coloured badges on member cards and on the dashboard.
+  Checks run automatically every night at 02:00, or you can trigger them manually above.
+</p>
+
+<!-- ── Rules list ──────────────────────────────────────────────────────────── -->
+<div id="rules-container"></div>
+
+<!-- ── Rule modal ─────────────────────────────────────────────────────────── -->
+<div id="rule-modal" class="modal-backdrop" style="display:none">
+  <div class="modal" style="max-width:540px;width:100%">
+    <div class="modal-header">
+      <h2 id="modal-title" style="font-size:16px;font-weight:800">New Alert Rule</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeRuleModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+
+      <div>
+        <label class="form-label">Rule Name</label>
+        <input type="text" id="f-name" class="form-input" placeholder="e.g. Overdue Payment, Missing Emergency Contact">
+      </div>
+
+      <div>
+        <label class="form-label">Rule Type</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="type-picker">
+          <label class="type-opt" data-type="attendance">
+            <input type="radio" name="rule_type" value="attendance"> 📅 Attendance
+            <span class="type-desc">Consecutive missed sessions</span>
+          </label>
+          <label class="type-opt" data-type="date_field">
+            <input type="radio" name="rule_type" value="date_field"> 🗓 Date Field
+            <span class="type-desc">Date older than / before today</span>
+          </label>
+          <label class="type-opt" data-type="empty_field">
+            <input type="radio" name="rule_type" value="empty_field"> 🕳 Empty Field
+            <span class="type-desc">Required field has no value</span>
+          </label>
+          <label class="type-opt" data-type="numeric">
+            <input type="radio" name="rule_type" value="numeric"> 🔢 Numeric
+            <span class="type-desc">Value above or below threshold</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Attendance options -->
+      <div id="opts-attendance" class="rule-opts" style="display:none">
+        <label class="form-label">Missed sessions threshold</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="number" id="f-threshold-att" class="form-input" min="1" max="52" value="5" style="width:80px;text-align:center;font-size:20px;font-weight:800">
+          <span style="font-size:13px;color:var(--muted)">consecutive sessions</span>
+        </div>
+      </div>
+
+      <!-- Date field options -->
+      <div id="opts-date_field" class="rule-opts" style="display:none">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="form-label">Target Field</label>
+            <select id="f-field-date" class="form-input">
+              <option value="">— select a date field —</option>
+              {% for f in field_definitions %}{% if f.field_type == 'date' %}
+              <option value="{{ f.key }}">{{ f.label }}</option>
+              {% endif %}{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Condition</label>
+            <select id="f-condition-date" class="form-input">
+              <option value="older_than">is older than N days</option>
+              <option value="before_today">is before today</option>
+            </select>
+          </div>
+          <div id="date-threshold-wrap">
+            <label class="form-label">Days threshold</label>
+            <div style="display:flex;align-items:center;gap:10px">
+              <input type="number" id="f-threshold-date" class="form-input" min="1" value="365" style="width:90px;text-align:center;font-size:18px;font-weight:700">
+              <span style="font-size:13px;color:var(--muted)">days</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty field options -->
+      <div id="opts-empty_field" class="rule-opts" style="display:none">
+        <label class="form-label">Target Field (must be filled in)</label>
+        <select id="f-field-empty" class="form-input">
+          <option value="">— select a field —</option>
+          {% for f in field_definitions %}
+          <option value="{{ f.key }}">{{ f.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Numeric options -->
+      <div id="opts-numeric" class="rule-opts" style="display:none">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="form-label">Target Field</label>
+            <select id="f-field-num" class="form-input">
+              <option value="">— select a numeric field —</option>
+              {% for f in field_definitions %}{% if f.field_type in ('number', 'currency') %}
+              <option value="{{ f.key }}">{{ f.label }}</option>
+              {% endif %}{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Condition</label>
+            <select id="f-condition-num" class="form-input">
+              <option value="above">is above</option>
+              <option value="below">is below</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Threshold value</label>
+            <input type="number" id="f-threshold-num" class="form-input" value="0" style="width:120px">
+          </div>
+        </div>
+      </div>
+
+      <!-- Session scope -->
+      <div>
+        <label class="form-label">Session Scope</label>
+        <select id="f-session" class="form-input">
+          <option value="">All sessions</option>
+          {% for st in session_types %}
+          <option value="{{ st.name }}">{{ st.name }} only</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Flag label + colour -->
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:160px">
+          <label class="form-label">Flag Label</label>
+          <input type="text" id="f-label" class="form-input" placeholder="e.g. Payment Overdue">
+        </div>
+        <div>
+          <label class="form-label">Badge Colour</label>
+          <div id="colour-picker" style="display:flex;gap:8px;align-items:center;height:40px">
+            <button type="button" class="colour-swatch selected" data-colour="#ef4444" style="background:#ef4444" title="Red" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#f59e0b" style="background:#f59e0b" title="Amber" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#3b6fde" style="background:#3b6fde" title="Blue" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#8b5cf6" style="background:#8b5cf6" title="Purple" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#22a06b" style="background:#22a06b" title="Green" onclick="pickColour(this)"></button>
+            <span id="badge-preview" class="flag-badge" style="margin-left:4px"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auto-resolve -->
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--navy)">
+        <input type="checkbox" id="f-auto-resolve" checked style="width:16px;height:16px;accent-color:var(--teal)">
+        <span>Auto-resolve when condition is no longer met</span>
+      </label>
+
+    </div>
+    <div class="modal-footer" style="padding:16px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost" onclick="closeRuleModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRule()">Save Rule</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Dismiss modal ───────────────────────────────────────────────────────── -->
+<div id="dismiss-modal" class="modal-backdrop" style="display:none">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h2 style="font-size:15px;font-weight:800">Deactivate Rule</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeDismissModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px;font-size:13px;color:var(--muted);line-height:1.6">
+      This will deactivate the rule and auto-resolve all open flags it raised.
+      The rule and its flag history will be preserved for reference.
+    </div>
+    <div class="modal-footer" style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost" onclick="closeDismissModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDeactivate()">Deactivate</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Permanent delete modal ──────────────────────────────────────────────── -->
+<div id="perm-delete-modal" class="modal-backdrop" style="display:none">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h2 style="font-size:15px;font-weight:800;color:#dc2626">⚠️ Permanently Delete Rule</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeDeleteModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px;font-size:13px;line-height:1.6">
+      <p style="margin:0 0 10px">You are about to permanently delete:</p>
+      <p id="perm-delete-rule-name" style="font-weight:800;color:var(--navy);font-size:14px;margin:0 0 14px"></p>
+      <div id="perm-delete-flag-warning" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#991b1b;font-size:12.5px">
+        ⚠️ This rule has <strong id="perm-delete-flag-count"></strong> active flag(s) on member records.
+        Deleting it will remove all of these flags permanently.
+      </div>
+      <p style="margin:0;color:var(--muted)">This action cannot be undone. The rule and its entire flag history will be erased.</p>
+    </div>
+    <div class="modal-footer" style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmPermanentDelete()">Delete Permanently</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .type-opt {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--navy);
+    transition: border-color .15s, background .15s;
+    user-select: none;
+  }
+  .type-opt input[type="radio"] { display: none; }
+  .type-opt.selected { border-color: var(--teal); background: #f0fafb; }
+  .type-opt .type-desc { font-size: 11px; font-weight: 400; color: var(--muted); }
+  .colour-swatch {
+    width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent;
+    cursor: pointer; transition: transform .1s, border-color .1s;
+  }
+  .colour-swatch.selected { border-color: var(--navy); transform: scale(1.18); }
+  .flag-badge {
+    display: inline-block; padding: 2px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; color: white; letter-spacing: .3px;
+  }
+  .rule-card {
+    background: white; border: 2px solid var(--border); border-radius: 14px;
+    padding: 16px 20px; margin-bottom: 12px;
+    display: flex; align-items: flex-start; gap: 14px;
+    transition: border-color .15s;
+  }
+  .rule-card.inactive { opacity: .55; }
+  .rule-card:hover { border-color: var(--teal); }
+  .rule-card__badge { flex-shrink: 0; margin-top: 3px; }
+  .rule-card__body { flex: 1; min-width: 0; }
+  .rule-card__name { font-size: 14px; font-weight: 800; color: var(--navy); margin-bottom: 3px; }
+  .rule-card__meta { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .rule-card__actions { flex-shrink: 0; display: flex; gap: 8px; }
+  .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 13px; }
+  .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const SESSION_TYPES = {{ session_types | tojson }};
+  const FIELD_DEFS    = {{ field_definitions | tojson }};
+  const CAN_MANAGE    = {{ ('alerts.manage' in user_permissions) | tojson }};
+  const COLOURS = ['#ef4444','#f59e0b','#3b6fde','#8b5cf6','#22a06b'];
+  const COLOUR_NAMES = { '#ef4444':'Red','#f59e0b':'Amber','#3b6fde':'Blue','#8b5cf6':'Purple','#22a06b':'Green' };
+  const TYPE_LABELS = { attendance:'Attendance', date_field:'Date Field', empty_field:'Empty Field', numeric:'Numeric' };
+
+  let selectedColour = '#ef4444';
+  let editingRuleId  = null;
+  let deactivatingId = null;
+  let deletingId     = null;
+  let allRules       = [];
+
+  // ── Load rules ──────────────────────────────────────────────────────────────
+  async function loadRules() {
+    try {
+      allRules = await apiFetch('/api/alert-rules');
+      renderRules();
+    } catch(e) {
+      document.getElementById('rules-container').innerHTML =
+        `<p style="color:var(--danger);font-size:13px">Could not load rules: ${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderRules() {
+    const active   = allRules.filter(r => r.is_active);
+    const inactive = allRules.filter(r => !r.is_active);
+    let html = '';
+
+    if (!allRules.length) {
+      html = `<div class="empty-state">
+        <div style="font-size:36px;margin-bottom:12px">🚨</div>
+        <div style="font-weight:700;color:var(--navy);margin-bottom:6px">No alert rules yet</div>
+        <div>Create your first rule to start flagging members automatically.</div>
+      </div>`;
+    } else {
+      if (active.length) {
+        html += `<div class="section-label">Active Rules (${active.length})</div>`;
+        html += active.map(ruleCard).join('');
+      }
+      if (inactive.length) {
+        html += `<div class="section-label" style="margin-top:24px">Inactive Rules (${inactive.length})</div>`;
+        html += inactive.map(ruleCard).join('');
+      }
+    }
+    document.getElementById('rules-container').innerHTML = html;
+  }
+
+  function ruleCard(r) {
+    const metaParts = [];
+    metaParts.push(TYPE_LABELS[r.rule_type] || r.rule_type);
+    if (r.rule_type === 'attendance') metaParts.push(`${r.threshold_value} consecutive misses`);
+    if (r.target_field) {
+      const fd = FIELD_DEFS.find(f => f.key === r.target_field);
+      metaParts.push(fd ? fd.label : r.target_field);
+    }
+    if (r.applies_to_session) metaParts.push(`${r.applies_to_session} only`);
+    metaParts.push(r.auto_resolve ? 'auto-resolves' : 'manual dismiss only');
+    const countStr = r.active_flag_count
+      ? `<strong style="color:var(--navy)">${r.active_flag_count}</strong> active flag${r.active_flag_count !== 1 ? 's' : ''}`
+      : 'No active flags';
+
+    const actions = CAN_MANAGE ? `
+      <button class="btn btn-ghost btn-sm" onclick='openRuleModal(${JSON.stringify(r)})'>Edit</button>
+      <button class="btn btn-ghost btn-sm" style="color:#dc2626" onclick="openDismissModal(${r.id})">${r.is_active ? 'Deactivate' : 'Re-activate'}</button>
+      <button class="btn btn-ghost btn-sm" style="color:#6b7280" title="Permanently delete this rule and all its flag history" onclick="openDeleteModal(${r.id}, ${JSON.stringify(r.name)}, ${r.active_flag_count || 0})">🗑</button>
+    ` : '';
+
+    return `<div class="rule-card ${r.is_active ? '' : 'inactive'}">
+      <div class="rule-card__badge">
+        <span class="flag-badge" style="background:${esc(r.flag_colour)}">${esc(r.flag_label)}</span>
+      </div>
+      <div class="rule-card__body">
+        <div class="rule-card__name">${esc(r.name)}</div>
+        <div class="rule-card__meta">${metaParts.map(esc).join(' · ')} · ${countStr}</div>
+      </div>
+      <div class="rule-card__actions">${actions}</div>
+    </div>`;
+  }
+
+  // ── Modal open/close ────────────────────────────────────────────────────────
+  function openRuleModal(rule) {
+    editingRuleId = rule ? rule.id : null;
+    document.getElementById('modal-title').textContent = rule ? 'Edit Alert Rule' : 'New Alert Rule';
+
+    // Reset form
+    document.getElementById('f-name').value     = rule ? rule.name : '';
+    document.getElementById('f-label').value    = rule ? rule.flag_label : '';
+    document.getElementById('f-session').value  = rule ? (rule.applies_to_session || '') : '';
+    document.getElementById('f-auto-resolve').checked = rule ? !!rule.auto_resolve : true;
+
+    // Type picker
+    document.querySelectorAll('.type-opt').forEach(el => el.classList.remove('selected'));
+    document.querySelectorAll('.rule-opts').forEach(el => el.style.display = 'none');
+    const ruleType = rule ? rule.rule_type : null;
+    if (ruleType) {
+      const opt = document.querySelector(`.type-opt[data-type="${ruleType}"]`);
+      if (opt) opt.classList.add('selected');
+      const radio = document.querySelector(`input[name="rule_type"][value="${ruleType}"]`);
+      if (radio) radio.checked = true;
+      showRuleOpts(ruleType, rule);
+    }
+
+    // Colour
+    pickColour(document.querySelector(`.colour-swatch[data-colour="${rule ? rule.flag_colour : '#ef4444'}"]`));
+
+    // Pre-fill type-specific fields
+    if (rule) {
+      if (rule.rule_type === 'attendance') {
+        document.getElementById('f-threshold-att').value = rule.threshold_value || 5;
+      } else if (rule.rule_type === 'date_field') {
+        document.getElementById('f-field-date').value     = rule.target_field || '';
+        document.getElementById('f-condition-date').value = rule.condition || 'older_than';
+        document.getElementById('f-threshold-date').value = rule.threshold_value || 365;
+        toggleDateThreshold();
+      } else if (rule.rule_type === 'empty_field') {
+        document.getElementById('f-field-empty').value = rule.target_field || '';
+      } else if (rule.rule_type === 'numeric') {
+        document.getElementById('f-field-num').value     = rule.target_field || '';
+        document.getElementById('f-condition-num').value = rule.condition || 'above';
+        document.getElementById('f-threshold-num').value = rule.threshold_value ?? 0;
+      }
+    }
+
+    document.getElementById('rule-modal').style.display = 'flex';
+  }
+
+  function closeRuleModal() {
+    document.getElementById('rule-modal').style.display = 'none';
+    editingRuleId = null;
+  }
+
+  function openDismissModal(id) {
+    deactivatingId = id;
+    document.getElementById('dismiss-modal').style.display = 'flex';
+  }
+  function closeDismissModal() {
+    document.getElementById('dismiss-modal').style.display = 'none';
+    deactivatingId = null;
+  }
+
+  function openDeleteModal(id, name, flagCount) {
+    deletingId = id;
+    document.getElementById('perm-delete-rule-name').textContent = name;
+    const warn = document.getElementById('perm-delete-flag-warning');
+    if (flagCount > 0) {
+      document.getElementById('perm-delete-flag-count').textContent = flagCount;
+      warn.style.display = 'block';
+    } else {
+      warn.style.display = 'none';
+    }
+    document.getElementById('perm-delete-modal').style.display = 'flex';
+  }
+  function closeDeleteModal() {
+    document.getElementById('perm-delete-modal').style.display = 'none';
+    deletingId = null;
+  }
+  async function confirmPermanentDelete() {
+    if (!deletingId) return;
+    try {
+      await apiFetch(`/api/alert-rules/${deletingId}/permanent-delete`, { method: 'POST' });
+      showToast('Rule permanently deleted.');
+      closeDeleteModal();
+      loadRules();
+    } catch(e) {
+      showToast('Could not delete rule: ' + e.message, true);
+    }
+  }
+
+  // ── Type picker interaction ─────────────────────────────────────────────────
+  document.querySelectorAll('.type-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.type-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      const type = opt.dataset.type;
+      const radio = opt.querySelector('input[type="radio"]');
+      if (radio) radio.checked = true;
+      document.querySelectorAll('.rule-opts').forEach(el => el.style.display = 'none');
+      showRuleOpts(type, null);
+    });
+  });
+
+  function showRuleOpts(type, rule) {
+    const el = document.getElementById('opts-' + type);
+    if (el) el.style.display = 'block';
+  }
+
+  document.getElementById('f-condition-date').addEventListener('change', toggleDateThreshold);
+  function toggleDateThreshold() {
+    const cond = document.getElementById('f-condition-date').value;
+    document.getElementById('date-threshold-wrap').style.display =
+      cond === 'older_than' ? 'block' : 'none';
+  }
+
+  // ── Colour picker ───────────────────────────────────────────────────────────
+  function pickColour(el) {
+    if (!el) return;
+    document.querySelectorAll('.colour-swatch').forEach(s => s.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedColour = el.dataset.colour;
+    const label = document.getElementById('f-label').value.trim() || 'Flag';
+    const prev  = document.getElementById('badge-preview');
+    prev.textContent      = label;
+    prev.style.background = selectedColour;
+  }
+  document.getElementById('f-label').addEventListener('input', () => {
+    const prev = document.getElementById('badge-preview');
+    prev.textContent = document.getElementById('f-label').value.trim() || 'Flag';
+    prev.style.background = selectedColour;
+  });
+
+  // ── Save rule ───────────────────────────────────────────────────────────────
+  async function saveRule() {
+    const name  = document.getElementById('f-name').value.trim();
+    const label = document.getElementById('f-label').value.trim();
+    const type  = document.querySelector('input[name="rule_type"]:checked')?.value;
+    if (!name)  { showToast('Enter a rule name.', true); return; }
+    if (!type)  { showToast('Select a rule type.', true); return; }
+    if (!label) { showToast('Enter a flag label.', true); return; }
+
+    const payload = {
+      name,
+      rule_type:          type,
+      flag_label:         label,
+      flag_colour:        selectedColour,
+      applies_to_session: document.getElementById('f-session').value || null,
+      auto_resolve:       document.getElementById('f-auto-resolve').checked,
+    };
+
+    if (type === 'attendance') {
+      payload.threshold_value = parseInt(document.getElementById('f-threshold-att').value) || 5;
+      payload.threshold_unit  = 'sessions';
+    } else if (type === 'date_field') {
+      payload.target_field    = document.getElementById('f-field-date').value;
+      payload.condition       = document.getElementById('f-condition-date').value;
+      payload.threshold_value = parseInt(document.getElementById('f-threshold-date').value) || 365;
+      payload.threshold_unit  = 'days';
+      if (!payload.target_field) { showToast('Select a target field.', true); return; }
+    } else if (type === 'empty_field') {
+      payload.target_field    = document.getElementById('f-field-empty').value;
+      if (!payload.target_field) { showToast('Select a target field.', true); return; }
+    } else if (type === 'numeric') {
+      payload.target_field    = document.getElementById('f-field-num').value;
+      payload.condition       = document.getElementById('f-condition-num').value;
+      payload.threshold_value = parseFloat(document.getElementById('f-threshold-num').value) || 0;
+      if (!payload.target_field) { showToast('Select a target field.', true); return; }
+    }
+
+    try {
+      if (editingRuleId) {
+        await apiFetch(`/api/alert-rules/${editingRuleId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await apiFetch('/api/alert-rules', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      closeRuleModal();
+      showToast('Rule saved.');
+      loadRules();
+    } catch(e) {
+      showToast('Could not save rule: ' + e.message, true);
+    }
+  }
+
+  // ── Deactivate rule ─────────────────────────────────────────────────────────
+  async function confirmDeactivate() {
+    if (!deactivatingId) return;
+    const rule = allRules.find(r => r.id === deactivatingId);
+    try {
+      if (rule && !rule.is_active) {
+        // Re-activate
+        await apiFetch(`/api/alert-rules/${deactivatingId}`, {
+          method: 'PUT', body: JSON.stringify({ is_active: true })
+        });
+        showToast('Rule re-activated.');
+      } else {
+        await apiFetch(`/api/alert-rules/${deactivatingId}`, { method: 'DELETE' });
+        showToast('Rule deactivated.');
+      }
+      closeDismissModal();
+      loadRules();
+    } catch(e) {
+      showToast('Error: ' + e.message, true);
+    }
+  }
+
+  // ── Run checks now ──────────────────────────────────────────────────────────
+  async function runChecks() {
+    const btn = document.getElementById('run-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Running…';
+    try {
+      const r = await apiFetch('/api/alert-rules/run', { method: 'POST' });
+      showToast(`Check complete — ${r.raised} flag${r.raised !== 1 ? 's' : ''} raised, ${r.resolved} resolved.`);
+      const now = new Date();
+      document.getElementById('last-run-val').textContent =
+        now.getFullYear() + '-' +
+        String(now.getMonth()+1).padStart(2,'0') + '-' +
+        String(now.getDate()).padStart(2,'0') + ' ' +
+        String(now.getHours()).padStart(2,'0') + ':' +
+        String(now.getMinutes()).padStart(2,'0');
+      loadRules();
+    } catch(e) {
+      showToast('Run failed: ' + e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '▶ Run Checks Now';
+    }
+  }
+
+  // Close modals on backdrop click
+  document.getElementById('rule-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeRuleModal();
+  });
+  document.getElementById('dismiss-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeDismissModal();
+  });
+  document.getElementById('perm-delete-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeDeleteModal();
+  });
+
+  loadRules();
+</script>
+{% endblock %}

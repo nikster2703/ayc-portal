@@ -114,10 +114,13 @@
       font-weight: 900;
     }
 
-    /* Right block: clock */
+    /* Right block: QR + clock side by side */
     .hdr-right {
-      text-align: right;
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
       flex-shrink: 0;
+      text-align: right;
     }
     .clock {
       font-size: 52px;
@@ -300,6 +303,32 @@
       margin-top: 3px;
     }
 
+    /* ── QR panel (top-right, left of clock) ─────────── */
+    .qr-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .qr-panel.hidden { visibility: hidden; }
+    #qr-canvas {
+      background: #fff;
+      border-radius: 10px;
+      padding: 8px;
+      display: block;
+    }
+    .qr-label {
+      font-size: 12px;
+      font-weight: 800;
+      color: rgba(255,255,255,.45);
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      text-align: center;
+      max-width: 130px;
+      line-height: 1.4;
+    }
+
     /* ── Footer ───────────────────────────────────────── */
     .footer {
       flex-shrink: 0;
@@ -339,10 +368,17 @@
       </div>
     </div>
     <div class="hdr-right">
-      <div class="clock" id="clock">
-        <span id="clock-h">--</span><span class="clock-sep" id="clock-sep">:</span><span id="clock-m">--</span>
+      <!-- QR panel — hidden until a valid token exists; sits left of the clock -->
+      <div class="qr-panel hidden" id="qr-panel">
+        <div id="qr-container" style="border-radius:10px;overflow:hidden;line-height:0"></div>
+        <div class="qr-label" id="qr-label">Scan to sign in</div>
       </div>
-      <div class="date-line" id="dateline"></div>
+      <div>
+        <div class="clock" id="clock">
+          <span id="clock-h">--</span><span class="clock-sep" id="clock-sep">:</span><span id="clock-m">--</span>
+        </div>
+        <div class="date-line" id="dateline"></div>
+      </div>
     </div>
   </div>
 
@@ -375,6 +411,8 @@
 
 </div>
 
+<!-- QR code generator — loaded synchronously so it's ready when the main script runs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
   /* ── Avatar colours ───────────────────────────────── */
   const COLOURS = [
@@ -535,13 +573,14 @@
       return;
     }
 
-    // Sort alphabetically by first name, then surname
-    const sorted = [...members].sort((a, b) => {
-      const fn = a.first_name.toLowerCase().localeCompare(b.first_name.toLowerCase());
-      return fn !== 0 ? fn : a.surname.toLowerCase().localeCompare(b.surname.toLowerCase());
-    });
+    // Sort alphabetically by first name
+    const sorted = [...members].sort((a, b) =>
+      a.first_name.toLowerCase().localeCompare(b.first_name.toLowerCase())
+    );
 
-    const newIds    = new Set(sorted.map(m => m.first_name + m.surname));
+    // Key by first_name + sign-in timestamp — unique even if two members share a first name
+    const cardKey   = m => `${m.first_name}|${m.signed_in_at || ''}`;
+    const newIds    = new Set(sorted.map(cardKey));
     const isNew     = new Set();
 
     // ── FLIP Step 1: snapshot positions of cards that will survive ──
@@ -560,9 +599,9 @@
 
     // ── Create DOM nodes for new arrivals ──
     for (const m of sorted) {
-      const key = m.first_name + m.surname;
+      const key = cardKey(m);
       if (!cardMap.has(key)) {
-        const init   = ((m.first_name[0] || '?') + (m.surname[0] || '?')).toUpperCase();
+        const init   = (m.first_name[0] || '?').toUpperCase();
         const colour = avatarColour(key);
         const card   = document.createElement('div');
         card.className = 'name-card';
@@ -570,7 +609,6 @@
           <div class="avatar" style="background:${colour}">${init}</div>
           <div class="name-text">
             <div class="first-name">${esc(m.first_name)}</div>
-            <div class="surname">${esc(m.surname)}</div>
             ${m.signed_in_at ? `<div class="time-in">✓ in at ${esc(m.signed_in_at)}</div>` : ''}
           </div>`;
         cardMap.set(key, card);
@@ -581,7 +619,7 @@
     // ── FLIP Step 2: reorder DOM into sorted positions ──
     // appendChild moves existing nodes in-place without destroying them
     for (const m of sorted) {
-      grid.appendChild(cardMap.get(m.first_name + m.surname));
+      grid.appendChild(cardMap.get(cardKey(m)));
     }
 
     // ── FLIP Steps 3 & 4: Invert → Play for cards that moved ──
@@ -589,7 +627,7 @@
     // Existing cards that shifted position get a smooth JS-driven slide.
     requestAnimationFrame(() => {
       for (const m of sorted) {
-        const key = m.first_name + m.surname;
+        const key = cardKey(m);
         const el  = cardMap.get(key);
 
         if (isNew.has(key)) continue; // CSS animation handles these
@@ -622,13 +660,62 @@
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  /* ── QR code panel ──────────────────────────────── */
+  // QR rendering uses the qrcodejs library loaded synchronously above.
+  // API: new QRCode(element, { text, width, height, colorDark, colorLight, correctLevel })
+  let _lastQrUrl = null;
+
+  async function refreshQr() {
+    try {
+      const res = await fetch(`/api/quick-signin/display-token/${encodeURIComponent(currentSession)}`);
+      if (!res.ok) return;
+      const data  = await res.json();
+      const url   = data.qr_url || null;
+      const panel = document.getElementById('qr-panel');
+      if (!url) {
+        panel.classList.add('hidden');
+        _lastQrUrl = null;
+        return;
+      }
+      if (url === _lastQrUrl) return; // unchanged — skip redraw
+      _lastQrUrl = url;
+      panel.classList.remove('hidden');
+
+      // Clear old QR and render fresh one
+      const container = document.getElementById('qr-container');
+      container.innerHTML = '';
+      if (typeof QRCode !== 'undefined') {
+        new QRCode(container, {
+          text:         url,
+          width:        120,
+          height:       120,
+          colorDark:    '#000000',
+          colorLight:   '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M,
+        });
+      }
+    } catch (e) {
+      console.warn('QR refresh failed:', e);
+    }
+  }
+
   /* ── Initialise ──────────────────────────────────── */
   loadDisplay();
+  refreshQr();
+  setInterval(refreshQr, 30000); // re-check QR every 30 s
 
-  /* Real-time updates via Server-Sent Events */
-  const evtSource = new EventSource('/api/display/stream');
-  evtSource.onmessage = () => loadDisplay();
-  evtSource.onerror   = () => { /* browser reconnects automatically */ };
+  /* Real-time updates via Server-Sent Events.
+     The server closes the stream after 4 hours (sends 'timeout') to avoid
+     thread leaks. We reconnect automatically whenever the connection drops. */
+  function connectSSE() {
+    const evtSource = new EventSource('/api/display/stream');
+    evtSource.onmessage = (e) => {
+      if (e.data === 'refresh') loadDisplay();
+      if (e.data === 'timeout') { evtSource.close(); setTimeout(connectSSE, 1000); }
+    };
+    evtSource.onerror = () => { evtSource.close(); setTimeout(connectSSE, 3000); };
+  }
+  connectSSE();
 </script>
 </body>
 </html>

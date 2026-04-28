@@ -3,385 +3,174 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>⚙️ Club Settings</h1>
+  <h1>⚙️ Settings</h1>
 </div>
-
-<!-- ── At Risk Thresholds ──────────────────────────────────────────── -->
-<div class="form-card" style="max-width:560px">
-  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
-    ⚠️ Attendance — At Risk Thresholds
-  </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
-    A member is flagged as <strong>At Risk</strong> when they have missed this many
-    consecutive sessions with no attendance recorded. The threshold can be set
-    independently for each session night.
-  </p>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-    {% for st in session_types %}
-    {% if not current_session or current_session == st.name %}
-    {% set field_id = 'thresh-' + st.name | lower | replace(' ', '-') %}
-    <div>
-      <label class="form-label" for="{{ field_id }}">{{ st.name }} threshold</label>
-      <div style="display:flex;align-items:center;gap:8px">
-        <input type="number" id="{{ field_id }}"
-               data-session-key="at_risk_threshold_{{ st.name | lower | replace(' ', '_') }}"
-               class="form-input thresh-input" min="1" max="20"
-               style="width:80px;text-align:center;font-size:20px;font-weight:800;color:var(--navy)">
-        <span style="font-size:13px;color:var(--muted)">missed sessions</span>
-      </div>
-    </div>
-    {% endif %}
-    {% endfor %}
-  </div>
-
-  <div style="display:flex;align-items:center;gap:12px">
-    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
-    <span id="save-status" style="font-size:13px;color:var(--muted)"></span>
-  </div>
-
-  <div style="margin-top:20px;padding:14px;background:var(--bg);border-radius:10px;
-              border:1px solid var(--border);font-size:13px;color:var(--muted)">
-    <strong style="color:var(--navy)">How it works:</strong>
-    When you run the <em>Check Attendance</em> scan on the Register page, any active member
-    who has missed their last <em>N</em> consecutive sessions for their assigned night will
-    appear in the results. A core leader can then review and flag selected members as
-    <strong>At Risk</strong>. If a flagged member attends a future session they are
-    automatically reinstated to Active.
-  </div>
-</div>
-
-<!-- ── Skills & Badges link ───────────────────────────────────────────────── -->
-{% if 'admin.settings' in user_permissions %}
-<div class="form-card" style="max-width:560px;margin-top:24px">
-  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
-    🎖 Skills &amp; Badges
-  </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-    Define the skill and badge tags that can be assigned to members — e.g. First Aider,
-    DBS Checked, Bronze DofE. Tags appear as colour-coded badges on member cards and
-    in the session register.
-  </p>
-  <a href="/admin/tags" class="btn btn-primary" style="display:inline-block;text-decoration:none">
-    Manage Skills &amp; Badges →
-  </a>
-</div>
-{% endif %}
-
-<!-- ── Staff Roles link ────────────────────────────────────────────────────── -->
-{% if 'admin.settings' in user_permissions %}
-<div class="form-card" style="max-width:560px;margin-top:24px">
-  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
-    🏷️ Staff Roles
-  </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-    Customise the list of roles shown on the staff registration form, approval form and
-    reception display — add, rename, reorder or deactivate roles without any code changes.
-  </p>
-  <a href="/admin/staff-roles" class="btn btn-primary" style="display:inline-block;text-decoration:none">
-    Manage Staff Roles →
-  </a>
-</div>
-{% endif %}
-
-<!-- ── Roles & Permissions link ───────────────────────────────────────────── -->
-{% if 'admin.settings' in user_permissions %}
-<div class="form-card" style="max-width:560px;margin-top:24px">
-  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
-    🔐 Roles &amp; Permissions
-  </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-    Create and customise portal roles — control exactly which permissions each role has,
-    including register sign-in/out, approvals, documents, calendar and more.
-  </p>
-  <a href="/admin/roles" class="btn btn-primary" style="display:inline-block;text-decoration:none">
-    Manage Roles &amp; Permissions →
-  </a>
-</div>
-{% endif %}
-
-<!-- ── Session Types (admin only) ─────────────────────────────────────────── -->
-{% if 'admin.session_types' in user_permissions %}
-<div class="form-card" style="max-width:560px;margin-top:24px">
-  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
-    📅 Session Types
-  </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-    Define which nights the club runs. The name appears throughout the portal.
-    Weekday controls which calendar day is auto-detected.
-  </p>
-
-  <div id="session-types-list" style="margin-bottom:16px">
-    <div class="loading-state" style="padding:12px 0">
-      <div class="spinner"></div><p>Loading…</p>
-    </div>
-  </div>
-
-  <!-- Add new session type form -->
-  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px">
-    <div>
-      <label class="form-label" style="margin-bottom:3px">Name</label>
-      <input id="st-name" class="form-input" placeholder="e.g. Monday Crew" style="width:160px">
-    </div>
-    <div>
-      <label class="form-label" style="margin-bottom:3px">Weekday</label>
-      <select id="st-weekday" class="form-input" style="width:130px">
-        <option value="0">Monday</option>
-        <option value="1">Tuesday</option>
-        <option value="2">Wednesday</option>
-        <option value="3">Thursday</option>
-        <option value="4">Friday</option>
-        <option value="5">Saturday</option>
-        <option value="6">Sunday</option>
-      </select>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="addSessionType()">+ Add</button>
-  </div>
-</div>
-{% endif %}
-
-<!-- ── Maintenance (admin only) ───────────────────────────────────────────── -->
-{% if 'admin.maintenance' in user_permissions %}
-<div class="form-card" style="max-width:560px;margin-top:24px;border-color:#fecaca">
-  <h2 style="font-size:17px;font-weight:800;color:#991b1b;margin-bottom:4px">
-    🧹 Data Maintenance
-  </h2>
-  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
-    Permanently delete historical records to give the portal a clean slate.
-    Each action is irreversible. All clears are logged to the audit trail.
-  </p>
-
-  <div id="maintenance-rows" style="display:flex;flex-direction:column;gap:10px">
-    <div class="loading-state"><div class="spinner"></div><p>Loading counts…</p></div>
-  </div>
-</div>
-{% endif %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-  const USER_SESSION      = "{{ current_session or '' }}";
-  const USER_PERMS        = new Set({{ user_permissions | tojson }});
-  const CAN_SESSION_TYPES = USER_PERMS.has('admin.session_types');
-  const CAN_MAINTENANCE   = USER_PERMS.has('admin.maintenance');
-
-  const WDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-
-  async function loadSettings() {
-    try {
-      const s = await apiFetch('/api/settings');
-      document.querySelectorAll('.thresh-input').forEach(el => {
-        const key = el.dataset.sessionKey;
-        if (key && s[key] !== undefined) el.value = s[key];
-        else if (key) el.value = 5;
-      });
-    } catch (e) {
-      showToast('Could not load settings: ' + e.message, true);
-    }
-  }
-
-  async function saveSettings() {
-    const payload = {};
-    let valid = true;
-    document.querySelectorAll('.thresh-input').forEach(el => {
-      const key = el.dataset.sessionKey;
-      const v   = parseInt(el.value);
-      if (!v || v < 1) {
-        showToast(`${el.id.replace('thresh-', '').replace('-', ' ')} threshold must be at least 1.`, true);
-        valid = false;
-      } else {
-        payload[key] = v;
-      }
-    });
-    if (!valid) return;
-
-    const status = document.getElementById('save-status');
-    try {
-      await apiFetch('/api/settings', { method: 'POST', body: JSON.stringify(payload) });
-      status.textContent = '✓ Saved';
-      status.style.color = 'var(--green)';
-      setTimeout(() => { status.textContent = ''; }, 3000);
-    } catch (e) {
-      showToast('Could not save settings: ' + e.message, true);
-    }
-  }
-
-  /* ── Session types CRUD ───────────────────────────────── */
-  async function loadSessionTypes() {
-    const el = document.getElementById('session-types-list');
-    if (!el) return;
-    try {
-      const types = await apiFetch('/api/admin/session-types');
-      if (!types.length) {
-        el.innerHTML = '<p style="color:var(--muted);font-size:13px">No session types defined.</p>';
-        return;
-      }
-      el.innerHTML = types.map(st => `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;
-                    border-bottom:1px solid var(--border)">
-          <span style="flex:1;font-weight:700;font-size:14px">${esc(st.name)}</span>
-          <span style="font-size:12px;color:var(--muted);min-width:80px">${WDAY_NAMES[st.weekday] || '?'}</span>
-          <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;
-                       background:${st.active ? '#dcfce7' : '#f1f5f9'};
-                       color:${st.active ? '#166534' : '#64748b'}">
-            ${st.active ? 'Active' : 'Inactive'}
-          </span>
-          <button class="btn btn-ghost btn-sm"
-                  onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})"
-                  style="font-size:12px">
-            ${st.active ? 'Deactivate' : 'Activate'}
-          </button>
-          <button class="btn btn-ghost btn-sm"
-                  onclick="deleteSessionType(${st.id}, '${esc(st.name)}')"
-                  style="font-size:12px;color:var(--red)">
-            Delete
-          </button>
-        </div>`).join('');
-    } catch (e) {
-      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load session types.</p>`;
-    }
-  }
-
-  async function addSessionType() {
-    const name    = document.getElementById('st-name').value.trim();
-    const weekday = parseInt(document.getElementById('st-weekday').value);
-    if (!name) { showToast('Please enter a session name.', true); return; }
-    try {
-      await apiFetch('/api/admin/session-types', {
-        method: 'POST',
-        body:   JSON.stringify({ name, weekday }),
-      });
-      document.getElementById('st-name').value = '';
-      showToast(`Session type "${name}" added.`);
-      loadSessionTypes();
-    } catch (e) {
-      showToast(e.message, true);
-    }
-  }
-
-  async function toggleSessionType(id, active) {
-    try {
-      await apiFetch(`/api/admin/session-types/${id}`, {
-        method: 'PUT',
-        body:   JSON.stringify({ active }),
-      });
-      loadSessionTypes();
-    } catch (e) {
-      showToast(e.message, true);
-    }
-  }
-
-  async function deleteSessionType(id, name) {
-    if (!confirm(`Delete session type "${name}"? This cannot be undone.`)) return;
-    try {
-      await apiFetch(`/api/admin/session-types/${id}`, { method: 'DELETE' });
-      showToast(`"${name}" deleted.`);
-      loadSessionTypes();
-    } catch (e) {
-      showToast(e.message, true);
-    }
-  }
-
-  if (CAN_SESSION_TYPES) loadSessionTypes();
-
-  loadSettings();
-
-  /* ── Maintenance ─────────────────────────────────── */
-  const MAINTENANCE_ITEMS = [
-    {
-      key:     'audit_log',
-      label:   '📋 Audit Log',
-      desc:    'All recorded system activity',
-      url:     '/api/admin/maintenance/audit-log',
-      confirm: 'Clear the entire audit log?',
-    },
-    {
-      key:     'attendance',
-      label:   '📅 Attendance Records',
-      desc:    'All session sign-in / sign-out data',
-      url:     '/api/admin/maintenance/attendance',
-      confirm: 'Clear all attendance records?',
-    },
-    {
-      key:     'mailshot_log',
-      label:   '✉️ Mailshot History',
-      desc:    'Log of all sent mailshots',
-      url:     '/api/admin/maintenance/mailshot-log',
-      confirm: 'Clear the mailshot history?',
-    },
-    {
-      key:     'registrations',
-      label:   '📝 Registration Submissions',
-      desc:    'All pending, approved and rejected registration forms',
-      url:     '/api/admin/maintenance/registrations',
-      confirm: 'Clear all registration submissions?',
-    },
-  ];
-
-  async function loadMaintenanceCounts() {
-    const container = document.getElementById('maintenance-rows');
-    if (!container) return;
-    try {
-      const counts = await apiFetch('/api/admin/maintenance/counts');
-      container.innerHTML = MAINTENANCE_ITEMS.map(item => `
-        <div class="maint-row" id="maint-${item.key}">
-          <div class="maint-info">
-            <div class="maint-label">${item.label}</div>
-            <div class="maint-desc">${item.desc}</div>
-          </div>
-          <div class="maint-count" id="count-${item.key}">
-            ${counts[item.key].toLocaleString()} record${counts[item.key] !== 1 ? 's' : ''}
-          </div>
-          <button class="btn btn-danger btn-sm maint-btn"
-                  id="btn-${item.key}"
-                  onclick="clearData('${item.key}', '${item.url}', '${item.confirm}')"
-                  ${counts[item.key] === 0 ? 'disabled' : ''}>
-            Clear
-          </button>
-        </div>`).join('');
-    } catch (e) {
-      container.innerHTML = `<div style="color:var(--red);font-size:13px">Could not load counts.</div>`;
-    }
-  }
-
-  async function clearData(key, url, confirmMsg) {
-    if (!confirm(`⚠️ ${confirmMsg}\n\nThis cannot be undone.`)) return;
-
-    const btn      = document.getElementById(`btn-${key}`);
-    const countEl  = document.getElementById(`count-${key}`);
-    btn.disabled   = true;
-    btn.textContent = 'Clearing…';
-
-    try {
-      const res = await apiFetch(url, { method: 'DELETE' });
-      countEl.textContent = '0 records';
-      btn.textContent     = 'Clear';
-      showToast(`✅ Cleared ${res.deleted.toLocaleString()} record${res.deleted !== 1 ? 's' : ''}.`);
-    } catch (e) {
-      btn.disabled    = false;
-      btn.textContent = 'Clear';
-      showToast(e.message, true);
-    }
-  }
-
-  if (CAN_MAINTENANCE) loadMaintenanceCounts();
-</script>
 
 <style>
-  .maint-row {
+  .settings-group {
+    margin-bottom: 32px;
+  }
+  .settings-group-title {
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1.5px solid var(--border);
+  }
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .settings-card {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .settings-card:hover {
+    border-color: var(--teal);
+    box-shadow: 0 4px 16px rgba(0,150,180,.1);
+  }
+  .settings-card.danger:hover {
+    border-color: #dc2626;
+    box-shadow: 0 4px 16px rgba(220,38,38,.1);
+  }
+  .settings-card__icon { font-size: 26px; line-height: 1; }
+  .settings-card__title {
+    font-size: 15px;
+    font-weight: 900;
+    color: var(--navy);
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    background: #fff5f5;
-    border: 1.5px solid #fecaca;
-    border-radius: 10px;
+    justify-content: space-between;
   }
-  .maint-info   { flex: 1; }
-  .maint-label  { font-weight: 700; font-size: 14px; color: var(--navy); }
-  .maint-desc   { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .maint-count  { font-size: 13px; font-weight: 700; color: #991b1b;
-                  white-space: nowrap; min-width: 80px; text-align: right; }
-  .maint-btn    { flex-shrink: 0; min-width: 70px; }
+  .settings-card__title::after {
+    content: '→';
+    font-size: 16px;
+    opacity: .35;
+    transition: opacity .15s, transform .15s;
+  }
+  .settings-card:hover .settings-card__title::after {
+    opacity: .8;
+    transform: translateX(3px);
+  }
+  .settings-card__desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .settings-card.danger .settings-card__title { color: #991b1b; }
+  .settings-card.danger { border-color: #fecaca; background: #fff5f5; }
 </style>
+
+<!-- ── Access & People ──────────────────────────────────────────────── -->
+{% if 'users.view' in user_permissions or 'admin.settings' in user_permissions %}
+<div class="settings-group">
+  <div class="settings-group-title">Access &amp; People</div>
+  <div class="settings-grid">
+
+    {% if 'users.view' in user_permissions %}
+    <a href="/admin/users" class="settings-card">
+      <div class="settings-card__icon">👤</div>
+      <div class="settings-card__title">Portal Users</div>
+      <div class="settings-card__desc">Manage login accounts, roles, and passwords for everyone who accesses this portal.</div>
+    </a>
+    {% endif %}
+
+    {% if 'admin.settings' in user_permissions %}
+    <a href="/admin/roles" class="settings-card">
+      <div class="settings-card__icon">🔐</div>
+      <div class="settings-card__title">Roles &amp; Permissions</div>
+      <div class="settings-card__desc">Control exactly what each role can do — sign-ins, approvals, documents, calendar and more.</div>
+    </a>
+
+    <a href="/admin/staff-roles" class="settings-card">
+      <div class="settings-card__icon">🏷️</div>
+      <div class="settings-card__title">Staff Roles</div>
+      <div class="settings-card__desc">Customise the role list shown on staff registration and the reception display.</div>
+    </a>
+
+    <a href="/admin/member-types" class="settings-card">
+      <div class="settings-card__icon">👥</div>
+      <div class="settings-card__title">Member Types</div>
+      <div class="settings-card__desc">Manage the types of people who can register — Members, Staff, Volunteers and any custom types. Control icons, colours and public registration access.</div>
+    </a>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Club Configuration ───────────────────────────────────────────── -->
+{% if 'admin.settings' in user_permissions or 'admin.session_types' in user_permissions %}
+<div class="settings-group">
+  <div class="settings-group-title">Club Configuration</div>
+  <div class="settings-grid">
+
+    {% if 'admin.settings' in user_permissions %}
+    <a href="/admin/tags" class="settings-card">
+      <div class="settings-card__icon">🎖</div>
+      <div class="settings-card__title">Skills &amp; Badges</div>
+      <div class="settings-card__desc">Define the tags that can be assigned to members — colour-coded badges shown on member cards and the register.</div>
+    </a>
+
+    {% if 'alerts.view' in user_permissions %}
+    <a href="/admin/alerts" class="settings-card">
+      <div class="settings-card__icon">🚨</div>
+      <div class="settings-card__title">Member Alerts</div>
+      <div class="settings-card__desc">Configure flag rules that automatically identify members needing attention — missed sessions, overdue dates, missing fields, and more.</div>
+    </a>
+    {% endif %}
+
+    <a href="/admin/member-types" class="settings-card">
+      <div class="settings-card__icon">🗂</div>
+      <div class="settings-card__title">Field Builder</div>
+      <div class="settings-card__desc">Configure which fields appear on registration forms, member cards, the register, and print-outs — per member type. Add custom fields unique to your organisation.</div>
+    </a>
+    {% endif %}
+
+    {% if 'admin.settings' in user_permissions %}
+    <a href="/admin/settings/attendance" class="settings-card">
+      <div class="settings-card__icon">📱</div>
+      <div class="settings-card__title">Register &amp; QR Sign-In</div>
+      <div class="settings-card__desc">Set attendance alert thresholds and configure the QR quick sign-in — enable sign-out, and customise the welcome messages shown to members.</div>
+    </a>
+    {% endif %}
+
+    {% if 'admin.session_types' in user_permissions %}
+    <a href="/admin/settings/session-types" class="settings-card">
+      <div class="settings-card__icon">📅</div>
+      <div class="settings-card__title">Session Types</div>
+      <div class="settings-card__desc">Define which nights the club runs and which weekday each maps to for auto-detection.</div>
+    </a>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+<!-- ── System ────────────────────────────────────────────────────────── -->
+{% if 'admin.maintenance' in user_permissions %}
+<div class="settings-group">
+  <div class="settings-group-title">System</div>
+  <div class="settings-grid">
+    <a href="/admin/settings/maintenance" class="settings-card danger">
+      <div class="settings-card__icon">🧹</div>
+      <div class="settings-card__title">Data Maintenance</div>
+      <div class="settings-card__desc">Permanently clear historical records — audit log, attendance, mailshot history, and registrations.</div>
+    </a>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}

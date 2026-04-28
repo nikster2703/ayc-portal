@@ -375,11 +375,15 @@
         </div>
       </div>
 
-      <div class="declaration-row" data-key="unattended-exit">
-        <p>My child will make their own way home unaccompanied at the end of the session.</p>
+      <div class="declaration-row" data-key="unattended-exit"
+           style="background:#fffbeb;border-radius:10px;padding:14px;margin:4px -4px 0;
+                  border:2px solid #fde68a;border-bottom:2px solid #fde68a;align-items:center">
+        <p><strong>⚠️ Unattended Exit</strong><br>
+          <span style="font-weight:400">My child will make their own way home unaccompanied at the end of the session.</span>
+        </p>
         <div class="yn-group">
-          <button class="yn-btn yes" onclick="setDeclaration('unattended-exit','yes',this)">Yes</button>
           <button class="yn-btn no"  onclick="setDeclaration('unattended-exit','no',this)">No</button>
+          <button class="yn-btn yes" onclick="setDeclaration('unattended-exit','yes',this)">Yes</button>
         </div>
       </div>
 

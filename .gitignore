@@ -22,6 +22,11 @@ data/*.db.backup-*
 # Uploaded documents (runtime data, not source code)
 data/documents/
 
+# Multi-tenant instance data — keep directory structure, exclude secrets & runtime data
+instances/*/.env
+instances/*/data/
+instances/*/logs/
+
 # Environment / secrets
 .env
 *.env

@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Data Maintenance{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/admin/settings" class="btn btn-ghost btn-sm"
+     style="text-decoration:none">← Settings</a>
+  <h1 style="margin-top:10px">🧹 Data Maintenance</h1>
+</div>
+
+<!-- ── Backup & Restore ──────────────────────────────────────────── -->
+<div class="form-card" style="max-width:520px;margin-bottom:20px">
+  <h2 style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
+    🗄️ Database Backup &amp; Restore
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+    The backup is a fully encrypted copy of the database. The same
+    <strong>DB_ENCRYPTION_KEY</strong> is required to open or restore it.
+    Store backup files securely and separately from your encryption key.
+  </p>
+
+  <!-- Download backup -->
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+              background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;
+              margin-bottom:10px">
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:14px;color:var(--navy)">Download Backup</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">
+        Creates a consistent snapshot of the live database
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="downloadBackup()" id="btn-backup">
+      Download
+    </button>
+  </div>
+
+  <!-- Restore -->
+  <div style="padding:12px 14px;background:#fff5f5;border:1.5px solid #fecaca;
+              border-radius:10px">
+    <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:4px">
+      Restore from Backup
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.6">
+      Replaces the live database with the uploaded file. The current database is
+      automatically saved to <code>data/backups/</code> before the swap.
+    </div>
+    <div style="background:#fff;border:1.5px dashed #fca5a5;border-radius:8px;
+                padding:10px 12px;margin-bottom:10px;cursor:pointer"
+         onclick="document.getElementById('restore-file').click()"
+         id="drop-zone">
+      <div style="text-align:center;font-size:13px;color:var(--muted)" id="drop-label">
+        Click to choose a <strong>.db</strong> backup file
+      </div>
+    </div>
+    <input type="file" id="restore-file" accept=".db" style="display:none"
+           onchange="onFileSelected(this)">
+    <button class="btn btn-danger btn-sm" onclick="openRestoreModal()"
+            id="btn-restore" disabled style="width:100%">
+      Restore
+    </button>
+  </div>
+</div>
+
+<!-- ── Clear data ────────────────────────────────────────────────── -->
+<div class="form-card" style="max-width:520px;border-color:#fecaca">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.6">
+    Permanently delete historical records to give the portal a clean slate.
+    Each action is <strong style="color:#991b1b">irreversible</strong> and is logged to the audit trail.
+  </p>
+
+  <div style="background:#fff5f5;border:1.5px solid #fecaca;border-radius:10px;
+              padding:10px 14px;margin-bottom:20px;font-size:12px;
+              font-weight:700;color:#991b1b">
+    ⚠️ These actions cannot be undone. Use with care.
+  </div>
+
+  <div id="maintenance-rows" style="display:flex;flex-direction:column;gap:10px">
+    <div class="loading-state"><div class="spinner"></div><p>Loading counts…</p></div>
+  </div>
+</div>
+
+<!-- ── Restore confirmation modal ───────────────────────────────── -->
+<div id="restore-modal" style="display:none;position:fixed;inset:0;z-index:1000;
+     background:rgba(0,0,0,0.45);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px 28px 22px;
+              max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18)">
+    <div style="font-size:20px;font-weight:800;color:#991b1b;margin-bottom:8px">
+      ⚠️ Restore Database?
+    </div>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+      This will <strong>replace the live database</strong> with the uploaded backup.
+      The current database will be saved automatically to
+      <code>data/backups/</code> before the swap.
+    </p>
+    <div id="restore-summary" style="background:#f8fafc;border:1px solid #e2e8f0;
+         border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px;
+         display:none">
+    </div>
+    <p style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:18px">
+      All users will be logged out automatically after the restore.
+    </p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="closeRestoreModal()">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="btn-confirm-restore"
+              onclick="doRestore()">Yes, Restore</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .maint-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: white;
+    border: 1.5px solid #fecaca;
+    border-radius: 10px;
+  }
+  .maint-info   { flex: 1; }
+  .maint-label  { font-weight: 700; font-size: 14px; color: var(--navy); }
+  .maint-desc   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .maint-count  { font-size: 13px; font-weight: 700; color: #991b1b;
+                  white-space: nowrap; min-width: 80px; text-align: right; }
+  .maint-btn    { flex-shrink: 0; min-width: 70px; }
+</style>
+<script>
+  // ── Maintenance (clear data) ───────────────────────────────────────────────
+
+  const MAINTENANCE_ITEMS = [
+    {
+      key:     'audit_log',
+      label:   '📋 Audit Log',
+      desc:    'All recorded system activity',
+      url:     '/api/admin/maintenance/audit-log',
+      confirm: 'Clear the entire audit log?',
+    },
+    {
+      key:     'attendance',
+      label:   '📅 Attendance Records',
+      desc:    'All session sign-in / sign-out data',
+      url:     '/api/admin/maintenance/attendance',
+      confirm: 'Clear all attendance records?',
+    },
+    {
+      key:     'mailshot_log',
+      label:   '✉️ Mailshot History',
+      desc:    'Log of all sent mailshots',
+      url:     '/api/admin/maintenance/mailshot-log',
+      confirm: 'Clear the mailshot history?',
+    },
+    {
+      key:     'registrations',
+      label:   '📝 Registration Submissions',
+      desc:    'All pending, approved and rejected registration forms',
+      url:     '/api/admin/maintenance/registrations',
+      confirm: 'Clear all registration submissions?',
+    },
+  ];
+
+  async function loadMaintenanceCounts() {
+    const container = document.getElementById('maintenance-rows');
+    try {
+      const counts = await apiFetch('/api/admin/maintenance/counts');
+      container.innerHTML = MAINTENANCE_ITEMS.map(item => `
+        <div class="maint-row" id="maint-${item.key}">
+          <div class="maint-info">
+            <div class="maint-label">${item.label}</div>
+            <div class="maint-desc">${item.desc}</div>
+          </div>
+          <div class="maint-count" id="count-${item.key}">
+            ${counts[item.key].toLocaleString()} record${counts[item.key] !== 1 ? 's' : ''}
+          </div>
+          <button class="btn btn-danger btn-sm maint-btn"
+                  id="btn-${item.key}"
+                  onclick="clearData('${item.key}', '${item.url}', '${item.confirm}')"
+                  ${counts[item.key] === 0 ? 'disabled' : ''}>
+            Clear
+          </button>
+        </div>`).join('');
+    } catch (e) {
+      container.innerHTML = `<div style="color:var(--red);font-size:13px">Could not load counts.</div>`;
+    }
+  }
+
+  async function clearData(key, url, confirmMsg) {
+    if (!confirm(`⚠️ ${confirmMsg}\n\nThis cannot be undone.`)) return;
+    const btn     = document.getElementById(`btn-${key}`);
+    const countEl = document.getElementById(`count-${key}`);
+    btn.disabled    = true;
+    btn.textContent = 'Clearing…';
+    try {
+      const res = await apiFetch(url, { method: 'DELETE' });
+      countEl.textContent = '0 records';
+      btn.textContent     = 'Clear';
+      showToast(`✅ Cleared ${res.deleted.toLocaleString()} record${res.deleted !== 1 ? 's' : ''}.`);
+    } catch (e) {
+      btn.disabled    = false;
+      btn.textContent = 'Clear';
+      showToast(e.message, true);
+    }
+  }
+
+  loadMaintenanceCounts();
+
+  // ── Backup ────────────────────────────────────────────────────────────────
+
+  async function downloadBackup() {
+    const btn = document.getElementById('btn-backup');
+    btn.disabled    = true;
+    btn.textContent = 'Preparing…';
+    try {
+      // Fetch the backup as a blob — apiFetch won't work here since we need
+      // the raw response to detect errors vs binary data.
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const resp = await fetch('/api/admin/maintenance/backup', {
+        headers: { 'X-CSRFToken': csrfToken },
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Download failed.' }));
+        throw new Error(err.error || 'Download failed.');
+      }
+      const blob     = await resp.blob();
+      const cd       = resp.headers.get('Content-Disposition') || '';
+      const match    = cd.match(/filename="([^"]+)"/);
+      const filename = match ? match[1] : 'ayc_backup.db';
+
+      // Trigger browser download
+      const url  = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href  = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('✅ Backup downloaded: ' + filename);
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = 'Download';
+    }
+  }
+
+  // ── Restore ───────────────────────────────────────────────────────────────
+
+  let _restoreFile = null;
+
+  function onFileSelected(input) {
+    const file = input.files[0];
+    if (!file) return;
+    _restoreFile = file;
+    document.getElementById('drop-label').innerHTML =
+      `<strong style="color:var(--navy)">${esc(file.name)}</strong> ` +
+      `<span style="color:var(--muted)">(${(file.size / 1024).toFixed(1)} KB)</span>`;
+    document.getElementById('btn-restore').disabled = false;
+  }
+
+  function openRestoreModal() {
+    if (!_restoreFile) return;
+    document.getElementById('restore-summary').style.display = 'none';
+    document.getElementById('restore-modal').style.display   = 'flex';
+  }
+
+  function closeRestoreModal() {
+    document.getElementById('restore-modal').style.display = 'none';
+  }
+
+  // Close modal on backdrop click
+  document.getElementById('restore-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeRestoreModal();
+  });
+
+  async function doRestore() {
+    if (!_restoreFile) return;
+    const confirmBtn = document.getElementById('btn-confirm-restore');
+    confirmBtn.disabled    = true;
+    confirmBtn.textContent = 'Restoring…';
+
+    try {
+      const fd = new FormData();
+      fd.append('file', _restoreFile);
+
+      // apiFetch handles CSRF automatically and throws on non-OK responses
+      const data = await apiFetch('/api/admin/maintenance/restore', {
+        method: 'POST',
+        body:   fd,
+      });
+
+      // Show summary inside modal before redirect
+      const s = data.summary || {};
+      const rows = [
+        s.members    != null ? `Members: <strong>${s.members.toLocaleString()}</strong>`   : null,
+        s.users      != null ? `Users: <strong>${s.users.toLocaleString()}</strong>`       : null,
+        s.audit_log  != null ? `Audit entries: <strong>${s.audit_log.toLocaleString()}</strong>` : null,
+        s.attendance != null ? `Attendance: <strong>${s.attendance.toLocaleString()}</strong>` : null,
+      ].filter(Boolean);
+
+      const summaryEl = document.getElementById('restore-summary');
+      summaryEl.innerHTML = `
+        <div style="font-weight:700;color:var(--navy);margin-bottom:6px">
+          ✅ Restore complete — snapshot saved as <code>${esc(data.snapshot)}</code>
+        </div>
+        <div style="color:var(--muted);line-height:1.8">${rows.join(' &nbsp;·&nbsp; ')}</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--muted)">
+          Redirecting to login…
+        </div>`;
+      summaryEl.style.display = 'block';
+
+      // Log the user out after a short pause so the session reflects the restored DB
+      setTimeout(() => { window.location.href = '/logout'; }, 2500);
+
+    } catch (e) {
+      closeRestoreModal();
+      showToast(e.message, true);
+      confirmBtn.disabled    = false;
+      confirmBtn.textContent = 'Yes, Restore';
+    }
+  }
+</script>
+{% endblock %}

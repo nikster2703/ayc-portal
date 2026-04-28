@@ -1,8 +1,8 @@
 """
-AYC Portal — Flask Application  v6.0
-Phases 1-6: Auth, members, audit, user admin, approvals, register,
+AYC Portal — Flask Application  v8.0
+Phases 1-7: Auth, members, audit, user admin, approvals, register,
             documents, comms, term calendar, staff registrations,
-            configurable Roles + Permissions system.
+            configurable Roles + Permissions, Member Alert Rules.
 
 Phase roadmap (this file grows into blueprints as phases are added):
   Phase 1 — Auth, members lookup, edit/delete, audit log, user admin    ✓
@@ -12,7 +12,9 @@ Phase roadmap (this file grows into blueprints as phases are added):
   Phase 5 — Term calendar, staff registrations, user permanent delete   ✓
   Phase 6 — Configurable Roles + Permissions (DB-driven, replaces all   ✓
              hard-coded role checks with permission_required decorator)
-  Phase 7 — Duke of Edinburgh module
+  Phase 7 — Member Alert Rules: configurable multi-rule flag engine,    ✓
+             nightly auto-check, replaces hardcoded At Risk status
+  Phase 8 — Duke of Edinburgh module
 
 To split into blueprints later, each section marked ## BLUEPRINT: <name>
 can be extracted to blueprints/<name>.py and registered with app.register_blueprint().
@@ -43,7 +45,10 @@ from dotenv import load_dotenv
 from flask import (Flask, g, jsonify, redirect, render_template,
                    request, session, url_for, send_from_directory,
                    Response, stream_with_context)
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.utils import secure_filename
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # ── Instance directory (multi-tenant) ─────────────────────────────────────────
 # INSTANCE_DIR is set by the service manager (launchd / systemd) for each club.
@@ -70,6 +75,15 @@ if not _secret_key:
 app.secret_key = _secret_key
 app.permanent_session_lifetime = timedelta(hours=8)
 
+# ── CSRF protection ────────────────────────────────────────────────────────────
+# CSRFProtect validates the X-CSRFToken header on every non-GET/HEAD/OPTIONS
+# request. The token is rendered into base.html via {{ csrf_token() }} and read
+# by utils.js on page load. Endpoints that must remain CSRF-exempt are decorated
+# with @csrf.exempt (login — pre-auth; public registration — unauthenticated).
+app.config['WTF_CSRF_HEADERS']     = ['X-CSRFToken']   # header name used by apiFetch()
+app.config['WTF_CSRF_TIME_LIMIT']  = None               # bounded by session lifetime (8 h)
+csrf = CSRFProtect(app)
+
 DATABASE   = os.path.join(INSTANCE_DIR, 'data', 'ayc.db')
 UPLOAD_DIR = os.path.join(INSTANCE_DIR, 'data', 'documents')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -77,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v7.3'  # Role display names, session notes & incidents, export complete register, member skills & badges; fix: tag badges now show on member detail card
+APP_VERSION = 'v8.3'  # v8.3: QR quick-session sign-in / sign-out via mobile
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -93,11 +107,16 @@ ALL_PERMISSIONS = [
     ('register.signout',    'Sign Out',                 'Sign members out on the session register',              'register'),
     ('register.complete',   'Complete Register',        'Lock the register at end of session',                  'register'),
     ('register.reset',      'Reset Register',           'Wipe all sign-in/out data for a session',             'register'),
-    ('register.at_risk',    'Mark At Risk',             'Run the at-risk check and flag members',               'register'),
+    # Alert rules (v8.0)
+    ('alerts.view',        'View Alerts',               'See member flags and the alert rules list',            'alerts'),
+    ('alerts.manage',      'Manage Alert Rules',        'Create and edit alert rules',                         'alerts'),
+    ('alerts.run',         'Run Alert Checks',          'Trigger an alert rule evaluation manually',           'alerts'),
+    ('alerts.dismiss',     'Dismiss Flags',             'Manually clear a flag from a member record',          'alerts'),
     ('register.print',      'Print Register',           'Print a paper copy of the session register',           'register'),
     ('members.tags',        'Manage Member Tags',        'Add and remove skill/badge tags on member records',    'members'),
     ('register.notes',      'Session Notes',            'Add and manage session incident and general notes',    'register'),
     ('register.export',     'Export Complete Register', 'Open print-ready export with attendance and notes',    'register'),
+    ('register.qr_manage',  'Manage QR Code',           'Regenerate the QR quick sign-in code on the register', 'register'),
     # Approvals
     ('approvals.view',      'View Approvals',           'View pending self-registration submissions',           'approvals'),
     ('approvals.approve',   'Approve Registrations',    'Approve a pending registration',                       'approvals'),
@@ -125,6 +144,10 @@ ALL_PERMISSIONS = [
     # Communications
     ('mailshots.send',      'Send Mailshots',           'Send bulk emails to member contacts',                  'communications'),
     ('mailshots.templates', 'Manage Email Templates',   'Create, edit and delete email templates',              'communications'),
+    # Notifications (v8.2)
+    ('notifications.view',   'View Notifications',       'View personal and system notifications',               'communications'),
+    ('notifications.send',   'Send Notifications',       'Send targeted notifications to users, roles or sessions', 'communications'),
+    ('notifications.manage', 'Manage Notifications',     'Delete old notifications (admin only)',                'admin'),
     # Display board
     ('activities.manage',   'Manage Activities Board',  'Add and remove activities from the TV display',        'display'),
 ]
@@ -135,7 +158,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     'admin': [
         'members.view', 'members.edit', 'members.delete', 'members.hard_delete', 'members.tags',
         'register.signin', 'register.signout', 'register.complete', 'register.reset',
-        'register.at_risk', 'register.print', 'register.notes', 'register.export',
+        'register.print', 'register.notes', 'register.export', 'register.qr_manage',
         'approvals.view', 'approvals.approve', 'approvals.reject',
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
@@ -144,11 +167,13 @@ DEFAULT_ROLE_PERMISSIONS = {
         'audit.view',
         'mailshots.send', 'mailshots.templates',
         'activities.manage',
+        'alerts.view', 'alerts.manage', 'alerts.run', 'alerts.dismiss',
+        'notifications.view', 'notifications.send', 'notifications.manage',
     ],
     'editor': [
         'members.view', 'members.edit', 'members.delete', 'members.tags',
-        'register.signin', 'register.signout', 'register.complete', 'register.at_risk', 'register.print',
-        'register.notes', 'register.export',
+        'register.signin', 'register.signout', 'register.complete', 'register.print',
+        'register.notes', 'register.export', 'register.qr_manage',
         'approvals.view', 'approvals.approve', 'approvals.reject',
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
@@ -157,16 +182,21 @@ DEFAULT_ROLE_PERMISSIONS = {
         'audit.view',
         'mailshots.send', 'mailshots.templates',
         'activities.manage',
+        'alerts.view', 'alerts.manage', 'alerts.run', 'alerts.dismiss',
+        'notifications.view', 'notifications.send',
     ],
     'leader': [
         'members.view',
         'register.signin', 'register.signout', 'register.notes',
         'activities.manage',
+        'alerts.view',
+        'notifications.view',
     ],
     'readonly': [
         'register.signout',
         'documents.view',
         'activities.manage',
+        'notifications.view',
     ],
 }
 
@@ -179,6 +209,12 @@ ROLE_DISPLAY_NAMES = {
     'leader':   'User',
     'readonly': 'Read Only',
 }
+
+# Role slug constants — use these instead of bare strings so a typo fails loudly.
+ROLE_ADMIN    = 'admin'
+ROLE_EDITOR   = 'editor'
+ROLE_LEADER   = 'leader'
+ROLE_READONLY = 'readonly'
 
 # ── Postcode lookup (getaddress.io) ──────────────────────────────────────────
 GETADDRESS_KEY = os.environ.get('GETADDRESS_KEY', '')
@@ -196,21 +232,41 @@ CLUB_SHORT_NAME = os.environ.get('CLUB_SHORT_NAME', 'AYC')
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
-def _connect_db(path=None):
-    """Open a SQLCipher-encrypted DB connection.
+def _validate_encryption_key(key: str) -> None:
+    """Guard against SQLCipher PRAGMA key injection.
 
-    Raises RuntimeError on startup if DB_ENCRYPTION_KEY is missing — the app
-    must never run without the key once the database is encrypted.
-    Verifies the key immediately so a wrong key fails fast and clearly.
+    SQLCipher's PRAGMA key cannot be fully parameterized — the key is
+    interpolated into the statement as a string literal surrounded by single
+    quotes.  The only character that could break out of that literal is a
+    single quote itself, so we reject keys that contain one.
+
+    Any other passphrase (including existing alphanumeric or mixed-character
+    keys) is accepted unchanged.
     """
-    if path is None:
-        path = DATABASE
-    key = os.environ.get('DB_ENCRYPTION_KEY')
     if not key:
         raise RuntimeError(
             'DB_ENCRYPTION_KEY is not set in .env — refusing to start. '
             'Add the key to .env and restart the portal.'
         )
+    if "'" in key:
+        raise RuntimeError(
+            "DB_ENCRYPTION_KEY must not contain a single-quote character (') "
+            "as this would break the SQLCipher PRAGMA key statement. "
+            'Generate a safe key with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+
+
+def _connect_db(path=None):
+    """Open a SQLCipher-encrypted DB connection.
+
+    Raises RuntimeError on startup if DB_ENCRYPTION_KEY is missing or invalid —
+    the app must never run without the key once the database is encrypted.
+    Verifies the key immediately so a wrong key fails fast and clearly.
+    """
+    if path is None:
+        path = DATABASE
+    key = os.environ.get('DB_ENCRYPTION_KEY', '')
+    _validate_encryption_key(key)
     conn = sqlite3.connect(path)
     conn.execute(f"PRAGMA key='{key}'")
     conn.execute('SELECT count(*) FROM sqlite_master')  # verify key immediately
@@ -260,8 +316,16 @@ def close_db(error):
     if db is not None:
         db.close()
 
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    """Return a clean JSON 400 when a CSRF token is missing or invalid."""
+    return jsonify({'error': 'CSRF token missing or invalid — please refresh the page and try again.'}), 400
+
 def log_action(action, table_name=None, record_id=None, details=None):
-    """Write an entry to the audit log. Never raises — logging must not break the app."""
+    """Write an entry to the audit log. Never raises — logging must not break the app.
+    If the DB write fails, the failure is recorded to the application error log so
+    that gaps in the audit trail are detectable even when the database is unavailable.
+    """
     try:
         db = get_db()
         db.execute(
@@ -277,8 +341,48 @@ def log_action(action, table_name=None, record_id=None, details=None):
             )
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception as _audit_exc:
+        # Do not re-raise — audit logging must never break the application.
+        # Log to stderr so the failure is visible in server logs / syslog.
+        import sys
+        print(
+            f'AUDIT LOG FAILED — action={action} table={table_name} record={record_id}: {_audit_exc}',
+            file=sys.stderr,
+        )
+
+def send_notification(sender_id, title, body, notification_type='Info',
+                      target_type='all', target_value=None, is_system=0,
+                      related_table=None, related_id=None, _db=None):
+    """Create a notification record.
+
+    Works inside *and* outside a Flask request context (e.g. from the background
+    scheduler).  Pass _db to reuse an existing connection — the caller is then
+    responsible for committing.  When _db is omitted a new connection is opened,
+    committed, and closed automatically.
+    """
+    own_conn = _db is None
+    db = _db if _db is not None else _connect_db()
+    try:
+        db.execute(
+            'INSERT INTO notifications '
+            '(sender_id, title, body, notification_type, target_type, target_value, '
+            ' is_system, related_table, related_id) '
+            'VALUES (?,?,?,?,?,?,?,?,?)',
+            (
+                sender_id, title, body, notification_type, target_type,
+                json.dumps(target_value) if isinstance(target_value, (list, dict)) else target_value,
+                is_system, related_table, related_id,
+            )
+        )
+        if own_conn:
+            db.commit()
+    finally:
+        if own_conn:
+            db.close()
+    # log_action uses Flask context — it self-suppresses outside a request, so safe to call here
+    log_action('notification.sent', 'notifications', None,
+               {'title': title, 'type': notification_type, 'target': target_type, 'is_system': is_system})
+
 
 def init_db():
     """Initialise the database from schema.sql. Safe to run multiple times."""
@@ -393,6 +497,121 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_session_notes_date_type ON session_notes(session_date, session_type);
         CREATE INDEX IF NOT EXISTS idx_session_notes_member    ON session_notes(member_id);
+        -- v8.0: configurable member field system
+        CREATE TABLE IF NOT EXISTS member_types (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                TEXT    NOT NULL UNIQUE,
+            slug                TEXT    NOT NULL UNIQUE,
+            icon                TEXT    NOT NULL DEFAULT '👤',
+            colour              TEXT    NOT NULL DEFAULT '#1b2d4f',
+            description         TEXT,
+            public_registration INTEGER NOT NULL DEFAULT 0,
+            active              INTEGER NOT NULL DEFAULT 1,
+            sort_order          INTEGER NOT NULL DEFAULT 0,
+            created_at          TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS field_definitions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            key          TEXT    NOT NULL UNIQUE,
+            label        TEXT    NOT NULL,
+            field_type   TEXT    NOT NULL DEFAULT 'text',
+            options      TEXT,
+            help_text    TEXT,
+            placeholder  TEXT,
+            system_field INTEGER NOT NULL DEFAULT 0,
+            column_name  TEXT,
+            active       INTEGER NOT NULL DEFAULT 1,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS member_type_fields (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_type_id       INTEGER NOT NULL REFERENCES member_types(id) ON DELETE CASCADE,
+            field_id             INTEGER NOT NULL REFERENCES field_definitions(id) ON DELETE CASCADE,
+            sort_order           INTEGER NOT NULL DEFAULT 0,
+            required             INTEGER NOT NULL DEFAULT 0,
+            show_on_registration INTEGER NOT NULL DEFAULT 1,
+            show_on_list         INTEGER NOT NULL DEFAULT 0,
+            show_on_card         INTEGER NOT NULL DEFAULT 0,
+            show_on_detail       INTEGER NOT NULL DEFAULT 1,
+            show_on_print        INTEGER NOT NULL DEFAULT 1,
+            show_on_export       INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(member_type_id, field_id)
+        );
+        CREATE TABLE IF NOT EXISTS member_field_values (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id  INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+            field_id   INTEGER NOT NULL REFERENCES field_definitions(id) ON DELETE CASCADE,
+            value      TEXT,
+            updated_at TEXT    DEFAULT (datetime('now')),
+            UNIQUE(member_id, field_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mfv_member ON member_field_values(member_id);
+        CREATE INDEX IF NOT EXISTS idx_mtf_type   ON member_type_fields(member_type_id);
+        -- v8.0: Member Alert Rules — configurable multi-rule flag engine
+        CREATE TABLE IF NOT EXISTS alert_rules (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                TEXT    NOT NULL,
+            rule_type           TEXT    NOT NULL,
+            target_field        TEXT,
+            condition           TEXT,
+            threshold_value     INTEGER,
+            threshold_unit      TEXT,
+            applies_to_session  TEXT,
+            flag_label          TEXT    NOT NULL,
+            flag_colour         TEXT    NOT NULL DEFAULT '#f59e0b',
+            auto_resolve        INTEGER NOT NULL DEFAULT 1,
+            resolve_field       TEXT,
+            is_active           INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT    DEFAULT (datetime('now')),
+            created_by          INTEGER REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS member_flags (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id    INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+            rule_id      INTEGER NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+            flagged_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            flagged_by   TEXT    NOT NULL DEFAULT 'auto',
+            resolved_at  TEXT,
+            resolved_by  TEXT,
+            note         TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_member_flags_member ON member_flags(member_id);
+        CREATE INDEX IF NOT EXISTS idx_member_flags_rule   ON member_flags(rule_id);
+        -- v8.2: Notifications system
+        CREATE TABLE IF NOT EXISTS notifications (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id         INTEGER REFERENCES users(id),
+            title             TEXT    NOT NULL,
+            body              TEXT    NOT NULL,
+            notification_type TEXT    NOT NULL DEFAULT 'Info',
+            target_type       TEXT    NOT NULL DEFAULT 'all',
+            target_value      TEXT,
+            is_system         INTEGER NOT NULL DEFAULT 0,
+            related_table     TEXT,
+            related_id        INTEGER,
+            created_at        TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS notification_reads (
+            notification_id   INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+            user_id           INTEGER NOT NULL REFERENCES users(id),
+            read_at           TEXT    DEFAULT (datetime('now')),
+            PRIMARY KEY (notification_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_sender  ON notifications(sender_id);
+        CREATE INDEX IF NOT EXISTS idx_notification_reads    ON notification_reads(user_id);
+        -- v8.3: QR quick-session tokens (sign-in / sign-out via mobile)
+        CREATE TABLE IF NOT EXISTS quick_signin_tokens (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            token          TEXT    NOT NULL UNIQUE,
+            session_type   TEXT    NOT NULL,
+            session_date   TEXT    NOT NULL,
+            created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+            invalidated_at TEXT    NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_qst_token   ON quick_signin_tokens(token);
+        CREATE INDEX IF NOT EXISTS idx_qst_session ON quick_signin_tokens(session_type, session_date);
     ''')
 
     # ── ALTER TABLE migrations (idempotent — each wrapped individually) ───────
@@ -404,6 +623,10 @@ def ensure_tables():
         "ALTER TABLE pending_registrations ADD COLUMN mobile TEXT",
         "ALTER TABLE pending_registrations ADD COLUMN email TEXT",
         "ALTER TABLE members ADD COLUMN status_note TEXT",
+        # v8.0: configurable member field system — registration support
+        "ALTER TABLE member_types ADD COLUMN registration_style TEXT NOT NULL DEFAULT 'member'",
+        "ALTER TABLE pending_registrations ADD COLUMN custom_fields TEXT",
+        "ALTER TABLE pending_registrations ADD COLUMN member_type_slug TEXT NOT NULL DEFAULT 'member'",
         # v6.0: link users to the new roles table
         "ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)",
         # v7.1: role display names
@@ -411,6 +634,10 @@ def ensure_tables():
         # v7.1: track whether a completed register has been exported
         "ALTER TABLE session_completions ADD COLUMN exported_at TEXT",
         "ALTER TABLE session_completions ADD COLUMN exported_by INTEGER REFERENCES users(id)",
+        # v8.1: configurable export columns
+        "ALTER TABLE member_type_fields ADD COLUMN show_on_export INTEGER NOT NULL DEFAULT 0",
+        # v8.3: track how each attendance record was created ('web' | 'qr-self')
+        "ALTER TABLE attendance ADD COLUMN source TEXT NOT NULL DEFAULT 'web'",
     ]
     for stmt in alter_stmts:
         try:
@@ -418,16 +645,43 @@ def ensure_tables():
         except Exception:
             pass  # Column already exists — safe to ignore
 
+    # v8.3: unique guard on attendance — one row per member per session date+type.
+    # De-duplicate first (live DBs may have historical duplicates) then create index.
+    try:
+        db.execute('''
+            DELETE FROM attendance
+            WHERE rowid NOT IN (
+                SELECT MIN(rowid)
+                FROM attendance
+                GROUP BY member_id, session_date, session_type
+            )
+        ''')
+        db.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_unique
+                ON attendance(member_id, session_date, session_type)
+        ''')
+    except Exception:
+        pass  # Index already exists — safe to ignore
+
     db.commit()
     db.close()
 
     # ── Seed default settings ─────────────────────────────────────────────────
     sdb = _connect_db()
     sdb.row_factory = sqlite3.Row
-    for key, val in [
-        ('at_risk_threshold_tuesday',  '5'),
-        ('at_risk_threshold_thursday', '5'),
-    ]:
+    # Seed alerts_last_run timestamp placeholder (updated by the scheduler on each run)
+    if not sdb.execute("SELECT key FROM settings WHERE key = 'alerts_last_run'").fetchone():
+        sdb.execute("INSERT INTO settings (key, value) VALUES ('alerts_last_run', '')")
+    # v8.3: QR quick-session settings
+    _qr_defaults = [
+        ('quick_signin_enabled',    'true'),
+        ('quick_signout_enabled',   'false'),
+        ('quick_signin_welcome_msg',    'Welcome, {name}! Great to see you tonight! 🎉'),
+        ('quick_signin_already_msg',    "You're already signed in, {name}! See you inside 👋"),
+        ('quick_signout_goodbye_msg',   'Goodbye, {name}! See you next time 👋'),
+        ('quick_signout_already_msg',   "You're already signed out, {name}. Safe journey home!"),
+    ]
+    for key, val in _qr_defaults:
         if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
             sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
     sdb.commit()
@@ -468,6 +722,32 @@ def ensure_tables():
             'UPDATE roles SET display_name = ? WHERE name = ? AND (display_name IS NULL OR display_name = "")',
             (display, role_name),
         )
+        # Merge any newly added permissions into existing role records so that
+        # deploying new code automatically grants new default permissions without
+        # requiring a full DB re-initialisation.
+        #
+        # ⚠️  INTENTIONAL BEHAVIOUR: this is a union — it only ever adds permissions,
+        # never removes them.  If a permission appears in DEFAULT_ROLE_PERMISSIONS but
+        # an admin has manually removed it from a role via the Roles UI, this merge
+        # will silently restore it on the next app restart.  That is the trade-off
+        # chosen to ensure new permissions propagate automatically on deploy.
+        # Admins who need to permanently remove a default permission should be aware
+        # of this and can re-remove it after each deployment if required.
+        existing_row = rdb.execute(
+            'SELECT permissions FROM roles WHERE name = ?', (role_name,)
+        ).fetchone()
+        if existing_row:
+            try:
+                existing_perms = set(json.loads(existing_row['permissions'] or '[]'))
+            except (ValueError, TypeError):
+                existing_perms = set()
+            new_perms = set(perms)
+            if not new_perms.issubset(existing_perms):
+                merged = sorted(existing_perms | new_perms, key=lambda p: perms.index(p) if p in perms else 999)
+                rdb.execute(
+                    'UPDATE roles SET permissions = ? WHERE name = ?',
+                    (json.dumps(merged), role_name),
+                )
     rdb.commit()
 
     # ── Migrate existing users → role_id (v6.0) ───────────────────────────────
@@ -487,12 +767,188 @@ def ensure_tables():
     rdb.commit()
     rdb.close()
 
+    # ── Seed member types (v8.0) ───────────────────────────────────────────────
+    mtdb = _connect_db()
+    mtdb.row_factory = sqlite3.Row
+    for slug, name, icon, colour, description, public_registration, sort_order in [
+        ('member', 'Member', '👦', '#1b2d4f', 'Young people attending club sessions', 1, 0),
+        ('staff',  'Staff',  '🧑', '#0f766e', 'Leaders, coaches and volunteers',      0, 1),
+    ]:
+        mtdb.execute(
+            '''INSERT OR IGNORE INTO member_types
+               (slug, name, icon, colour, description, public_registration, sort_order)
+               VALUES (?,?,?,?,?,?,?)''',
+            (slug, name, icon, colour, description, public_registration, sort_order),
+        )
+    # Ensure registration_style is set correctly for built-in types
+    mtdb.execute(
+        "UPDATE member_types SET registration_style = 'staff' "
+        "WHERE slug = 'staff' AND (registration_style IS NULL OR registration_style = 'member')"
+    )
+    mtdb.commit()
+
+    # ── Seed system field definitions (v8.0) ───────────────────────────────────
+    for key, label, field_type, column_name, placeholder, help_text, sort_order in [
+        ('first_name',         'First Name',                      'text',     'first_name',         'e.g. Isabella',                             None,                                                                      1),
+        ('surname',            'Surname',                         'text',     'surname',            'e.g. Fitzpatrick',                          None,                                                                      2),
+        ('date_of_birth',      'Date of Birth',                   'date',     'date_of_birth',      None,                                        None,                                                                      3),
+        ('address',            'Home Address',                    'text',     'address',            'Start typing or use the postcode finder',    None,                                                                      4),
+        ('postcode',           'Postcode',                        'postcode', 'postcode',           'e.g. TW15 3EL',                             None,                                                                      5),
+        ('ethnicity_religion', 'Ethnicity / Religion',            'text',     'ethnicity_religion', 'e.g. English / Christian',                  None,                                                                      6),
+        ('medical_sen',        'Medical Needs, Allergies or SEN', 'textarea', 'medical_sen',        None,                                        'Describe any medical conditions, allergies or special educational needs.', 7),
+        ('gp_contact',         'GP / Doctor Surgery Contact',     'text',     'gp_contact',         'e.g. Stanwell Road Surgery — 01784 123456', None,                                                                      8),
+        ('unattended_exit',    'Unattended Exit',                 'boolean',  'unattended_exit',    None,                                        'Will make their own way home unaccompanied at the end of the session.',    9),
+        ('gdpr_consent',       'Communications Consent',          'boolean',  'gdpr_consent',       None,                                        'Happy to be contacted about upcoming events and club information.',        10),
+        ('session',            'Session',                         'text',     'session',            None,                                        'Which session this person attends.',                                       11),
+        ('staff_role',         'Staff Role',                      'text',     'staff_role',         None,                                        None,                                                                      12),
+        ('comments',           'Internal Notes',                  'textarea', 'comments',           None,                                        'Internal notes — not visible to members or parents.',                      13),
+    ]:
+        mtdb.execute(
+            '''INSERT OR IGNORE INTO field_definitions
+               (key, label, field_type, column_name, placeholder, help_text, sort_order, system_field)
+               VALUES (?,?,?,?,?,?,?,1)''',
+            (key, label, field_type, column_name, placeholder, help_text, sort_order),
+        )
+
+    # ── Seed declaration field definitions (v8.1) ──────────────────────────────
+    # These are non-system (system_field=0) — they render as Yes/No consent rows
+    # on member registration forms.  Use {club} in the label as a placeholder for
+    # the club name; the registration template substitutes it at render time.
+    for key, label, sort_order in [
+        ('consent_attend',
+         'I am the parent / guardian of the young person named above and I give '
+         'consent for them to attend activities organised by {club}.',
+         20),
+        ('consent_photos',
+         'I agree that photos and videos can be taken of my child to publicise '
+         'the group\'s activities.',
+         21),
+        ('consent_comms',
+         'I am happy to be emailed or texted with up-and-coming events or '
+         'important information regarding {club}.',
+         22),
+        ('consent_belongings',
+         'I understand that {club} is NOT responsible for personal belongings.',
+         23),
+        ('consent_medical',
+         'I give consent for my child to be taken for medical treatment in the '
+         'event of an emergency.',
+         24),
+    ]:
+        mtdb.execute(
+            '''INSERT OR IGNORE INTO field_definitions
+               (key, label, field_type, column_name, placeholder, help_text, sort_order, system_field)
+               VALUES (?,?,'declaration',NULL,NULL,NULL,?,0)''',
+            (key, label, sort_order),
+        )
+    mtdb.commit()
+
+    # ── Seed default member_type_fields (v8.0) ─────────────────────────────────
+    _default_fields = {
+        'member': [
+            ('first_name',         1, 1, 1, 1, 1, 1, 1),
+            ('surname',            1, 1, 1, 1, 1, 1, 2),
+            ('date_of_birth',      1, 1, 0, 0, 1, 1, 3),
+            ('address',            1, 1, 0, 0, 1, 1, 4),
+            ('postcode',           1, 1, 0, 0, 1, 0, 5),
+            ('ethnicity_religion', 0, 1, 0, 0, 1, 0, 6),
+            ('medical_sen',        0, 1, 0, 0, 1, 1, 7),
+            ('gp_contact',         1, 1, 0, 0, 1, 1, 8),
+            ('unattended_exit',    0, 1, 0, 1, 1, 1, 9),
+            ('gdpr_consent',       0, 1, 0, 0, 1, 0, 10),
+            ('session',            1, 0, 0, 0, 1, 1, 11),
+            ('comments',           0, 0, 0, 0, 1, 0, 12),
+            # Declaration fields — shown only on registration form
+            ('consent_attend',     1, 1, 0, 0, 0, 0, 20),
+            ('consent_photos',     1, 1, 0, 0, 0, 0, 21),
+            ('consent_comms',      1, 1, 0, 0, 0, 0, 22),
+            ('consent_belongings', 1, 1, 0, 0, 0, 0, 23),
+            ('consent_medical',    1, 1, 0, 0, 0, 0, 24),
+        ],
+        'staff': [
+            ('first_name',  1, 1, 1, 1, 1, 1, 1),
+            ('surname',     1, 1, 1, 1, 1, 1, 2),
+            ('staff_role',  0, 1, 0, 1, 1, 1, 3),
+            ('session',     1, 0, 0, 0, 1, 1, 4),
+            ('comments',    0, 0, 0, 0, 1, 0, 5),
+        ],
+    }
+    for type_slug, field_rows in _default_fields.items():
+        mt = mtdb.execute('SELECT id FROM member_types WHERE slug = ?', (type_slug,)).fetchone()
+        if not mt:
+            continue
+        mt_id = mt['id']
+        # Only seed if this type has no fields assigned yet
+        existing_count = mtdb.execute(
+            'SELECT COUNT(*) FROM member_type_fields WHERE member_type_id = ?', (mt_id,)
+        ).fetchone()[0]
+        if existing_count > 0:
+            continue
+        for field_key, required, show_on_reg, show_on_list, show_on_card, show_on_detail, show_on_print, sort_order in field_rows:
+            fd = mtdb.execute('SELECT id FROM field_definitions WHERE key = ?', (field_key,)).fetchone()
+            if not fd:
+                continue
+            mtdb.execute(
+                '''INSERT OR IGNORE INTO member_type_fields
+                   (member_type_id, field_id, required, show_on_registration, show_on_list,
+                    show_on_card, show_on_detail, show_on_print, show_on_export, sort_order)
+                   VALUES (?,?,?,?,?,?,?,?,0,?)''',
+                (mt_id, fd['id'], required, show_on_reg, show_on_list,
+                 show_on_card, show_on_detail, show_on_print, sort_order),
+            )
+    mtdb.commit()
+
+    # ── Migrate existing deployments: assign declaration fields to member type ──
+    # Uses INSERT OR IGNORE so it is safe to run on every startup.
+    _mt = mtdb.execute('SELECT id FROM member_types WHERE slug = ?', ('member',)).fetchone()
+    if _mt:
+        for _fkey, _sort in [
+            ('consent_attend',     20),
+            ('consent_photos',     21),
+            ('consent_comms',      22),
+            ('consent_belongings', 23),
+            ('consent_medical',    24),
+        ]:
+            _fd = mtdb.execute(
+                'SELECT id FROM field_definitions WHERE key = ?', (_fkey,)
+            ).fetchone()
+            if _fd:
+                mtdb.execute(
+                    '''INSERT OR IGNORE INTO member_type_fields
+                       (member_type_id, field_id, required, show_on_registration,
+                        show_on_list, show_on_card, show_on_detail, show_on_print,
+                        show_on_export, sort_order)
+                       VALUES (?,?,1,1,0,0,0,0,0,?)''',
+                    (_mt['id'], _fd['id'], _sort),
+                )
+    mtdb.commit()
+    mtdb.close()
+
 # Run migration on startup
 with app.app_context():
     if os.path.exists(DATABASE):
         ensure_tables()
 
 # ── Password policy ────────────────────────────────────────────────────────────
+
+_HEX_COLOUR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+
+def _validate_hex_colour(value: str, default: str) -> tuple[str, str | None]:
+    """Return (sanitised_colour, error_message_or_None).
+
+    Accepts any valid 6-digit hex colour (#rrggbb, case-insensitive).
+    Returns the default if the value is empty; returns an error if the value
+    is non-empty but not a valid hex colour — this prevents DOM-injection via
+    a crafted colour string.
+    """
+    val = (value or '').strip()
+    if not val:
+        return default, None
+    if not _HEX_COLOUR_RE.match(val):
+        return default, f'Invalid colour "{val}" — must be a 6-digit hex code (e.g. #3b82f6)'
+    return val, None
+
 
 def validate_password(password):
     """Enforce the portal password policy.
@@ -511,6 +967,32 @@ def validate_password(password):
 
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
+
+_SESSION_IDLE_TIMEOUT = 30 * 60  # 30 minutes of inactivity
+
+
+@app.before_request
+def enforce_idle_timeout():
+    """Expire sessions that have been idle for more than _SESSION_IDLE_TIMEOUT seconds.
+
+    Every authenticated request refreshes the last_activity timestamp stored
+    inside the (server-signed) session cookie. Unauthenticated routes and the
+    display/stream endpoint are skipped — they don't use sessions.
+    """
+    if 'user_id' not in session:
+        return
+    # Skip the SSE stream — it holds open long connections and sends no real activity
+    if request.path == '/api/display/stream':
+        return
+    now          = time.time()
+    last_active  = session.get('last_activity', now)
+    if now - last_active > _SESSION_IDLE_TIMEOUT:
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Session expired due to inactivity. Please log in again.'}), 401
+        return redirect(url_for('login_page'))
+    session['last_activity'] = now
+
 
 def login_required(f):
     """Redirect to login (or return 401) if user is not authenticated."""
@@ -568,7 +1050,14 @@ def login_page():
 @app.route('/dashboard')
 @login_required
 def dashboard_page():
-    return render_template('dashboard.html', active_page='dashboard', **tpl_ctx())
+    db          = get_db()
+    reg_types   = db.execute(
+        'SELECT slug, name, icon, colour, description, public_registration '
+        'FROM member_types WHERE active = 1 ORDER BY sort_order'
+    ).fetchall()
+    return render_template('dashboard.html', active_page='dashboard',
+                           reg_types=[dict(t) for t in reg_types],
+                           **tpl_ctx())
 
 @app.route('/members')
 @permission_required('members.view')
@@ -583,6 +1072,9 @@ def approvals_page():
 @app.route('/register')
 @login_required
 def register_page():
+    # Pre-create QR tokens for all active session types so the register
+    # page JS can fetch them immediately without a separate write round-trip.
+    _ensure_qr_tokens_for_today()
     return render_template('register.html', active_page='register', **tpl_ctx())
 
 
@@ -592,13 +1084,15 @@ def print_register_page():
     """
     Render a printable paper register for a given session and date.
     Accessible to editors and admins only (register.print permission).
-    Query params: ?session=Tuesday&date=2026-04-18
+    Query params: ?session=Tuesday&date=2026-04-18&type=member
+    Columns are driven by the show_on_print field configuration for the given type.
     """
     if not has_permission('register.print'):
         return 'Access denied', 403
 
     session_type = request.args.get('session', '').strip()
     date         = request.args.get('date', '').strip()
+    type_slug    = request.args.get('type', 'member').strip() or 'member'
 
     if not session_type or not date:
         return 'Missing session or date parameter', 400
@@ -610,15 +1104,64 @@ def print_register_page():
 
     db = get_db()
 
-    # Fetch all active members for this session, sorted alphabetically
-    members = db.execute('''
-        SELECT  m.id, m.first_name, m.surname, m.unattended_exit
+    # Resolve member type — fall back to first active type if slug not found
+    mtype = db.execute(
+        'SELECT * FROM member_types WHERE slug = ? AND active = 1', (type_slug,)
+    ).fetchone()
+    if not mtype:
+        mtype = db.execute(
+            'SELECT * FROM member_types WHERE active = 1 ORDER BY sort_order LIMIT 1'
+        ).fetchone()
+    mtype_dict = dict(mtype) if mtype else {}
+
+    # Fetch show_on_print fields for this type (ordered by sort_order)
+    print_fields_raw = []
+    if mtype:
+        pf_rows = db.execute('''
+            SELECT  fd.id, fd.key, fd.label, fd.field_type,
+                    fd.column_name, fd.system_field
+            FROM    member_type_fields mtf
+            JOIN    field_definitions fd ON fd.id = mtf.field_id
+            WHERE   mtf.member_type_id = ? AND fd.active = 1 AND mtf.show_on_print = 1
+            ORDER   BY mtf.sort_order
+        ''', (mtype['id'],)).fetchall()
+        print_fields_raw = [dict(r) for r in pf_rows]
+
+    # first_name and surname are always rendered as dedicated columns — skip from dynamic list
+    SKIP_PRINT_KEYS = {'first_name', 'surname'}
+    dynamic_fields  = [f for f in print_fields_raw if f['key'] not in SKIP_PRINT_KEYS]
+
+    # Fetch all active members for this type + session, sorted alphabetically
+    members_raw = db.execute('''
+        SELECT  m.*
         FROM    members m
-        WHERE   m.status     != "Leaver"
-          AND   m.member_type = "member"
+        WHERE   m.status      != "Leaver"
+          AND   m.member_type = ?
           AND   m.session     = ?
         ORDER   BY m.first_name, m.surname
-    ''', (session_type,)).fetchall()
+    ''', (type_slug, session_type)).fetchall()
+    members = [dict(r) for r in members_raw]
+
+    # Batch-fetch custom field values when any dynamic field is non-system
+    has_custom = any(not f['system_field'] for f in dynamic_fields)
+    if members and has_custom:
+        member_ids   = [m['id'] for m in members]
+        placeholders = ','.join('?' * len(member_ids))
+        cfv_rows = db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value '
+            f'FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({placeholders})',
+            member_ids
+        ).fetchall()
+        custom_map = {}
+        for cfv in cfv_rows:
+            custom_map.setdefault(cfv['member_id'], {})[cfv['key']] = cfv['value']
+        for m in members:
+            m['custom_fields'] = custom_map.get(m['id'], {})
+    else:
+        for m in members:
+            m['custom_fields'] = {}
 
     # Fetch session notes for this date + session type
     notes = db.execute('''
@@ -641,13 +1184,15 @@ def print_register_page():
 
     return render_template(
         'print_register.html',
-        session_type=session_type,
-        date=date,
-        display_date=display_date,
-        members=[dict(r) for r in members],
-        notes=[dict(r) for r in notes],
-        club_name=CLUB_NAME,
-        club_short_name=CLUB_SHORT_NAME,
+        session_type   = session_type,
+        date           = date,
+        display_date   = display_date,
+        members        = members,
+        notes          = [dict(r) for r in notes],
+        dynamic_fields = dynamic_fields,
+        mtype          = mtype_dict,
+        club_name      = CLUB_NAME,
+        club_short_name= CLUB_SHORT_NAME,
     )
 
 
@@ -685,9 +1230,25 @@ def export_register_page():
     if not completion:
         return 'This register has not been completed yet.', 400
 
+    # ── Configurable export fields for the 'member' type ─────────────────────
+    member_mt = db.execute(
+        "SELECT id FROM member_types WHERE slug = 'member' AND active = 1"
+    ).fetchone()
+    export_fields = []
+    if member_mt:
+        ef_rows = db.execute('''
+            SELECT  fd.key, fd.label, fd.field_type, fd.column_name, fd.system_field
+            FROM    member_type_fields mtf
+            JOIN    field_definitions fd ON fd.id = mtf.field_id
+            WHERE   mtf.member_type_id = ? AND fd.active = 1 AND mtf.show_on_export = 1
+              AND   fd.key NOT IN ('first_name', 'surname')
+            ORDER   BY mtf.sort_order
+        ''', (member_mt['id'],)).fetchall()
+        export_fields = [dict(f) for f in ef_rows]
+
     # Full member attendance — everyone expected, whether they arrived or not
     members = db.execute('''
-        SELECT  m.first_name, m.surname, m.unattended_exit,
+        SELECT  m.*,
                 a.signed_in_at, a.signed_out_at
         FROM    members m
         LEFT JOIN attendance a
@@ -699,6 +1260,35 @@ def export_register_page():
           AND   m.session     = ?
         ORDER   BY m.surname, m.first_name
     ''', (date, session_type, session_type)).fetchall()
+
+    # Batch-fetch custom field values for all members in this export
+    member_ids = [m['id'] for m in members]
+    custom_fields_map = {}
+    if member_ids and export_fields:
+        placeholders = ','.join('?' * len(member_ids))
+        cfv_rows = db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value '
+            f'FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({placeholders})',
+            member_ids
+        ).fetchall()
+        for cfv in cfv_rows:
+            custom_fields_map.setdefault(cfv['member_id'], {})[cfv['key']] = cfv['value']
+
+    # Resolve export field values per member (system columns + custom fields)
+    members_out = []
+    for m in members:
+        md = dict(m)
+        extra = {}
+        for f in export_fields:
+            if f['system_field'] and f['column_name']:
+                extra[f['key']] = md.get(f['column_name'], '') or ''
+            else:
+                extra[f['key']] = custom_fields_map.get(md['id'], {}).get(f['key'], '') or ''
+        md['export_extra'] = extra
+        members_out.append(md)
+    members = members_out
 
     # Staff attendance
     staff = db.execute('''
@@ -743,9 +1333,10 @@ def export_register_page():
         date            = date,
         display_date    = display_date,
         completion      = dict(completion),
-        members         = [dict(m) for m in members],
+        members         = members,
         staff           = [dict(s) for s in staff],
         notes           = [dict(n) for n in notes],
+        export_fields   = export_fields,
         attended        = attended,
         not_arrived     = not_arrived,
         club_name       = CLUB_NAME,
@@ -756,21 +1347,29 @@ def export_register_page():
 
 @app.route('/registration')
 def registration_page():
-    """Landing page — choose member or staff registration."""
+    """Landing page — dynamically lists all publicly-registerable member types."""
+    db    = get_db()
+    types = db.execute(
+        'SELECT * FROM member_types WHERE public_registration = 1 AND active = 1 ORDER BY sort_order'
+    ).fetchall()
     return render_template('registration_landing.html',
+                           reg_types=[dict(t) for t in types],
                            club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
-@app.route('/registration/member')
-def registration_member_page():
-    """Full member self-registration form — no login required."""
-    return render_template('registration.html', version=APP_VERSION,
-                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
-@app.route('/registration/staff')
-def registration_staff_page():
-    """Simplified staff/volunteer registration form — no login required."""
-    return render_template('registration_staff.html', version=APP_VERSION,
-                           session_types=get_session_types(),
+@app.route('/registration/<slug>')
+def registration_slug_page(slug):
+    """Dynamic registration form — rendered by JS from field config, works for any member type."""
+    db    = get_db()
+    mtype = db.execute(
+        'SELECT * FROM member_types WHERE slug = ? AND active = 1', (slug,)
+    ).fetchone()
+    if not mtype:
+        return redirect('/registration')
+    return render_template('registration_dynamic.html',
+                           type_slug=slug,
+                           type_info=dict(mtype),
+                           version=APP_VERSION,
                            club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
 
 @app.route('/documents')
@@ -813,6 +1412,38 @@ def staff_roles_page():
 def tags_page():
     return render_template('admin/tags.html', active_page='tags', **tpl_ctx())
 
+@app.route('/admin/member-types')
+@permission_required('admin.settings')
+def member_types_page():
+    return render_template('admin/member_types.html', active_page='settings', **tpl_ctx())
+
+@app.route('/admin/field-builder/<int:type_id>')
+@permission_required('admin.settings')
+def field_builder_page(type_id):
+    db    = get_db()
+    mtype = db.execute('SELECT * FROM member_types WHERE id = ?', (type_id,)).fetchone()
+    if not mtype:
+        return redirect(url_for('member_types_page'))
+    return render_template('admin/field_builder.html',
+                           active_page='settings',
+                           mtype=dict(mtype),
+                           **tpl_ctx())
+
+@app.route('/admin/settings/attendance')
+@permission_required('admin.settings')
+def attendance_settings_page():
+    return render_template('admin/attendance_settings.html', active_page='settings', **tpl_ctx())
+
+@app.route('/admin/settings/session-types')
+@permission_required('admin.session_types')
+def session_types_page():
+    return render_template('admin/session_types.html', active_page='settings', **tpl_ctx())
+
+@app.route('/admin/settings/maintenance')
+@permission_required('admin.maintenance')
+def maintenance_page():
+    return render_template('admin/maintenance.html', active_page='settings', **tpl_ctx())
+
 @app.route('/api/settings')
 @permission_required('admin.settings')
 def api_settings_get():
@@ -825,40 +1456,75 @@ def api_settings_get():
 @permission_required('admin.settings')
 def api_settings_save():
     """Save one or more settings. Body: {key: value, ...}
-    Only at-risk thresholds are modifiable here; register permissions
-    are now managed via the Roles system (/admin/roles)."""
+    v8.0: at_risk_threshold_* keys are no longer in use — alert rule thresholds
+    are now configured per-rule in the alert_rules table (/admin/alerts).
+    This endpoint is kept for any future generic settings that need it."""
     data = request.get_json() or {}
-    allowed_keys = {'at_risk_threshold_tuesday', 'at_risk_threshold_thursday'}
-
-    # Non-admin users are scoped — can only update threshold for their own session
-    scoped = _assigned_session()
-    if scoped is not None:
-        session_key = f'at_risk_threshold_{scoped.lower()}'
-        allowed_keys = {session_key}
-
+    # Allowlist of writable keys — extend here when new settings are added
+    ALLOWED_KEYS = set()   # No generic settings require saving via this endpoint post-v8.0
     db = get_db()
+    saved = {}
     for key, value in data.items():
-        if key not in allowed_keys:
+        if key not in ALLOWED_KEYS:
             continue
-        try:
-            val = int(value)
-            if val < 1:
-                return jsonify({'error': f'Threshold must be at least 1'}), 400
-        except (TypeError, ValueError):
-            return jsonify({'error': f'Invalid value for {key}'}), 400
         db.execute(
             'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
             ' ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by',
-            (key, str(val), session['user_id'])
+            (key, str(value), session['user_id'])
         )
+        saved[key] = value
     db.commit()
-    log_action('update_settings', 'settings', None, {'changes': data})
+    if saved:
+        log_action('update_settings', 'settings', None, {'changes': saved})
     return jsonify({'success': True})
+
+# ── Login rate limiter (in-memory, per-IP) ────────────────────────────────────
+# Tracks failed login attempts per client IP.  After _LOGIN_MAX_FAILURES
+# consecutive failures the IP is locked out for _LOGIN_LOCKOUT_SECONDS.
+# State lives only in-process — resets on restart (acceptable for this scale).
+
+_login_attempts: dict = {}   # ip -> {'count': int, 'locked_until': float}
+_LOGIN_MAX_FAILURES    = 10
+_LOGIN_LOCKOUT_SECONDS = 15 * 60   # 15 minutes
+
+
+def _check_login_rate_limit(ip: str):
+    """Return (allowed: bool, retry_after_seconds: int)."""
+    now  = time.time()
+    rec  = _login_attempts.get(ip, {'count': 0, 'locked_until': 0})
+    if now < rec['locked_until']:
+        return False, int(rec['locked_until'] - now)
+    return True, 0
+
+
+def _record_login_failure(ip: str):
+    """Increment failure count; lock IP if threshold reached."""
+    now = time.time()
+    rec = _login_attempts.get(ip, {'count': 0, 'locked_until': 0})
+    rec['count'] += 1
+    if rec['count'] >= _LOGIN_MAX_FAILURES:
+        rec['locked_until'] = now + _LOGIN_LOCKOUT_SECONDS
+        rec['count']        = 0   # reset counter so next lockout is fresh
+    _login_attempts[ip] = rec
+
+
+def _clear_login_failures(ip: str):
+    """Reset failure state on successful login."""
+    _login_attempts.pop(ip, None)
+
 
 # ── BLUEPRINT: auth ────────────────────────────────────────────────────────────
 
 @app.route('/api/auth/login', methods=['POST'])
+@csrf.exempt   # pre-auth — no session or token exists yet
 def api_login():
+    ip       = request.remote_addr or '0.0.0.0'
+    allowed, retry_after = _check_login_rate_limit(ip)
+    if not allowed:
+        return jsonify({
+            'error': f'Too many failed login attempts. Please try again in {retry_after // 60 + 1} minutes.'
+        }), 429
+
     data     = request.get_json() or {}
     username = data.get('username', '').strip().lower()
     password = data.get('password', '')
@@ -903,7 +1569,6 @@ def api_login():
                 except (TypeError, ValueError):
                     perms = []
 
-        session.permanent = True
         session['user_id']            = user['id']
         session['username']           = user['username']
         session['role']               = role_name          # slug — kept for _assigned_session() + templates
@@ -915,6 +1580,7 @@ def api_login():
                    (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), user['id']))
         db.commit()
 
+        _clear_login_failures(ip)
         log_action('login')
 
         return jsonify({
@@ -927,10 +1593,13 @@ def api_login():
             }
         })
 
+    _record_login_failure(ip)
+    log_action('login_failed', details={'attempted_username': username})
     return jsonify({'error': 'Incorrect username or password'}), 401
 
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
+    log_action('logout')   # must log BEFORE clearing session (user_id is still set)
     session.clear()
     return jsonify({'ok': True})
 
@@ -978,18 +1647,17 @@ def api_change_password():
 def api_members():
     db = get_db()
 
-    status_filter  = request.args.get('status', 'active')  # active | leaver | at_risk | all
+    status_filter  = request.args.get('status', 'active')  # active | leaver | flagged | all
     session_filter = request.args.get('session', 'all')     # all | Tuesday | Thursday
+    flag_filter    = request.args.get('flag_rule_id')        # optional: filter by specific rule id
 
     conditions = ['1=1']
     params = []
 
     if status_filter == 'active':
-        conditions.append("m.status NOT IN ('Leaver', 'At Risk')")
+        conditions.append("m.status = 'Active'")
     elif status_filter == 'leaver':
         conditions.append("m.status = 'Leaver'")
-    elif status_filter == 'at_risk':
-        conditions.append("m.status = 'At Risk'")
 
     if session_filter != 'all':
         conditions.append('m.session = ?')
@@ -1008,10 +1676,28 @@ def api_members():
     if session.get('role') == 'leader':
         conditions.append("m.member_type = 'member'")
 
+    # flagged filter — join to member_flags; optionally restrict to a specific rule
+    flag_join = ''
+    if status_filter == 'flagged' or flag_filter:
+        if flag_filter:
+            try:
+                rule_id_int = int(flag_filter)
+            except (ValueError, TypeError):
+                rule_id_int = None
+            if rule_id_int:
+                flag_join = (
+                    f'INNER JOIN member_flags mf ON mf.member_id = m.id '
+                    f'AND mf.rule_id = {rule_id_int} AND mf.resolved_at IS NULL'
+                )
+            else:
+                flag_join = 'INNER JOIN member_flags mf ON mf.member_id = m.id AND mf.resolved_at IS NULL'
+        else:
+            flag_join = 'INNER JOIN member_flags mf ON mf.member_id = m.id AND mf.resolved_at IS NULL'
+
     where = ' AND '.join(conditions)
 
     rows = db.execute(f'''
-        SELECT  m.*,
+        SELECT  DISTINCT m.*,
                 c1.contact_name  AS contact1_name,
                 c1.contact_phone AS contact1_phone,
                 c1.contact_email AS contact1_email,
@@ -1019,6 +1705,7 @@ def api_members():
                 c2.contact_phone AS contact2_phone,
                 c2.contact_email AS contact2_email
         FROM    members m
+        {flag_join}
         LEFT JOIN member_contacts c1
                ON c1.member_id = m.id AND c1.contact_order = 1
         LEFT JOIN member_contacts c2
@@ -1027,7 +1714,46 @@ def api_members():
         ORDER   BY m.first_name, m.surname
     ''', params).fetchall()
 
-    return jsonify([dict(r) for r in rows])
+    member_ids = [r['id'] for r in rows]
+    custom_fields_map = {}
+    flags_map = {}
+    if member_ids:
+        placeholders = ','.join('?' * len(member_ids))
+        cfv_rows = db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value '
+            f'FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({placeholders})',
+            member_ids
+        ).fetchall()
+        for cfv in cfv_rows:
+            custom_fields_map.setdefault(cfv['member_id'], {})[cfv['key']] = cfv['value']
+
+        # Attach active flags so the member list can render badges
+        flag_rows = db.execute(
+            f'SELECT mf.member_id, mf.id AS flag_id, mf.flagged_at, '
+            f'ar.id AS rule_id, ar.flag_label, ar.flag_colour '
+            f'FROM member_flags mf '
+            f'JOIN alert_rules ar ON ar.id = mf.rule_id '
+            f'WHERE mf.member_id IN ({placeholders}) AND mf.resolved_at IS NULL',
+            member_ids
+        ).fetchall()
+        for f in flag_rows:
+            flags_map.setdefault(f['member_id'], []).append({
+                'flag_id':    f['flag_id'],
+                'rule_id':    f['rule_id'],
+                'flag_label': f['flag_label'],
+                'flag_colour': f['flag_colour'],
+                'flagged_at': f['flagged_at'],
+            })
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['custom_fields'] = custom_fields_map.get(r['id'], {})
+        d['flags'] = flags_map.get(r['id'], [])
+        result.append(d)
+    return jsonify(result)
 
 @app.route('/api/members/<int:member_id>')
 @permission_required('members.view')
@@ -1039,7 +1765,7 @@ def api_member_detail(member_id):
 
     # Enforce session scope for non-admin roles
     scoped = _assigned_session()
-    if scoped is not None and member['session'] != scoped:
+    if scoped is not None and (member['session'] or '') != scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     contacts = db.execute(
@@ -1062,14 +1788,89 @@ def api_member_viewed(member_id):
 
     # Enforce session scope for non-admin roles
     scoped = _assigned_session()
-    if scoped is not None and member['session'] != scoped:
+    if scoped is not None and (member['session'] or '') != scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     log_action('view_member', 'members', member_id, {
-        'member':    f"{member['first_name']} {member['surname']}",
+        'member':    f"{member['first_name'] or ''} {member['surname'] or ''}".strip(),
         'viewed_by': session['username'],
     })
     return jsonify({'ok': True})
+
+
+@app.route('/api/field-config')
+@permission_required('members.view')
+def api_field_config():
+    """Return field configuration for all active member types, keyed by slug."""
+    db    = get_db()
+    types = db.execute(
+        'SELECT * FROM member_types WHERE active = 1 ORDER BY sort_order'
+    ).fetchall()
+
+    result = {}
+    for mtype in types:
+        rows = db.execute('''
+            SELECT  fd.id, fd.key, fd.label, fd.field_type,
+                    fd.column_name, fd.system_field,
+                    fd.placeholder, fd.help_text, fd.options,
+                    mtf.required,
+                    mtf.show_on_registration, mtf.show_on_list,
+                    mtf.show_on_card, mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                    mtf.sort_order
+            FROM    member_type_fields mtf
+            JOIN    field_definitions fd ON fd.id = mtf.field_id
+            WHERE   mtf.member_type_id = ? AND fd.active = 1
+            ORDER   BY mtf.sort_order
+        ''', (mtype['id'],)).fetchall()
+
+        all_fields = [dict(r) for r in rows]
+        result[mtype['slug']] = {
+            'type':         dict(mtype),
+            'list':         [f for f in all_fields if f['show_on_list']],
+            'card':         [f for f in all_fields if f['show_on_card']],
+            'detail':       [f for f in all_fields if f['show_on_detail']],
+            'print':        [f for f in all_fields if f['show_on_print']],
+            'export':       [f for f in all_fields if f['show_on_export']],
+            'registration': [f for f in all_fields if f['show_on_registration']],
+        }
+
+    return jsonify(result)
+
+
+@app.route('/api/public/field-config/<slug>')
+def api_public_field_config(slug):
+    """Public endpoint — no auth required.
+    Returns field config (show_on_registration fields only) for a single member type.
+    """
+    db    = get_db()
+    mtype = db.execute(
+        'SELECT * FROM member_types WHERE slug = ? AND active = 1', (slug,)
+    ).fetchone()
+    if not mtype:
+        return jsonify({'error': 'Not found'}), 404
+
+    rows = db.execute('''
+        SELECT  fd.id, fd.key, fd.label, fd.field_type,
+                fd.column_name, fd.system_field,
+                fd.placeholder, fd.help_text, fd.options,
+                mtf.required, mtf.sort_order
+        FROM    member_type_fields mtf
+        JOIN    field_definitions fd ON fd.id = mtf.field_id
+        WHERE   mtf.member_type_id = ? AND fd.active = 1
+          AND   mtf.show_on_registration = 1
+        ORDER   BY mtf.sort_order
+    ''', (mtype['id'],)).fetchall()
+
+    return jsonify({
+        'type':   dict(mtype),
+        'fields': [dict(r) for r in rows],
+    })
+
+
+@app.route('/api/public/session-types')
+def api_public_session_types():
+    """Public endpoint — no auth required. Returns active session types for public forms."""
+    return jsonify(get_session_types())
 
 
 @app.route('/api/members/<int:member_id>', methods=['PUT'])
@@ -1085,7 +1886,7 @@ def api_member_update(member_id):
 
     # Enforce session scope for non-admin roles
     scoped = _assigned_session()
-    if scoped is not None and before['session'] != scoped:
+    if scoped is not None and (before['session'] or '') != scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
@@ -1132,7 +1933,7 @@ def api_member_update(member_id):
 
     db.commit()
     log_action('edit_member', 'members', member_id, {
-        'member': f"{before['first_name']} {before['surname']}",
+        'member': f"{before['first_name'] or ''} {before['surname'] or ''}".strip(),
         'editor': session['username'],
         'changes': changes,
     })
@@ -1158,7 +1959,7 @@ def api_member_delete(member_id):
 
     # Enforce session scope for non-admin roles
     scoped = _assigned_session()
-    if scoped is not None and member['session'] != scoped:
+    if scoped is not None and (member['session'] or '') != scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     db.execute(
@@ -1168,7 +1969,7 @@ def api_member_delete(member_id):
     )
     db.commit()
     log_action('soft_delete_member', 'members', member_id,
-               {'member':  f"{member['first_name']} {member['surname']}",
+               {'member':  f"{member['first_name'] or ''} {member['surname'] or ''}".strip(),
                 'reason':  reason,
                 'by':      session['username']})
     return jsonify({'success': True})
@@ -1252,7 +2053,8 @@ def api_member_permanent_delete(member_id):
         db.execute('COMMIT')
     except Exception as e:
         db.execute('ROLLBACK')
-        return jsonify({'error': f'Deletion failed and was rolled back: {str(e)}'}), 500
+        app.logger.error(f'Permanent member delete failed (member_id={member_id}): {e}')
+        return jsonify({'error': 'Deletion failed and was rolled back. Check server logs for details.'}), 500
 
     return jsonify({
         'success':  True,
@@ -1279,9 +2081,8 @@ def api_dashboard():
         counts = db.execute('''
             SELECT
                 SUM(CASE WHEN member_type = "member"                        THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN member_type = "member" AND status  = "Leaver" THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN member_type = "member" AND status  = "At Risk" THEN 1 ELSE 0 END) AS at_risk,
+                SUM(CASE WHEN member_type = "member" AND status = "Active"  THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN member_type = "member" AND status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
                 SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
             FROM members
         ''').fetchone()
@@ -1295,14 +2096,23 @@ def api_dashboard():
         pending = db.execute(
             'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
         ).fetchone()['n']
+        # Alert flags summary — per rule, count of active flags (admin: global)
+        alert_rows = db.execute('''
+            SELECT ar.id, ar.flag_label, ar.flag_colour,
+                   COUNT(mf.id) AS flag_count
+            FROM alert_rules ar
+            LEFT JOIN member_flags mf ON mf.rule_id = ar.id AND mf.resolved_at IS NULL
+            WHERE ar.is_active = 1
+            GROUP BY ar.id
+            ORDER BY flag_count DESC, ar.name
+        ''').fetchall()
     else:
         # Scoped user — counts restricted to their session only
         counts = db.execute('''
             SELECT
                 SUM(CASE WHEN member_type = "member"                        THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN member_type = "member" AND status  = "Leaver" THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN member_type = "member" AND status  = "At Risk" THEN 1 ELSE 0 END) AS at_risk,
+                SUM(CASE WHEN member_type = "member" AND status = "Active"  THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN member_type = "member" AND status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
                 SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
             FROM members WHERE session = ?
         ''', (scoped,)).fetchone()
@@ -1318,6 +2128,17 @@ def api_dashboard():
             ' AND (assigned_session = ? OR assigned_session IS NULL OR assigned_session = "")',
             (scoped,)
         ).fetchone()['n']
+        # Alert flags summary — scoped to members in this session
+        alert_rows = db.execute('''
+            SELECT ar.id, ar.flag_label, ar.flag_colour,
+                   COUNT(mf.id) AS flag_count
+            FROM alert_rules ar
+            LEFT JOIN member_flags mf ON mf.rule_id = ar.id AND mf.resolved_at IS NULL
+            LEFT JOIN members m ON m.id = mf.member_id AND m.session = ?
+            WHERE ar.is_active = 1
+            GROUP BY ar.id
+            ORDER BY flag_count DESC, ar.name
+        ''', (scoped,)).fetchall()
 
     # Build per-session dict: {session_name: {members: N, staff: N}}
     session_counts = {r['session']: {'members': r['members'], 'staff': r['staff']}
@@ -1352,6 +2173,10 @@ def api_dashboard():
         LIMIT  8
     ''').fetchall()
 
+    alerts_last_run = db.execute(
+        "SELECT value FROM settings WHERE key = 'alerts_last_run'"
+    ).fetchone()
+
     return jsonify({
         'members':          dict(counts),
         'session_counts':   session_counts,   # {session_name: {members, staff}}
@@ -1359,6 +2184,8 @@ def api_dashboard():
         'today_attendance': [dict(r) for r in today_att],
         'recent_activity':  [dict(r) for r in recent],
         'scoped_session':   scoped,
+        'alert_flags':      [dict(r) for r in alert_rows],
+        'alerts_last_run':  alerts_last_run['value'] if alerts_last_run else '',
     })
 
 
@@ -1402,7 +2229,8 @@ def api_postcode_lookup(postcode):
         except Exception:
             return jsonify({'error': body, 'http_status': e.code}), e.code
     except Exception as e:
-        return jsonify({'error': str(e), 'type': type(e).__name__}), 502
+        app.logger.error(f'Postcode lookup network error ({postcode}): {e}')
+        return jsonify({'error': 'Address lookup failed — please enter your address manually.'}), 502
 
 
 
@@ -1421,35 +2249,59 @@ def api_staff_roles_public():
 # ── BLUEPRINT: registration (public) ──────────────────────────────────────────
 
 @app.route('/api/registration', methods=['POST'])
+@csrf.exempt   # public unauthenticated endpoint — no session token available
 def api_registration():
-    """Accept a public self-registration (member or staff) and store it as pending."""
-    data  = request.get_json() or {}
-    rtype = data.get('registration_type', 'member')
+    """Accept a public self-registration and store it as pending.
+    Supports both legacy (registration_type) and new dynamic (member_type_slug) payloads.
+    """
+    data = request.get_json() or {}
 
-    if rtype not in ('member', 'staff'):
-        return jsonify({'error': 'Invalid registration type'}), 400
     if not data.get('first_name', '').strip() or not data.get('surname', '').strip():
         return jsonify({'error': 'First name and surname are required'}), 400
 
     db = get_db()
 
-    if rtype == 'staff':
-        # Simplified staff/volunteer registration
-        applicant_role = data.get('applicant_role', '').strip()
-        valid_roles = [r['name'] for r in db.execute(
-            'SELECT name FROM staff_roles WHERE active = 1'
-        ).fetchall()]
-        if applicant_role not in valid_roles:
-            return jsonify({'error': 'Invalid role'}), 400
-        session_pref = data.get('assigned_session', '').strip()
-        if session_pref not in get_valid_session_names():
+    # Determine member type and registration style
+    slug  = (data.get('member_type_slug') or data.get('registration_type') or 'member').strip()
+    mtype = db.execute(
+        'SELECT * FROM member_types WHERE slug = ? AND active = 1', (slug,)
+    ).fetchone()
+
+    if mtype:
+        style         = mtype['registration_style'] or 'member'
+        type_slug_val = mtype['slug']
+        rtype         = 'staff' if style == 'staff' else 'member'
+    else:
+        # Fallback for old payloads
+        rtype         = 'staff' if slug == 'staff' else 'member'
+        style         = rtype
+        type_slug_val = slug
+
+    # Serialize any custom fields submitted by the dynamic form
+    raw_custom = data.get('custom_fields')
+    custom_fields_json = json.dumps(raw_custom) if isinstance(raw_custom, dict) and raw_custom else None
+
+    if style == 'staff':
+        # Staff / volunteer registration
+        applicant_role = (data.get('applicant_role') or data.get('staff_role') or '').strip()
+        if applicant_role:
+            valid_roles = [r['name'] for r in db.execute(
+                'SELECT name FROM staff_roles WHERE active = 1'
+            ).fetchall()]
+            if applicant_role not in valid_roles:
+                return jsonify({'error': 'Invalid role'}), 400
+
+        session_pref = (data.get('assigned_session') or data.get('session') or '').strip()
+        valid_sessions = get_valid_session_names()
+        if session_pref and session_pref not in valid_sessions:
             return jsonify({'error': 'Invalid session preference'}), 400
 
         db.execute('''
             INSERT INTO pending_registrations
                 (first_name, surname, date_of_birth, address, postcode,
-                 mobile, email, registration_type, applicant_role, assigned_session)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+                 mobile, email, registration_type, applicant_role, assigned_session,
+                 custom_fields, member_type_slug)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ''', (
             data.get('first_name', '').strip(),
             data.get('surname', '').strip(),
@@ -1461,9 +2313,11 @@ def api_registration():
             'staff',
             applicant_role,
             session_pref,
+            custom_fields_json,
+            type_slug_val,
         ))
     else:
-        # Full member registration
+        # Member registration (child / young person)
         db.execute('''
             INSERT INTO pending_registrations
                 (first_name, surname, date_of_birth, address, postcode,
@@ -1471,8 +2325,9 @@ def api_registration():
                  unattended_exit, gdpr_consent, comms_consent,
                  contact1_name, contact1_phone, contact1_email,
                  contact2_name, contact2_phone, contact2_email,
-                 declarations, registration_type)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 declarations, registration_type,
+                 custom_fields, member_type_slug)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ''', (
             data.get('first_name', '').strip(),
             data.get('surname', '').strip(),
@@ -1493,6 +2348,8 @@ def api_registration():
             data.get('contact2_email', '').strip(),
             json.dumps(data.get('declarations', {})),
             'member',
+            custom_fields_json,
+            type_slug_val,
         ))
 
     db.commit()
@@ -1806,6 +2663,11 @@ def api_users_update(user_id):
     if user_id == session['user_id'] and data.get('active') is False:
         return jsonify({'error': 'You cannot deactivate your own account'}), 400
 
+    # Read current state now so we can log before/after changes
+    before_row = db.execute(
+        'SELECT username, email, role, session_assigned, active FROM users WHERE id = ?', (user_id,)
+    ).fetchone()
+
     # If changing role, validate the target role and check admin-level permission
     if 'role' in data:
         target_role_row = db.execute(
@@ -1863,6 +2725,25 @@ def api_users_update(user_id):
         params.append(user_id)
         db.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
         db.commit()
+
+        # Build before/after change log
+        if before_row:
+            field_changes = {}
+            if 'email' in data and data.get('email') != before_row['email']:
+                field_changes['email'] = {'from': before_row['email'], 'to': data['email']}
+            if 'role' in data and data['role'] != before_row['role']:
+                field_changes['role'] = {'from': before_row['role'], 'to': data['role']}
+            if 'session_assigned' in data and data.get('session_assigned') != before_row['session_assigned']:
+                field_changes['session_assigned'] = {'from': before_row['session_assigned'], 'to': data['session_assigned']}
+            if 'active' in data:
+                new_active = 1 if data['active'] else 0
+                if new_active != before_row['active']:
+                    field_changes['active'] = {'from': bool(before_row['active']), 'to': bool(new_active)}
+            log_action('update_user', 'users', user_id, {
+                'username':       before_row['username'],
+                'changes':        field_changes,
+                'password_reset': True if ('password' in data and data['password']) else None,
+            })
 
     return jsonify({'success': True})
 
@@ -1925,7 +2806,8 @@ def api_users_permanent_delete(user_id):
         db.execute('COMMIT')
     except Exception as exc:
         db.execute('ROLLBACK')
-        return jsonify({'error': str(exc)}), 500
+        app.logger.error(f'Permanent user delete failed (username={username}): {exc}')
+        return jsonify({'error': 'Deletion failed and was rolled back. Check server logs for details.'}), 500
 
     return jsonify({'success': True, 'deleted': username})
 
@@ -1936,8 +2818,9 @@ def _next_member_id(db):
     prefix = CLUB_SHORT_NAME
     prefix_len = len(prefix)
     row = db.execute(
-        f"SELECT member_id FROM members WHERE member_id LIKE '{prefix}%'"
-        f" ORDER BY CAST(SUBSTR(member_id, {prefix_len + 1}) AS INTEGER) DESC LIMIT 1"
+        'SELECT member_id FROM members WHERE member_id LIKE ?'
+        ' ORDER BY CAST(SUBSTR(member_id, ?) AS INTEGER) DESC LIMIT 1',
+        (f'{prefix}%', prefix_len + 1)
     ).fetchone()
     if row:
         try:
@@ -2122,6 +3005,27 @@ def api_approvals_approve(reg_id):
                     (member_db_id, order, name or '', phone or '', email or '')
                 )
 
+    # Write custom fields from registration into member_field_values
+    custom_raw = reg['custom_fields'] if 'custom_fields' in reg.keys() else None
+    if custom_raw:
+        try:
+            custom_fields = json.loads(custom_raw)
+            for key, val in custom_fields.items():
+                if val is None or val == '':
+                    continue
+                fd = db.execute(
+                    'SELECT id FROM field_definitions WHERE key = ?', (key,)
+                ).fetchone()
+                if fd:
+                    db.execute(
+                        'INSERT OR REPLACE INTO member_field_values'
+                        ' (member_id, field_id, value, updated_at)'
+                        ' VALUES (?, ?, ?, datetime("now"))',
+                        (member_db_id, fd['id'], str(val))
+                    )
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     # Mark registration as approved
     db.execute(
         'UPDATE pending_registrations'
@@ -2231,8 +3135,7 @@ def api_attendance_get(session_type, date):
             return jsonify({'error': 'Access denied for this session'}), 403
 
     rows = db.execute('''
-        SELECT  m.id, m.member_id, m.first_name, m.surname,
-                m.medical_sen, m.unattended_exit,
+        SELECT  m.*,
                 a.id         AS att_id,
                 a.signed_in_at,
                 a.signed_out_at
@@ -2247,12 +3150,28 @@ def api_attendance_get(session_type, date):
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()
 
-    member_ids  = [r['id'] for r in rows]
+    member_ids     = [r['id'] for r in rows]
     tags_by_member = _fetch_tags_for_members(db, member_ids)
+
+    # Batch-fetch custom field values
+    custom_map = {}
+    if member_ids:
+        placeholders = ','.join('?' * len(member_ids))
+        cfv_rows = db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value '
+            f'FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({placeholders})',
+            member_ids
+        ).fetchall()
+        for cfv in cfv_rows:
+            custom_map.setdefault(cfv['member_id'], {})[cfv['key']] = cfv['value']
+
     result = []
     for r in rows:
         d = dict(r)
-        d['tags'] = tags_by_member.get(r['id'], [])
+        d['tags']          = tags_by_member.get(r['id'], [])
+        d['custom_fields'] = custom_map.get(r['id'], {})
         result.append(d)
     return jsonify(result)
 
@@ -2262,7 +3181,7 @@ def api_attendance_get(session_type, date):
 def api_attendance_staff_get(session_type, date):
     """
     Return all active staff members for a session on a given date,
-    annotated with sign-in/out times. Staff are never subject to At Risk logic.
+    annotated with sign-in/out times. Staff are never subject to alert rule evaluation.
     """
     if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
@@ -2336,18 +3255,27 @@ def api_attendance_signin():
             ' VALUES (?,?,?,?,?)',
             (member_id, sess_date, sess_type, now, session['user_id'])
         )
-    # Auto-revert: if the member was flagged At Risk and has now attended, reinstate them
-    member_row = db.execute('SELECT status, first_name, surname FROM members WHERE id = ?',
-                            (member_id,)).fetchone()
-    if member_row and member_row['status'] == 'At Risk':
+    # Auto-resolve: clear any active attendance-rule flags for this member now they've attended
+    att_flags = db.execute(
+        "SELECT mf.id FROM member_flags mf "
+        "JOIN alert_rules ar ON ar.id = mf.rule_id "
+        "WHERE mf.member_id = ? AND mf.resolved_at IS NULL "
+        "AND ar.rule_type = 'attendance' AND ar.auto_resolve = 1",
+        (member_id,)
+    ).fetchall()
+    for flag in att_flags:
         db.execute(
-            "UPDATE members SET status = 'Active', status_note = NULL, "
-            "updated_at = datetime('now'), updated_by = ? WHERE id = ?",
-            (session['user_id'], member_id)
+            "UPDATE member_flags SET resolved_at = datetime('now'), resolved_by = 'auto' "
+            "WHERE id = ?",
+            (flag['id'],)
         )
-        log_action('reinstate_member', 'members', member_id, {
-            'member': f"{member_row['first_name']} {member_row['surname']}",
-            'reason': 'attended session — auto-reinstated from At Risk',
+    if att_flags:
+        member_row = db.execute('SELECT first_name, surname FROM members WHERE id = ?',
+                                (member_id,)).fetchone()
+        log_action('auto_resolve_flags', 'members', member_id, {
+            'member': f"{member_row['first_name'] or ''} {member_row['surname'] or ''}".strip(),
+            'reason': 'attended session — attendance alert flags auto-resolved',
+            'count':  len(att_flags),
         })
 
     db.commit()
@@ -2435,7 +3363,7 @@ def api_attendance_complete():
 
     db = get_db()
 
-    # Prevent double-completion
+    # Prevent double-completion — checked again inside the transaction to avoid race
     existing = db.execute(
         'SELECT id FROM session_completions WHERE session_date = ? AND session_type = ?',
         (sess_date, sess_type)
@@ -2444,31 +3372,43 @@ def api_attendance_complete():
         return jsonify({'error': 'This register has already been completed'}), 409
 
     # Auto sign out anyone still signed in
-    now         = datetime.now().strftime('%H:%M')
-    still_in    = db.execute(
+    now      = datetime.now().strftime('%H:%M')
+    still_in = db.execute(
         '''SELECT id FROM attendance
            WHERE session_date = ? AND session_type = ?
              AND signed_in_at IS NOT NULL AND signed_out_at IS NULL''',
         (sess_date, sess_type)
     ).fetchall()
-    auto_count  = len(still_in)
-    if auto_count:
-        db.execute(
-            '''UPDATE attendance SET signed_out_at = ?, recorded_by = ?
-               WHERE session_date = ? AND session_type = ?
-                 AND signed_in_at IS NOT NULL AND signed_out_at IS NULL''',
-            (now, session['user_id'], sess_date, sess_type)
-        )
+    auto_count = len(still_in)
 
-    # Record the completion
-    db.execute(
-        '''INSERT INTO session_completions
-               (session_date, session_type, completed_by, completed_at, auto_signout_count)
-           VALUES (?, ?, ?, datetime('now'), ?)''',
-        (sess_date, sess_type, session['user_id'], auto_count)
-    )
-    db.commit()
+    try:
+        db.execute('BEGIN IMMEDIATE')   # exclusive write lock — prevents race condition
+        if auto_count:
+            db.execute(
+                '''UPDATE attendance SET signed_out_at = ?, recorded_by = ?
+                   WHERE session_date = ? AND session_type = ?
+                     AND signed_in_at IS NOT NULL AND signed_out_at IS NULL''',
+                (now, session['user_id'], sess_date, sess_type)
+            )
+        db.execute(
+            '''INSERT INTO session_completions
+                   (session_date, session_type, completed_by, completed_at, auto_signout_count)
+               VALUES (?, ?, ?, datetime('now'), ?)''',
+            (sess_date, sess_type, session['user_id'], auto_count)
+        )
+        db.execute('COMMIT')
+    except sqlite3.IntegrityError:
+        db.execute('ROLLBACK')
+        return jsonify({'error': 'This register was already completed by another user'}), 409
+    except Exception as exc:
+        db.execute('ROLLBACK')
+        return jsonify({'error': f'Could not complete register: {exc}'}), 500
+
     _touch_attendance()
+
+    # Invalidate any active QR token for this session so the QR code
+    # on the display stops working the moment the register is locked.
+    _invalidate_qr_token_for_session(sess_type, sess_date)
 
     # Fetch summary counts for the response
     totals = db.execute(
@@ -2565,15 +3505,35 @@ def _touch_attendance():
 
 @app.route('/api/display/stream')
 def api_display_stream():
-    """SSE endpoint — pushes a 'refresh' event whenever attendance changes."""
+    """SSE endpoint — pushes a 'refresh' event whenever attendance changes.
+
+    The generator has a hard 4-hour lifetime. When it expires it sends a
+    'timeout' event and exits cleanly, so the thread is released. The JS client
+    treats an EventSource close as an error and the browser reconnects
+    automatically, starting a fresh 4-hour window.
+
+    A heartbeat comment line is sent every 30 seconds so proxies don't close
+    idle connections before they time out naturally.
+    """
+    _SSE_MAX_SECONDS  = 4 * 3600  # 4 hours — hard lifetime per connection
+    _SSE_HEARTBEAT_S  = 30        # keepalive comment interval in seconds
+    _SSE_POLL_S       = 1         # how often to check for attendance changes
+
     def generate():
-        last = None
-        while True:
+        last         = None
+        deadline     = time.time() + _SSE_MAX_SECONDS
+        last_hb      = time.time()
+        while time.time() < deadline:
+            if time.time() - last_hb >= _SSE_HEARTBEAT_S:
+                yield ': heartbeat\n\n'  # SSE comment — ignored by clients, prevents proxy timeout
+                last_hb = time.time()
             current = get_setting('last_attendance_change')
             if current != last:
                 last = current
                 yield 'data: refresh\n\n'
-            time.sleep(1)
+            time.sleep(_SSE_POLL_S)
+        yield 'data: timeout\n\n'  # signal client to reconnect (EventSource onerror fires)
+
     return Response(
         stream_with_context(generate()),
         mimetype='text/event-stream',
@@ -2622,128 +3582,13 @@ def _assigned_session():
     Return the session this user is scoped to, or None for admin (unscoped).
     All non-admin roles MUST have a session_assigned.
     """
-    if session.get('role') == 'admin':
+    if session.get('role') == ROLE_ADMIN:
         return None
     return session.get('session_assigned') or ''
 
 
-@app.route('/api/attendance/check-at-risk')
-@permission_required('register.at_risk')
-def api_attendance_check_at_risk():
-    """
-    Return active members who have missed their last N consecutive sessions,
-    where N is the configurable per-session threshold from settings.
-    Uses term_sessions to determine what sessions have occurred.
-    """
-    db    = get_db()
-    today = datetime.now().strftime('%Y-%m-%d')
-
-    # Build per-session thresholds dynamically from settings
-    thresholds = {}
-    for st in get_session_types():
-        key = 'at_risk_threshold_' + st['name'].lower().replace(' ', '_')
-        thresholds[st['name']] = int(get_setting(key, '5'))
-
-    # Fetch all past term sessions
-    past_sessions = db.execute(
-        "SELECT session_date, session_type FROM term_sessions "
-        "WHERE session_date <= ? ORDER BY session_date DESC",
-        (today,)
-    ).fetchall()
-
-    # Build per-type ordered lists (most recent first)
-    from collections import defaultdict
-    sessions_by_type = defaultdict(list)
-    for s in past_sessions:
-        sessions_by_type[s['session_type']].append(s['session_date'])
-
-    # Fetch all active (non-leaver, non-at-risk) youth members, scoped where applicable
-    scoped = _assigned_session()
-    if scoped is not None:
-        members = db.execute(
-            "SELECT id, member_id, first_name, surname, session FROM members "
-            "WHERE status NOT IN ('Leaver', 'At Risk') AND member_type = 'member' AND session = ?",
-            (scoped,)
-        ).fetchall()
-    else:
-        members = db.execute(
-            "SELECT id, member_id, first_name, surname, session FROM members "
-            "WHERE status NOT IN ('Leaver', 'At Risk') AND member_type = 'member'"
-        ).fetchall()
-
-    candidates = []
-    for m in members:
-        assigned  = m['session']
-        threshold = thresholds.get(assigned, 5)
-        relevant  = sessions_by_type[assigned][:threshold]
-        if not checks:
-            continue
-
-        for day, relevant, threshold in checks:
-            if len(relevant) < threshold:
-                continue  # Not enough history yet to flag
-
-            attended = db.execute(
-                f"SELECT COUNT(*) AS n FROM attendance WHERE member_id = ? "
-                f"AND session_date IN ({','.join('?' * len(relevant))})",
-                [m['id']] + relevant
-            ).fetchone()['n']
-
-            if attended == 0:
-                last = db.execute(
-                    "SELECT MAX(session_date) AS last FROM attendance WHERE member_id = ?",
-                    (m['id'],)
-                ).fetchone()['last']
-                candidates.append({
-                    'id':              m['id'],
-                    'member_id':       m['member_id'],
-                    'first_name':      m['first_name'],
-                    'surname':         m['surname'],
-                    'session':         assigned,
-                    'trigger_session': day,
-                    'last_attendance': last,
-                    'missed_sessions': threshold,
-                })
-
-    candidates.sort(key=lambda x: (x['last_attendance'] or '', x['surname']))
-    return jsonify(candidates)
-
-
-@app.route('/api/attendance/mark-at-risk', methods=['POST'])
-@permission_required('register.at_risk')
-def api_attendance_mark_at_risk():
-    """Flag a list of members as At Risk, with a mandatory note from the core leader."""
-    data       = request.get_json() or {}
-    member_ids = data.get('member_ids', [])
-    note       = data.get('note', '').strip()
-    if not member_ids:
-        return jsonify({'error': 'No member IDs provided'}), 400
-    if not note:
-        return jsonify({'error': 'A note is required when flagging members as At Risk'}), 400
-
-    db     = get_db()
-    scoped = _assigned_session()
-    count  = 0
-    for mid in member_ids:
-        member = db.execute('SELECT * FROM members WHERE id = ?', (mid,)).fetchone()
-        if not member:
-            continue
-        # Enforce session scope for non-admin roles
-        if scoped is not None and member['session'] != scoped:
-            continue
-        if member['status'] not in ('Leaver', 'At Risk'):
-            db.execute(
-                "UPDATE members SET status = 'At Risk', status_note = ?, "
-                "updated_at = datetime('now'), updated_by = ? WHERE id = ?",
-                (note, session['user_id'], mid)
-            )
-            log_action('mark_at_risk', 'members', mid, {
-                'member': f"{member['first_name']} {member['surname']}",
-                'note':   note,
-            })
-            count += 1
-    db.commit()
-    return jsonify({'success': True, 'marked_count': count})
+# NOTE: /api/attendance/check-at-risk and /api/attendance/mark-at-risk removed in v8.0.
+# Attendance-based flagging is now handled by the alert_rules engine (rule_type='attendance').
 
 
 @app.route('/api/attendance/history/<int:member_id>')
@@ -2755,7 +3600,7 @@ def api_attendance_history(member_id):
     scoped = _assigned_session()
     if scoped is not None:
         member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
-        if not member or member['session'] != scoped:
+        if not member or (member['session'] or '') != scoped:
             return jsonify({'error': 'Forbidden'}), 403
 
     rows = db.execute(
@@ -2781,9 +3626,12 @@ def display_page():
 @app.route('/api/display/<session_type>')
 def api_display(session_type):
     """
-    Return names of members currently signed IN (not yet signed out) for
-    today's session, plus on-duty leaders and active activities.
-    No login required — returns first name + surname only, no sensitive data.
+    Return first names of members currently signed IN (not yet signed out) for
+    today's session, plus on-duty leaders (first name + role) and active activities.
+
+    Intentionally unauthenticated — this endpoint powers a public TV/reception
+    display. To limit exposure, only first names are returned for members;
+    full names are never included. Leaders show first name and role only.
     """
     if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session'}), 400
@@ -2828,9 +3676,10 @@ def api_display(session_type):
     return jsonify({
         'session':    session_type,
         'date':       today,
-        'members':    [{'first_name': r['first_name'], 'surname': r['surname'],
+        # First names only — this endpoint is unauthenticated (public display board)
+        'members':    [{'first_name': r['first_name'],
                         'signed_in_at': r['signed_in_at']} for r in rows],
-        'leaders':    [{'name': f"{r['first_name']} {r['surname']}", 'role': r['staff_role'] or ''} for r in leader_rows],
+        'leaders':    [{'name': r['first_name'] or '', 'role': r['staff_role'] or ''} for r in leader_rows],
         'activities': [{'id': r['id'], 'activity': r['activity']} for r in activity_rows],
     })
 
@@ -2872,6 +3721,26 @@ def api_activity_add():
     )
     db.commit()
     return jsonify({'id': cur.lastrowid, 'activity': activity}), 201
+
+
+@app.route('/api/activities/<int:activity_id>', methods=['PUT'])
+@permission_required('activities.manage')
+def api_activity_update(activity_id):
+    """Edit an activity's text on the display board."""
+    db       = get_db()
+    row      = db.execute('SELECT id FROM session_activities WHERE id = ? AND active = 1',
+                          (activity_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Activity not found'}), 404
+    data     = request.get_json() or {}
+    activity = data.get('activity', '').strip()
+    if not activity:
+        return jsonify({'error': 'Activity text is required'}), 400
+    if len(activity) > 120:
+        return jsonify({'error': 'Activity text is too long (max 120 characters)'}), 400
+    db.execute('UPDATE session_activities SET activity = ? WHERE id = ?', (activity, activity_id))
+    db.commit()
+    return jsonify({'id': activity_id, 'activity': activity})
 
 
 @app.route('/api/activities/<int:activity_id>', methods=['DELETE'])
@@ -3323,9 +4192,12 @@ def api_email_templates_update(tmpl_id):
 @app.route('/api/email-templates/<int:tmpl_id>', methods=['DELETE'])
 @permission_required('mailshots.templates')
 def api_email_templates_delete(tmpl_id):
-    db = get_db()
+    db   = get_db()
+    tmpl = db.execute('SELECT name FROM email_templates WHERE id = ?', (tmpl_id,)).fetchone()
     db.execute('DELETE FROM email_templates WHERE id = ?', (tmpl_id,))
     db.commit()
+    log_action('delete_email_template', 'email_templates', tmpl_id,
+               {'name': tmpl['name']} if tmpl else None)
     return jsonify({'success': True})
 
 
@@ -3461,7 +4333,8 @@ def api_mailshots_send():
     except smtplib.SMTPAuthenticationError:
         return jsonify({'error': 'Gmail authentication failed — check your App Password in .env'}), 503
     except Exception as e:
-        return jsonify({'error': f'SMTP error: {str(e)}'}), 503
+        app.logger.error(f'Mailshot SMTP error: {e}')
+        return jsonify({'error': 'Failed to connect to the mail server. Check SMTP settings in .env.'}), 503
 
     # Log mailshot — store document IDs in filter_criteria for audit trail
     log_meta = {
@@ -3567,6 +4440,159 @@ def api_maintenance_clear_registrations():
     log_action('maintenance_clear', 'pending_registrations', None,
                {'cleared': n, 'by': session['username']})
     return jsonify({'success': True, 'deleted': n})
+
+
+@app.route('/api/admin/maintenance/backup')
+@permission_required('admin.maintenance')
+def api_maintenance_backup():
+    """Stream a hot backup of the SQLCipher database as a downloadable file.
+
+    Uses SQLite's online backup API so the backup is consistent even while the
+    app is serving requests.  The resulting file is itself an SQLCipher-encrypted
+    database — the same DB_ENCRYPTION_KEY is required to open it.
+    """
+    import io
+    import tempfile
+
+    timestamp  = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename   = f'ayc_backup_{timestamp}.db'
+
+    # Write a hot backup to a temporary file, then stream it.
+    # We use a temp file rather than an in-memory buffer because SQLite's
+    # backup API requires a real file path as the destination.
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        src  = _connect_db()          # source: live encrypted DB
+        dest = sqlite3.connect(tmp_path)
+        dest.execute(f"PRAGMA key='{os.environ.get('DB_ENCRYPTION_KEY', '')}'")
+        src.backup(dest)              # online backup — consistent snapshot
+        dest.close()
+        src.close()
+
+        with open(tmp_path, 'rb') as f:
+            data = f.read()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    log_action('maintenance_backup', 'database', None,
+               {'filename': filename, 'size_bytes': len(data), 'by': session['username']})
+
+    return Response(
+        data,
+        mimetype='application/octet-stream',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length':      str(len(data)),
+        },
+    )
+
+
+@app.route('/api/admin/maintenance/restore', methods=['POST'])
+@permission_required('admin.maintenance')
+def api_maintenance_restore():
+    """Restore the database from an uploaded backup file.
+
+    Safety steps (in order):
+      1. Validate the upload is a real SQLCipher database openable with the
+         current DB_ENCRYPTION_KEY — rejects corrupt files or wrong-key backups.
+      2. Collect a record-count summary from the uploaded DB to return to the UI.
+      3. Write an automatic pre-restore snapshot to data/backups/ so the
+         current data is never lost.
+      4. Atomically replace the live database with the uploaded file.
+      5. Close the current request-scoped DB handle so Flask opens a fresh
+         connection on the next request.
+    """
+    import shutil
+    import tempfile
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded.'}), 400
+
+    upload = request.files['file']
+    if not upload.filename:
+        return jsonify({'error': 'Empty filename.'}), 400
+
+    # Save the upload to a temp file for validation
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+        tmp_path = tmp.name
+        upload.save(tmp_path)
+
+    try:
+        # ── Step 1: validate the uploaded file ────────────────────────────────
+        try:
+            check = sqlite3.connect(tmp_path)
+            check.execute(f"PRAGMA key='{os.environ.get('DB_ENCRYPTION_KEY', '')}'")
+            check.execute('SELECT count(*) FROM sqlite_master')
+        except Exception:
+            return jsonify({
+                'error': 'The uploaded file could not be opened. It may be corrupt '
+                         'or was created with a different encryption key.'
+            }), 400
+        finally:
+            try:
+                check.close()
+            except Exception:
+                pass
+
+        # ── Step 2: collect summary from uploaded DB ──────────────────────────
+        try:
+            info_conn = sqlite3.connect(tmp_path)
+            info_conn.execute(f"PRAGMA key='{os.environ.get('DB_ENCRYPTION_KEY', '')}'")
+            def _count(tbl):
+                try:
+                    return info_conn.execute(f'SELECT COUNT(*) FROM {tbl}').fetchone()[0]
+                except Exception:
+                    return None
+            summary = {
+                'members':     _count('members'),
+                'users':       _count('users'),
+                'audit_log':   _count('audit_log'),
+                'attendance':  _count('attendance'),
+            }
+            info_conn.close()
+        except Exception:
+            summary = {}
+
+        # ── Step 3: auto-snapshot current DB before overwriting ───────────────
+        backups_dir = os.path.join(INSTANCE_DIR, 'data', 'backups')
+        os.makedirs(backups_dir, exist_ok=True)
+        snapshot_ts   = datetime.now().strftime('%Y%m%d_%H%M%S')
+        snapshot_path = os.path.join(backups_dir, f'pre_restore_{snapshot_ts}.db')
+        shutil.copy2(DATABASE, snapshot_path)
+
+        # ── Step 4: atomic swap ───────────────────────────────────────────────
+        shutil.copy2(tmp_path, DATABASE)
+
+        # ── Step 5: drop the stale request-scoped connection ─────────────────
+        if hasattr(g, 'db'):
+            try:
+                g.db.close()
+            except Exception:
+                pass
+            g.db = None
+
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    log_action('maintenance_restore', 'database', None, {
+        'snapshot': snapshot_path,
+        'summary':  summary,
+        'by':       session['username'],
+    })
+
+    return jsonify({
+        'success':  True,
+        'summary':  summary,
+        'snapshot': os.path.basename(snapshot_path),
+    })
 
 
 # ── BLUEPRINT: roles + permissions (v6.0) ─────────────────────────────────────
@@ -3749,14 +4775,16 @@ def api_tags_list():
 @app.route('/api/admin/tags', methods=['POST'])
 @permission_required('admin.settings')
 def api_tags_create():
-    data     = request.get_json() or {}
-    name     = data.get('name', '').strip()
-    category = data.get('category', 'General').strip() or 'General'
-    icon     = data.get('icon', '🏷').strip() or '🏷'
-    colour   = data.get('colour', '#3b82f6').strip() or '#3b82f6'
+    data              = request.get_json() or {}
+    name              = data.get('name', '').strip()
+    category          = data.get('category', 'General').strip() or 'General'
+    icon              = data.get('icon', '🏷').strip() or '🏷'
+    colour, col_err   = _validate_hex_colour(data.get('colour', ''), '#3b82f6')
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
+    if col_err:
+        return jsonify({'error': col_err}), 400
 
     db        = get_db()
     max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM tag_definitions').fetchone()[0]
@@ -3780,15 +4808,17 @@ def api_tags_update(tag_id):
     if not row:
         return jsonify({'error': 'Tag not found'}), 404
 
-    data     = request.get_json() or {}
-    name     = data.get('name',     row['name']).strip()
-    category = data.get('category', row['category']).strip() or 'General'
-    icon     = data.get('icon',     row['icon']).strip() or '🏷'
-    colour   = data.get('colour',   row['colour']).strip() or '#3b82f6'
-    active   = int(data.get('active', row['active']))
+    data              = request.get_json() or {}
+    name              = data.get('name',     row['name']).strip()
+    category          = data.get('category', row['category']).strip() or 'General'
+    icon              = data.get('icon',     row['icon']).strip() or '🏷'
+    colour, col_err   = _validate_hex_colour(data.get('colour', row['colour']), row['colour'])
+    active            = int(data.get('active', row['active']))
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
+    if col_err:
+        return jsonify({'error': col_err}), 400
     try:
         db.execute(
             'UPDATE tag_definitions SET name=?, category=?, icon=?, colour=?, active=? WHERE id=?',
@@ -3854,8 +4884,11 @@ def api_member_tags_add(member_id):
             (member_id, tag_id, expires_at, notes)
         )
         db.commit()
-        log_action('add_member_tag', 'member_tags', cur.lastrowid,
-                   {'member_id': member_id, 'tag': tag['name']})
+        m = db.execute('SELECT first_name, surname FROM members WHERE id = ?', (member_id,)).fetchone()
+        log_action('add_member_tag', 'member_tags', cur.lastrowid, {
+            'member': f"{m['first_name'] or ''} {m['surname'] or ''}".strip() if m else str(member_id),
+            'tag':    tag['name'],
+        })
         row = db.execute('''
             SELECT mt.id AS assignment_id, mt.expires_at, mt.notes, mt.created_at,
                    td.id AS tag_id, td.name, td.icon, td.colour, td.category
@@ -3879,10 +4912,14 @@ def api_member_tags_remove(member_id, tag_id):
     if not row:
         return jsonify({'error': 'Tag assignment not found'}), 404
 
+    m   = db.execute('SELECT first_name, surname FROM members WHERE id = ?', (member_id,)).fetchone()
+    tag = db.execute('SELECT name FROM tag_definitions WHERE id = ?', (tag_id,)).fetchone()
     db.execute('DELETE FROM member_tags WHERE id = ?', (row['id'],))
     db.commit()
-    log_action('remove_member_tag', 'member_tags', row['id'],
-               {'member_id': member_id, 'tag_id': tag_id})
+    log_action('remove_member_tag', 'member_tags', row['id'], {
+        'member': f"{m['first_name'] or ''} {m['surname'] or ''}".strip() if m else str(member_id),
+        'tag':    tag['name'] if tag else str(tag_id),
+    })
     return jsonify({'success': True})
 
 
@@ -3995,6 +5032,1592 @@ def api_notes_delete(note_id):
     return jsonify({'success': True})
 
 
+# ── BLUEPRINT: member types CRUD (v8.0) ───────────────────────────────────────
+
+import re as _re
+
+def _slugify(text):
+    """Convert text to a URL-safe slug."""
+    text = text.lower().strip()
+    text = _re.sub(r'[^\w\s-]', '', text)
+    text = _re.sub(r'[\s_]+', '-', text)
+    text = _re.sub(r'-+', '-', text)
+    return text.strip('-')
+
+
+@app.route('/api/admin/member-types', methods=['GET'])
+@permission_required('admin.settings')
+def api_admin_member_types_list():
+    """Return all member types ordered by sort_order, with field_count."""
+    db   = get_db()
+    rows = db.execute('''
+        SELECT mt.*,
+               (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.member_type_id = mt.id) AS field_count
+        FROM   member_types mt
+        ORDER  BY mt.sort_order, mt.name
+    ''').fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/member-types', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_member_types_create():
+    """Create a new member type."""
+    data                = request.get_json() or {}
+    name                = data.get('name', '').strip()
+    slug                = data.get('slug', '').strip() or _slugify(name)
+    icon                = data.get('icon', '👤').strip() or '👤'
+    colour, col_err     = _validate_hex_colour(data.get('colour', ''), '#1b2d4f')
+    description         = data.get('description', '').strip() or None
+    public_registration = int(data.get('public_registration', 0))
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if not slug:
+        return jsonify({'error': 'slug is required'}), 400
+    if col_err:
+        return jsonify({'error': col_err}), 400
+
+    db        = get_db()
+    max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM member_types').fetchone()[0]
+    try:
+        cur = db.execute(
+            '''INSERT INTO member_types
+               (name, slug, icon, colour, description, public_registration, sort_order)
+               VALUES (?,?,?,?,?,?,?)''',
+            (name, slug, icon, colour, description, public_registration, max_order + 1),
+        )
+        db.commit()
+        log_action('create_member_type', 'member_types', cur.lastrowid, {'name': name, 'slug': slug})
+        row = db.execute(
+            '''SELECT mt.*, (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.member_type_id = mt.id) AS field_count
+               FROM member_types mt WHERE mt.id = ?''', (cur.lastrowid,)
+        ).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A member type with that name or slug already exists'}), 409
+
+
+@app.route('/api/admin/member-types/<int:type_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_admin_member_types_update(type_id):
+    """Update a member type. Slug cannot be changed after creation."""
+    data    = request.get_json() or {}
+    db      = get_db()
+    current = db.execute('SELECT * FROM member_types WHERE id = ?', (type_id,)).fetchone()
+    if not current:
+        return jsonify({'error': 'Member type not found'}), 404
+
+    name                = (data.get('name') or current['name']).strip()
+    icon                = (data.get('icon') or current['icon'] or '👤').strip() or '👤'
+    colour, col_err     = _validate_hex_colour(data.get('colour', current['colour']), current['colour'] or '#1b2d4f')
+    description         = data.get('description', current['description'])
+    if description is not None:
+        description = description.strip() or None
+    public_registration = int(data.get('public_registration', current['public_registration']))
+    active              = int(data.get('active', current['active']))
+    sort_order          = int(data.get('sort_order', current['sort_order']))
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if col_err:
+        return jsonify({'error': col_err}), 400
+
+    # Prevent deactivating the last active type
+    if not active:
+        active_count = db.execute(
+            'SELECT COUNT(*) FROM member_types WHERE active = 1 AND id != ?', (type_id,)
+        ).fetchone()[0]
+        if active_count == 0:
+            return jsonify({'error': 'Cannot deactivate the only active member type'}), 400
+
+    try:
+        db.execute(
+            '''UPDATE member_types
+               SET name=?, icon=?, colour=?, description=?, public_registration=?, active=?, sort_order=?
+               WHERE id=?''',
+            (name, icon, colour, description, public_registration, active, sort_order, type_id),
+        )
+        db.commit()
+        log_action('update_member_type', 'member_types', type_id,
+                   {'name': name, 'active': active})
+        row = db.execute(
+            '''SELECT mt.*, (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.member_type_id = mt.id) AS field_count
+               FROM member_types mt WHERE mt.id = ?''', (type_id,)
+        ).fetchone()
+        return jsonify(dict(row))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A member type named "{name}" already exists'}), 409
+
+
+@app.route('/api/admin/member-types/<int:type_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_admin_member_types_delete(type_id):
+    """Delete a member type. Blocked if members use this type or it's the last active type."""
+    db  = get_db()
+    row = db.execute('SELECT * FROM member_types WHERE id = ?', (type_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Member type not found'}), 404
+
+    member_count = db.execute(
+        'SELECT COUNT(*) FROM members WHERE member_type = ?', (row['slug'],)
+    ).fetchone()[0]
+    if member_count:
+        return jsonify({'error': f'Cannot delete — {member_count} member(s) use this type'}), 409
+
+    active_count = db.execute(
+        'SELECT COUNT(*) FROM member_types WHERE active = 1 AND id != ?', (type_id,)
+    ).fetchone()[0]
+    if row['active'] and active_count == 0:
+        return jsonify({'error': 'Cannot delete the only active member type'}), 400
+
+    db.execute('DELETE FROM member_types WHERE id = ?', (type_id,))
+    db.commit()
+    log_action('delete_member_type', 'member_types', type_id, {'name': row['name']})
+    return jsonify({'success': True})
+
+
+# ── BLUEPRINT: field definitions CRUD (v8.0) ──────────────────────────────────
+
+@app.route('/api/admin/field-definitions', methods=['GET'])
+@permission_required('admin.settings')
+def api_admin_field_definitions_list():
+    """Return all field definitions ordered by sort_order, with assigned_to count."""
+    db   = get_db()
+    rows = db.execute('''
+        SELECT fd.*,
+               (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.field_id = fd.id) AS assigned_to
+        FROM   field_definitions fd
+        ORDER  BY fd.sort_order, fd.label
+    ''').fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/field-definitions', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_field_definitions_create():
+    """Create a new custom field (system_field=0)."""
+    data        = request.get_json() or {}
+    label       = (data.get('label') or '').strip()
+    field_type  = (data.get('field_type') or 'text').strip() or 'text'
+    placeholder = (data.get('placeholder') or '').strip() or None
+    help_text   = (data.get('help_text') or '').strip() or None
+    options     = (data.get('options') or '').strip() or None
+
+    if not label:
+        return jsonify({'error': 'label is required'}), 400
+
+    key = _slugify(label).replace('-', '_')
+    if not key:
+        return jsonify({'error': 'Could not generate a valid key from the label'}), 400
+
+    db        = get_db()
+    max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM field_definitions').fetchone()[0]
+
+    # Ensure key uniqueness by appending a suffix if needed
+    base_key = key
+    suffix   = 1
+    while db.execute('SELECT id FROM field_definitions WHERE key = ?', (key,)).fetchone():
+        key = f'{base_key}_{suffix}'
+        suffix += 1
+
+    try:
+        cur = db.execute(
+            '''INSERT INTO field_definitions
+               (key, label, field_type, placeholder, help_text, options, system_field, sort_order)
+               VALUES (?,?,?,?,?,?,0,?)''',
+            (key, label, field_type, placeholder, help_text, options, max_order + 1),
+        )
+        db.commit()
+        log_action('create_field_definition', 'field_definitions', cur.lastrowid,
+                   {'key': key, 'label': label, 'field_type': field_type})
+        row = db.execute(
+            '''SELECT fd.*, (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.field_id = fd.id) AS assigned_to
+               FROM field_definitions fd WHERE fd.id = ?''', (cur.lastrowid,)
+        ).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A field with key "{key}" already exists'}), 409
+
+
+@app.route('/api/admin/field-definitions/<int:field_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_admin_field_definitions_update(field_id):
+    """Update a field definition. Key and system_field status cannot be changed."""
+    data    = request.get_json() or {}
+    db      = get_db()
+    current = db.execute('SELECT * FROM field_definitions WHERE id = ?', (field_id,)).fetchone()
+    if not current:
+        return jsonify({'error': 'Field definition not found'}), 404
+
+    # Block field_type changes for system fields
+    if current['system_field'] and 'field_type' in data and data['field_type'] != current['field_type']:
+        return jsonify({'error': 'Cannot change the field type of a system field'}), 403
+
+    label       = data.get('label', current['label']).strip()
+    field_type  = data.get('field_type', current['field_type']).strip() or current['field_type']
+    placeholder = data.get('placeholder', current['placeholder'])
+    if placeholder is not None:
+        placeholder = placeholder.strip() or None
+    help_text   = data.get('help_text', current['help_text'])
+    if help_text is not None:
+        help_text = help_text.strip() or None
+    options     = data.get('options', current['options'])
+    if options is not None:
+        options = options.strip() or None
+    active      = int(data.get('active', current['active']))
+
+    if not label:
+        return jsonify({'error': 'label is required'}), 400
+
+    db.execute(
+        '''UPDATE field_definitions
+           SET label=?, field_type=?, placeholder=?, help_text=?, options=?, active=?
+           WHERE id=?''',
+        (label, field_type, placeholder, help_text, options, active, field_id),
+    )
+    db.commit()
+    log_action('update_field_definition', 'field_definitions', field_id,
+               {'label': label, 'active': active})
+    row = db.execute(
+        '''SELECT fd.*, (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.field_id = fd.id) AS assigned_to
+           FROM field_definitions fd WHERE fd.id = ?''', (field_id,)
+    ).fetchone()
+    return jsonify(dict(row))
+
+
+@app.route('/api/admin/field-definitions/<int:field_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_admin_field_definitions_delete(field_id):
+    """Delete a custom field. Blocked for system fields or if in use."""
+    db  = get_db()
+    row = db.execute('SELECT * FROM field_definitions WHERE id = ?', (field_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Field definition not found'}), 404
+
+    if row['system_field']:
+        return jsonify({'error': 'System fields cannot be deleted'}), 403
+
+    usage = db.execute(
+        'SELECT COUNT(*) FROM member_type_fields WHERE field_id = ?', (field_id,)
+    ).fetchone()[0]
+    if usage:
+        return jsonify({'error': f'Cannot delete — this field is assigned to {usage} member type(s)'}), 409
+
+    db.execute('DELETE FROM field_definitions WHERE id = ?', (field_id,))
+    db.commit()
+    log_action('delete_field_definition', 'field_definitions', field_id, {'key': row['key']})
+    return jsonify({'success': True})
+
+
+# ── BLUEPRINT: type-field config (v8.0) ───────────────────────────────────────
+
+@app.route('/api/admin/member-types/<int:type_id>/fields', methods=['GET'])
+@permission_required('admin.settings')
+def api_admin_type_fields_list(type_id):
+    """Return all fields assigned to this member type with full field definition data."""
+    db = get_db()
+    if not db.execute('SELECT id FROM member_types WHERE id = ?', (type_id,)).fetchone():
+        return jsonify({'error': 'Member type not found'}), 404
+    rows = db.execute('''
+        SELECT  mtf.id AS assignment_id, mtf.sort_order, mtf.required,
+                mtf.show_on_registration, mtf.show_on_list, mtf.show_on_card,
+                mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                fd.id AS field_id, fd.key, fd.label, fd.field_type,
+                fd.options, fd.help_text, fd.placeholder,
+                fd.system_field, fd.column_name, fd.active
+        FROM    member_type_fields mtf
+        JOIN    field_definitions fd ON fd.id = mtf.field_id
+        WHERE   mtf.member_type_id = ?
+        ORDER   BY mtf.sort_order, fd.label
+    ''', (type_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/member-types/<int:type_id>/fields', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_type_fields_assign(type_id):
+    """Assign a field to a member type."""
+    db = get_db()
+    if not db.execute('SELECT id FROM member_types WHERE id = ?', (type_id,)).fetchone():
+        return jsonify({'error': 'Member type not found'}), 404
+
+    data     = request.get_json() or {}
+    field_id = data.get('field_id')
+    if not field_id:
+        return jsonify({'error': 'field_id is required'}), 400
+
+    if not db.execute('SELECT id FROM field_definitions WHERE id = ?', (field_id,)).fetchone():
+        return jsonify({'error': 'Field definition not found'}), 404
+
+    max_order = db.execute(
+        'SELECT COALESCE(MAX(sort_order), 0) FROM member_type_fields WHERE member_type_id = ?', (type_id,)
+    ).fetchone()[0]
+
+    try:
+        cur = db.execute(
+            '''INSERT INTO member_type_fields
+               (member_type_id, field_id, sort_order, required,
+                show_on_registration, show_on_list, show_on_card, show_on_detail, show_on_print, show_on_export)
+               VALUES (?,?,?,0,1,0,0,1,1,0)''',
+            (type_id, field_id, max_order + 1),
+        )
+        db.commit()
+        log_action('assign_type_field', 'member_type_fields', cur.lastrowid,
+                   {'member_type_id': type_id, 'field_id': field_id})
+        row = db.execute('''
+            SELECT  mtf.id AS assignment_id, mtf.sort_order, mtf.required,
+                    mtf.show_on_registration, mtf.show_on_list, mtf.show_on_card,
+                    mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                    fd.id AS field_id, fd.key, fd.label, fd.field_type,
+                    fd.options, fd.help_text, fd.placeholder,
+                    fd.system_field, fd.column_name, fd.active
+            FROM    member_type_fields mtf
+            JOIN    field_definitions fd ON fd.id = mtf.field_id
+            WHERE   mtf.id = ?
+        ''', (cur.lastrowid,)).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'This field is already assigned to this member type'}), 409
+
+
+@app.route('/api/admin/member-types/<int:type_id>/fields/<int:field_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_admin_type_fields_update(type_id, field_id):
+    """Update display/required settings for a field on a member type."""
+    db  = get_db()
+    row = db.execute(
+        'SELECT * FROM member_type_fields WHERE member_type_id = ? AND field_id = ?',
+        (type_id, field_id)
+    ).fetchone()
+    if not row:
+        return jsonify({'error': 'Assignment not found'}), 404
+
+    data = request.get_json() or {}
+    updates = {}
+    for col in ('required', 'show_on_registration', 'show_on_list',
+                'show_on_card', 'show_on_detail', 'show_on_print', 'show_on_export'):
+        if col in data:
+            updates[col] = int(data[col])
+
+    if not updates:
+        return jsonify({'error': 'No updatable fields provided'}), 400
+
+    set_clause = ', '.join(f'{k} = ?' for k in updates)
+    values     = list(updates.values()) + [type_id, field_id]
+    db.execute(
+        f'UPDATE member_type_fields SET {set_clause} WHERE member_type_id = ? AND field_id = ?',
+        values,
+    )
+    db.commit()
+
+    updated = db.execute('''
+        SELECT  mtf.id AS assignment_id, mtf.sort_order, mtf.required,
+                mtf.show_on_registration, mtf.show_on_list, mtf.show_on_card,
+                mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                fd.id AS field_id, fd.key, fd.label, fd.field_type,
+                fd.options, fd.help_text, fd.placeholder,
+                fd.system_field, fd.column_name, fd.active
+        FROM    member_type_fields mtf
+        JOIN    field_definitions fd ON fd.id = mtf.field_id
+        WHERE   mtf.member_type_id = ? AND mtf.field_id = ?
+    ''', (type_id, field_id)).fetchone()
+    return jsonify(dict(updated))
+
+
+@app.route('/api/admin/member-types/<int:type_id>/fields/<int:field_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_admin_type_fields_remove(type_id, field_id):
+    """Remove a field from a member type. first_name and surname cannot be removed."""
+    db  = get_db()
+    fd  = db.execute('SELECT key FROM field_definitions WHERE id = ?', (field_id,)).fetchone()
+    if fd and fd['key'] in ('first_name', 'surname'):
+        return jsonify({'error': 'first_name and surname cannot be removed from a member type'}), 403
+
+    row = db.execute(
+        'SELECT id FROM member_type_fields WHERE member_type_id = ? AND field_id = ?',
+        (type_id, field_id)
+    ).fetchone()
+    if not row:
+        return jsonify({'error': 'Assignment not found'}), 404
+
+    db.execute(
+        'DELETE FROM member_type_fields WHERE member_type_id = ? AND field_id = ?',
+        (type_id, field_id)
+    )
+    db.commit()
+    log_action('remove_type_field', 'member_type_fields', row['id'],
+               {'member_type_id': type_id, 'field_id': field_id})
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/member-types/<int:type_id>/fields/reorder', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_type_fields_reorder(type_id):
+    """Reorder fields for a member type. Body: [{field_id, sort_order}, ...]"""
+    items = request.get_json() or []
+    db    = get_db()
+    for item in items:
+        db.execute(
+            'UPDATE member_type_fields SET sort_order = ? WHERE member_type_id = ? AND field_id = ?',
+            (item.get('sort_order', 0), type_id, item.get('field_id')),
+        )
+    db.commit()
+    return jsonify({'success': True})
+
+
+# ── BLUEPRINT: alerts ──────────────────────────────────────────────────────────
+# Member Alert Rules — configurable flag engine (v8.0)
+# Rules evaluate members against date, attendance, empty-field, or numeric
+# conditions and write rows to member_flags.  A BackgroundScheduler runs the
+# full check nightly at 02:00; admins can also trigger manually via the API.
+
+# Allowed colour presets (hex) for flag badges — validated on create/update
+ALERT_COLOURS = {'#ef4444', '#f59e0b', '#3b6fde', '#8b5cf6', '#22a06b'}
+
+
+def _run_alert_rule(db, rule, today_str):
+    """Evaluate one active alert rule against all eligible members.
+
+    For each member that meets the condition:
+      - Insert into member_flags if no active flag already exists.
+    For each member that no longer meets the condition (auto_resolve=1):
+      - Set resolved_at on their active flag.
+
+    Returns (raised_count, resolved_count).
+    """
+    from collections import defaultdict
+
+    rule_id     = rule['id']
+    rule_type   = rule['rule_type']
+    auto_res    = rule['auto_resolve']
+    scoped_sess = rule['applies_to_session']   # None → all sessions
+
+    # ── Fetch eligible members ────────────────────────────────────────────────
+    member_cond = "m.status = 'Active' AND m.member_type = 'member'"
+    params_base = []
+    if scoped_sess:
+        member_cond += ' AND m.session = ?'
+        params_base.append(scoped_sess)
+
+    members = db.execute(
+        f'SELECT m.id, m.member_id, m.first_name, m.surname, m.session '
+        f'FROM members m WHERE {member_cond}',
+        params_base
+    ).fetchall()
+
+    # ── Existing active flags for this rule ────────────────────────────────────
+    existing_flags = {
+        row['member_id']: row['id']
+        for row in db.execute(
+            'SELECT member_id, id FROM member_flags '
+            'WHERE rule_id = ? AND resolved_at IS NULL',
+            (rule_id,)
+        ).fetchall()
+    }
+
+    should_flag = set()   # member db ids that currently meet the condition
+
+    # ── Attendance rule ────────────────────────────────────────────────────────
+    if rule_type == 'attendance':
+        threshold = rule['threshold_value'] or 5
+        past_sessions_rows = db.execute(
+            "SELECT session_date, session_type FROM term_sessions "
+            "WHERE session_date <= ? ORDER BY session_date DESC",
+            (today_str,)
+        ).fetchall()
+        sessions_by_type = defaultdict(list)
+        for s in past_sessions_rows:
+            sessions_by_type[s['session_type']].append(s['session_date'])
+
+        for m in members:
+            relevant = sessions_by_type[m['session']][:threshold]
+            if len(relevant) < threshold:
+                continue
+            attended = db.execute(
+                'SELECT COUNT(*) AS n FROM attendance WHERE member_id = ? '
+                'AND session_date IN ({})'.format(','.join('?' * len(relevant))),
+                [m['id']] + relevant
+            ).fetchone()['n']
+            if attended == 0:
+                should_flag.add(m['id'])
+
+    # ── Date field rule ────────────────────────────────────────────────────────
+    elif rule_type == 'date_field':
+        target      = rule['target_field']
+        condition   = rule['condition']     # older_than | before_today
+        threshold_d = rule['threshold_value'] or 0
+
+        # Determine if target is a system column or a custom field
+        fd = db.execute(
+            'SELECT id, column_name, system_field FROM field_definitions WHERE key = ?',
+            (target,)
+        ).fetchone()
+
+        for m in members:
+            if fd and fd['system_field'] and fd['column_name']:
+                row = db.execute(
+                    f'SELECT {fd["column_name"]} AS val FROM members WHERE id = ?',
+                    (m['id'],)
+                ).fetchone()
+                val = row['val'] if row else None
+            else:
+                fid = fd['id'] if fd else None
+                if not fid:
+                    continue
+                row = db.execute(
+                    'SELECT value FROM member_field_values WHERE member_id = ? AND field_id = ?',
+                    (m['id'], fid)
+                ).fetchone()
+                val = row['value'] if row else None
+
+            if not val:
+                continue
+            try:
+                field_date = datetime.strptime(val[:10], '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                continue
+
+            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+            if condition == 'older_than':
+                if (today_date - field_date).days >= threshold_d:
+                    should_flag.add(m['id'])
+            elif condition == 'before_today':
+                if field_date < today_date:
+                    should_flag.add(m['id'])
+
+    # ── Empty field rule ───────────────────────────────────────────────────────
+    elif rule_type == 'empty_field':
+        target = rule['target_field']
+        fd = db.execute(
+            'SELECT id, column_name, system_field FROM field_definitions WHERE key = ?',
+            (target,)
+        ).fetchone()
+
+        for m in members:
+            if fd and fd['system_field'] and fd['column_name']:
+                row = db.execute(
+                    f'SELECT {fd["column_name"]} AS val FROM members WHERE id = ?',
+                    (m['id'],)
+                ).fetchone()
+                val = (row['val'] or '').strip() if row else ''
+            else:
+                fid = fd['id'] if fd else None
+                if not fid:
+                    continue
+                row = db.execute(
+                    'SELECT value FROM member_field_values WHERE member_id = ? AND field_id = ?',
+                    (m['id'], fid)
+                ).fetchone()
+                val = (row['value'] or '').strip() if row else ''
+
+            if not val:
+                should_flag.add(m['id'])
+
+    # ── Numeric rule ───────────────────────────────────────────────────────────
+    elif rule_type == 'numeric':
+        target    = rule['target_field']
+        condition = rule['condition']    # above | below
+        threshold = rule['threshold_value'] or 0
+        fd = db.execute(
+            'SELECT id, column_name, system_field FROM field_definitions WHERE key = ?',
+            (target,)
+        ).fetchone()
+
+        for m in members:
+            if fd and fd['system_field'] and fd['column_name']:
+                row = db.execute(
+                    f'SELECT {fd["column_name"]} AS val FROM members WHERE id = ?',
+                    (m['id'],)
+                ).fetchone()
+                raw = row['val'] if row else None
+            else:
+                fid = fd['id'] if fd else None
+                if not fid:
+                    continue
+                row = db.execute(
+                    'SELECT value FROM member_field_values WHERE member_id = ? AND field_id = ?',
+                    (m['id'], fid)
+                ).fetchone()
+                raw = row['value'] if row else None
+
+            try:
+                num = float(raw)
+            except (TypeError, ValueError):
+                continue
+
+            if condition == 'above' and num > threshold:
+                should_flag.add(m['id'])
+            elif condition == 'below' and num < threshold:
+                should_flag.add(m['id'])
+
+    # ── Raise new flags ────────────────────────────────────────────────────────
+    raised = 0
+    for mid in should_flag:
+        if mid not in existing_flags:
+            db.execute(
+                'INSERT INTO member_flags (member_id, rule_id, flagged_at, flagged_by) '
+                'VALUES (?, ?, datetime("now"), "auto")',
+                (mid, rule_id)
+            )
+            raised += 1
+
+    # ── Auto-resolve flags where condition no longer met ───────────────────────
+    # Resolves any existing flag whose member no longer meets the rule condition.
+    # This covers both members whose data changed (condition cleared) and members
+    # who left or moved session (no longer in the eligible set at all).
+    resolved = 0
+    if auto_res:
+        for mid, flag_id in existing_flags.items():
+            if mid not in should_flag:
+                db.execute(
+                    "UPDATE member_flags SET resolved_at = datetime('now'), "
+                    "resolved_by = 'auto' WHERE id = ?",
+                    (flag_id,)
+                )
+                resolved += 1
+
+    return raised, resolved
+
+
+def run_all_alert_rules():
+    """Evaluate every active alert rule. Called by the nightly scheduler and the manual API."""
+    db = _connect_db()
+    db.row_factory = sqlite3.Row
+    today = datetime.now().strftime('%Y-%m-%d')
+    try:
+        rules = db.execute(
+            'SELECT * FROM alert_rules WHERE is_active = 1'
+        ).fetchall()
+
+        total_raised   = 0
+        total_resolved = 0
+        for rule in rules:
+            try:
+                raised, resolved = _run_alert_rule(db, rule, today)
+                total_raised   += raised
+                total_resolved += resolved
+            except Exception as e:
+                # Log but don't abort the full run if one rule errors
+                print(f'[alerts] Rule {rule["id"]} ({rule["name"]}) error: {e}')
+
+        db.execute(
+            "UPDATE settings SET value = ?, updated_at = datetime('now') "
+            "WHERE key = 'alerts_last_run'",
+            (datetime.now().strftime('%Y-%m-%d %H:%M'),)
+        )
+
+        # ── System notification to admins when new flags are raised ───────────────
+        if total_raised > 0:
+            flag_word = 'flag' if total_raised == 1 else 'flags'
+            try:
+                send_notification(
+                    sender_id=None,
+                    title='⚑ Alert Flags Raised',
+                    body=(f'{total_raised} new member {flag_word} raised by the automated '
+                          f'alert check. Open the Members section to review.'),
+                    notification_type='Urgent',
+                    target_type='role',
+                    target_value='admin',
+                    is_system=1,
+                    related_table='member_flags',
+                    _db=db,
+                )
+            except Exception as _notif_exc:
+                print(f'[alerts] Failed to send system notification: {_notif_exc}')
+
+        db.commit()
+        print(f'[alerts] Run complete — {total_raised} raised, {total_resolved} resolved')
+        return total_raised, total_resolved
+    except Exception as _run_exc:
+        print(f'[alerts] Run failed: {_run_exc}')
+        raise
+    finally:
+        db.close()
+
+
+# ── Notifications API (v8.2) ──────────────────────────────────────────────────
+
+@app.route('/api/notifications')
+@permission_required('notifications.view')
+def get_notifications():
+    """Return notifications relevant to the current user, newest first."""
+    user_id = session.get('user_id')
+    db = get_db()
+    user = db.execute('SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)).fetchone()
+    user_role    = user['role']             if user else None
+    user_session = user['session_assigned'] if user else None
+
+    notifs = db.execute('''
+        SELECT n.*,
+               CASE WHEN nr.read_at IS NOT NULL THEN 1 ELSE 0 END AS is_read,
+               u.username AS sender_name
+        FROM notifications n
+        LEFT JOIN notification_reads nr
+            ON n.id = nr.notification_id AND nr.user_id = ?
+        LEFT JOIN users u ON u.id = n.sender_id
+        WHERE n.target_type = 'all'
+           OR (n.target_type = 'role'    AND n.target_value = ?)
+           OR (n.target_type = 'session' AND n.target_value = ?)
+           OR (n.target_type = 'users'   AND EXISTS (
+               SELECT 1 FROM json_each(n.target_value)
+               WHERE CAST(json_each.value AS INTEGER) = ?
+           ))
+        ORDER BY n.created_at DESC
+        LIMIT 100
+    ''', (user_id, user_role, user_session, user_id)).fetchall()
+
+    unread = sum(1 for n in notifs if not n['is_read'])
+    return jsonify({
+        'notifications': [dict(n) for n in notifs],
+        'unread_count':  unread,
+    })
+
+
+@app.route('/api/notifications/unread-count')
+@permission_required('notifications.view')
+def get_notifications_unread_count():
+    """Lightweight endpoint for badge polling — returns just the unread count."""
+    user_id = session.get('user_id')
+    db = get_db()
+    user = db.execute('SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)).fetchone()
+    user_role    = user['role']             if user else None
+    user_session = user['session_assigned'] if user else None
+
+    count = db.execute('''
+        SELECT COUNT(*) AS n
+        FROM notifications n
+        WHERE (
+            n.target_type = 'all'
+            OR (n.target_type = 'role'    AND n.target_value = ?)
+            OR (n.target_type = 'session' AND n.target_value = ?)
+            OR (n.target_type = 'users'   AND EXISTS (
+                SELECT 1 FROM json_each(n.target_value)
+                WHERE CAST(json_each.value AS INTEGER) = ?
+            ))
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM notification_reads nr
+            WHERE nr.notification_id = n.id AND nr.user_id = ?
+        )
+    ''', (user_role, user_session, user_id, user_id)).fetchone()['n']
+
+    return jsonify({'unread_count': count})
+
+
+@app.route('/api/notifications/mark-read', methods=['POST'])
+@permission_required('notifications.view')
+def mark_notifications_read():
+    """Mark a specific list of notification IDs as read for the current user."""
+    data = request.get_json() or {}
+    ids  = data.get('notification_ids', [])
+    if not ids:
+        return jsonify({'error': 'notification_ids required'}), 400
+
+    user_id = session['user_id']
+    db = get_db()
+    for nid in ids:
+        db.execute(
+            'INSERT OR IGNORE INTO notification_reads (notification_id, user_id) VALUES (?, ?)',
+            (nid, user_id)
+        )
+    db.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/notifications/mark-all-read', methods=['POST'])
+@permission_required('notifications.view')
+def mark_all_notifications_read():
+    """Mark every unread notification visible to the current user as read."""
+    user_id = session['user_id']
+    db = get_db()
+    user = db.execute('SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)).fetchone()
+    user_role    = user['role']             if user else None
+    user_session = user['session_assigned'] if user else None
+
+    unread_ids = db.execute('''
+        SELECT n.id
+        FROM notifications n
+        WHERE (
+            n.target_type = 'all'
+            OR (n.target_type = 'role'    AND n.target_value = ?)
+            OR (n.target_type = 'session' AND n.target_value = ?)
+            OR (n.target_type = 'users'   AND EXISTS (
+                SELECT 1 FROM json_each(n.target_value)
+                WHERE CAST(json_each.value AS INTEGER) = ?
+            ))
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM notification_reads nr
+            WHERE nr.notification_id = n.id AND nr.user_id = ?
+        )
+    ''', (user_role, user_session, user_id, user_id)).fetchall()
+
+    for row in unread_ids:
+        db.execute(
+            'INSERT OR IGNORE INTO notification_reads (notification_id, user_id) VALUES (?, ?)',
+            (row['id'], user_id)
+        )
+    db.commit()
+    return jsonify({'success': True, 'marked': len(unread_ids)})
+
+
+@app.route('/api/notifications/send', methods=['POST'])
+@permission_required('notifications.send')
+def send_custom_notification():
+    """Send a custom notification to a targeted audience."""
+    data         = request.get_json() or {}
+    title        = (data.get('title') or '').strip()
+    body         = (data.get('body')  or '').strip()
+    ntype        = data.get('notification_type', 'Info')
+    target_type  = data.get('target_type')
+    target_value = data.get('target_value')
+
+    if not title or not body or not target_type:
+        return jsonify({'error': 'title, body and target_type are required'}), 400
+    if ntype not in ('Info', 'Reminder', 'Urgent', 'Announcement'):
+        return jsonify({'error': 'Invalid notification_type'}), 400
+    if target_type not in ('all', 'role', 'users', 'session'):
+        return jsonify({'error': 'Invalid target_type'}), 400
+
+    send_notification(
+        sender_id=session['user_id'],
+        title=title,
+        body=body,
+        notification_type=ntype,
+        target_type=target_type,
+        target_value=target_value,
+        is_system=0,
+    )
+    return jsonify({'success': True})
+
+
+@app.route('/api/notifications/<int:notification_id>', methods=['DELETE'])
+@permission_required('notifications.manage')
+def delete_notification(notification_id):
+    """Permanently delete a notification (admin / manage permission only)."""
+    db = get_db()
+    notif = db.execute('SELECT id FROM notifications WHERE id = ?', (notification_id,)).fetchone()
+    if not notif:
+        return jsonify({'error': 'Notification not found'}), 404
+    db.execute('DELETE FROM notifications WHERE id = ?', (notification_id,))
+    db.commit()
+    log_action('notification.deleted', 'notifications', notification_id, {})
+    return jsonify({'success': True})
+
+
+# ── Alert Rules API ────────────────────────────────────────────────────────────
+
+@app.route('/api/alert-rules')
+@permission_required('alerts.view')
+def api_alert_rules_list():
+    """List all alert rules with active flag counts."""
+    db = get_db()
+    rows = db.execute('''
+        SELECT ar.*,
+               COUNT(CASE WHEN mf.resolved_at IS NULL THEN 1 END) AS active_flag_count
+        FROM alert_rules ar
+        LEFT JOIN member_flags mf ON mf.rule_id = ar.id
+        GROUP BY ar.id
+        ORDER BY ar.is_active DESC, ar.name
+    ''').fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/alert-rules', methods=['POST'])
+@permission_required('alerts.manage')
+def api_alert_rules_create():
+    """Create a new alert rule."""
+    data = request.get_json() or {}
+    name        = (data.get('name') or '').strip()
+    rule_type   = (data.get('rule_type') or '').strip()
+    flag_label  = (data.get('flag_label') or '').strip()
+    flag_colour = (data.get('flag_colour') or '#f59e0b').strip()
+
+    if not name:
+        return jsonify({'error': 'Rule name is required'}), 400
+    if rule_type not in ('attendance', 'date_field', 'empty_field', 'numeric'):
+        return jsonify({'error': 'Invalid rule_type'}), 400
+    if not flag_label:
+        return jsonify({'error': 'Flag label is required'}), 400
+    if flag_colour not in ALERT_COLOURS:
+        return jsonify({'error': f'Colour must be one of: {", ".join(ALERT_COLOURS)}'}), 400
+
+    target_field   = (data.get('target_field') or '').strip() or None
+    condition      = (data.get('condition') or '').strip() or None
+    threshold_val  = data.get('threshold_value')
+    threshold_unit = (data.get('threshold_unit') or '').strip() or None
+    applies_sess   = (data.get('applies_to_session') or '').strip() or None
+    auto_resolve   = 1 if data.get('auto_resolve', True) else 0
+    resolve_field  = (data.get('resolve_field') or '').strip() or None
+
+    db = get_db()
+    cur = db.execute(
+        'INSERT INTO alert_rules (name, rule_type, target_field, condition, '
+        'threshold_value, threshold_unit, applies_to_session, flag_label, '
+        'flag_colour, auto_resolve, resolve_field, is_active, created_by) '
+        'VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)',
+        (name, rule_type, target_field, condition, threshold_val, threshold_unit,
+         applies_sess, flag_label, flag_colour, auto_resolve, resolve_field,
+         session['user_id'])
+    )
+    db.commit()
+    log_action('create_alert_rule', 'alert_rules', cur.lastrowid,
+               {'name': name, 'rule_type': rule_type, 'flag_label': flag_label})
+    return jsonify({'success': True, 'id': cur.lastrowid})
+
+
+@app.route('/api/alert-rules/<int:rule_id>', methods=['PUT'])
+@permission_required('alerts.manage')
+def api_alert_rules_update(rule_id):
+    """Update an existing alert rule."""
+    rule = get_db().execute('SELECT * FROM alert_rules WHERE id = ?', (rule_id,)).fetchone()
+    if not rule:
+        return jsonify({'error': 'Not found'}), 404
+
+    data = request.get_json() or {}
+    flag_colour = (data.get('flag_colour') or rule['flag_colour']).strip()
+    if flag_colour not in ALERT_COLOURS:
+        return jsonify({'error': f'Colour must be one of: {", ".join(ALERT_COLOURS)}'}), 400
+
+    db = get_db()
+    db.execute(
+        'UPDATE alert_rules SET name=?, rule_type=?, target_field=?, condition=?, '
+        'threshold_value=?, threshold_unit=?, applies_to_session=?, flag_label=?, '
+        'flag_colour=?, auto_resolve=?, resolve_field=?, is_active=? WHERE id=?',
+        (
+            (data.get('name') or rule['name']).strip(),
+            (data.get('rule_type') or rule['rule_type']).strip(),
+            (data.get('target_field') or rule['target_field'] or None),
+            (data.get('condition') or rule['condition'] or None),
+            data.get('threshold_value', rule['threshold_value']),
+            (data.get('threshold_unit') or rule['threshold_unit'] or None),
+            (data.get('applies_to_session') or rule['applies_to_session'] or None),
+            (data.get('flag_label') or rule['flag_label']).strip(),
+            flag_colour,
+            1 if data.get('auto_resolve', bool(rule['auto_resolve'])) else 0,
+            (data.get('resolve_field') or rule['resolve_field'] or None),
+            1 if data.get('is_active', bool(rule['is_active'])) else 0,
+            rule_id,
+        )
+    )
+    db.commit()
+    log_action('update_alert_rule', 'alert_rules', rule_id, {'name': data.get('name', rule['name'])})
+    return jsonify({'success': True})
+
+
+@app.route('/api/alert-rules/<int:rule_id>', methods=['DELETE'])
+@permission_required('alerts.manage')
+def api_alert_rules_delete(rule_id):
+    """Deactivate (soft-delete) a rule and resolve all its open flags."""
+    db = get_db()
+    rule = db.execute('SELECT * FROM alert_rules WHERE id = ?', (rule_id,)).fetchone()
+    if not rule:
+        return jsonify({'error': 'Not found'}), 404
+    db.execute("UPDATE alert_rules SET is_active = 0 WHERE id = ?", (rule_id,))
+    db.execute(
+        "UPDATE member_flags SET resolved_at = datetime('now'), resolved_by = 'rule_deleted' "
+        "WHERE rule_id = ? AND resolved_at IS NULL",
+        (rule_id,)
+    )
+    db.commit()
+    log_action('deactivate_alert_rule', 'alert_rules', rule_id, {'name': rule['name']})
+    return jsonify({'success': True})
+
+
+@app.route('/api/alert-rules/<int:rule_id>/permanent-delete', methods=['POST'])
+@permission_required('alerts.manage')
+def api_alert_rules_permanent_delete(rule_id):
+    """Permanently delete a rule and all its flag history. Irreversible."""
+    db = get_db()
+    rule = db.execute('SELECT * FROM alert_rules WHERE id = ?', (rule_id,)).fetchone()
+    if not rule:
+        return jsonify({'error': 'Not found'}), 404
+    flag_count = db.execute(
+        'SELECT COUNT(*) AS n FROM member_flags WHERE rule_id = ?', (rule_id,)
+    ).fetchone()['n']
+    db.execute('DELETE FROM member_flags WHERE rule_id = ?', (rule_id,))
+    db.execute('DELETE FROM alert_rules WHERE id = ?', (rule_id,))
+    db.commit()
+    log_action('delete_alert_rule', 'alert_rules', rule_id, {
+        'name': rule['name'], 'flags_deleted': flag_count
+    })
+    return jsonify({'success': True})
+
+
+@app.route('/api/alert-rules/run', methods=['POST'])
+@permission_required('alerts.run')
+def api_alert_rules_run():
+    """Manually trigger a full evaluation of all active alert rules."""
+    raised, resolved = run_all_alert_rules()
+    log_action('run_alert_rules', 'alert_rules', None,
+               {'raised': raised, 'resolved': resolved, 'triggered_by': 'manual'})
+    return jsonify({'success': True, 'raised': raised, 'resolved': resolved})
+
+
+@app.route('/api/alerts/summary')
+@permission_required('alerts.view')
+def api_alerts_summary():
+    """Per-rule active flag counts — used by the dashboard widget."""
+    db     = get_db()
+    scoped = _assigned_session()
+
+    if scoped is None:
+        rows = db.execute('''
+            SELECT ar.id, ar.name, ar.flag_label, ar.flag_colour,
+                   COUNT(CASE WHEN mf.resolved_at IS NULL THEN 1 END) AS flag_count
+            FROM alert_rules ar
+            LEFT JOIN member_flags mf ON mf.rule_id = ar.id
+            WHERE ar.is_active = 1
+            GROUP BY ar.id
+            ORDER BY flag_count DESC, ar.name
+        ''').fetchall()
+    else:
+        rows = db.execute('''
+            SELECT ar.id, ar.name, ar.flag_label, ar.flag_colour,
+                   COUNT(CASE WHEN mf.resolved_at IS NULL AND m.session = ? THEN 1 END) AS flag_count
+            FROM alert_rules ar
+            LEFT JOIN member_flags mf ON mf.rule_id = ar.id
+            LEFT JOIN members m ON m.id = mf.member_id
+            WHERE ar.is_active = 1
+            GROUP BY ar.id
+            ORDER BY flag_count DESC, ar.name
+        ''', (scoped,)).fetchall()
+
+    last_run = db.execute(
+        "SELECT value FROM settings WHERE key = 'alerts_last_run'"
+    ).fetchone()
+
+    return jsonify({
+        'rules':    [dict(r) for r in rows],
+        'last_run': last_run['value'] if last_run else '',
+    })
+
+
+@app.route('/api/members/<int:member_id>/flags')
+@permission_required('members.view')
+def api_member_flags(member_id):
+    """Return all flags (active and resolved) for a member."""
+    db = get_db()
+    scoped = _assigned_session()
+    member = db.execute('SELECT * FROM members WHERE id = ?', (member_id,)).fetchone()
+    if not member:
+        return jsonify({'error': 'Not found'}), 404
+    if scoped is not None and (member['session'] or '') != scoped:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    flags = db.execute('''
+        SELECT mf.id, mf.flagged_at, mf.flagged_by, mf.resolved_at, mf.resolved_by, mf.note,
+               ar.id AS rule_id, ar.name AS rule_name, ar.flag_label, ar.flag_colour, ar.rule_type
+        FROM member_flags mf
+        JOIN alert_rules ar ON ar.id = mf.rule_id
+        WHERE mf.member_id = ?
+        ORDER BY mf.flagged_at DESC
+    ''', (member_id,)).fetchall()
+
+    return jsonify([dict(f) for f in flags])
+
+
+@app.route('/api/members/<int:member_id>/flags/<int:flag_id>/dismiss', methods=['POST'])
+@permission_required('alerts.dismiss')
+def api_member_flag_dismiss(member_id, flag_id):
+    """Manually dismiss a flag from a member, with an optional note."""
+    db   = get_db()
+    flag = db.execute(
+        'SELECT * FROM member_flags WHERE id = ? AND member_id = ?',
+        (flag_id, member_id)
+    ).fetchone()
+    if not flag:
+        return jsonify({'error': 'Flag not found'}), 404
+    if flag['resolved_at']:
+        return jsonify({'error': 'Flag already resolved'}), 400
+
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip() or None
+
+    db.execute(
+        "UPDATE member_flags SET resolved_at = datetime('now'), resolved_by = ?, note = ? "
+        "WHERE id = ?",
+        (str(session['user_id']), note, flag_id)
+    )
+    db.commit()
+
+    member = db.execute('SELECT first_name, surname FROM members WHERE id = ?',
+                        (member_id,)).fetchone()
+    rule   = db.execute('SELECT name FROM alert_rules WHERE id = ?',
+                        (flag['rule_id'],)).fetchone()
+    log_action('dismiss_flag', 'member_flags', flag_id, {
+        'member': f"{member['first_name'] or ''} {member['surname'] or ''}".strip(),
+        'rule':   rule['name'] if rule else str(flag['rule_id']),
+        'note':   note,
+    })
+    return jsonify({'success': True})
+
+
+# ── Admin page route ────────────────────────────────────────────────────────────
+
+@app.route('/admin/alerts')
+@permission_required('alerts.view')
+def admin_alerts_page():
+    """Alert Rules admin page — rule builder and manual run trigger."""
+    db           = get_db()
+    session_types = get_session_types()
+    # Field picker: all active field_definitions available for rule targeting
+    fields = db.execute(
+        'SELECT key, label, field_type, system_field FROM field_definitions '
+        'WHERE active = 1 ORDER BY label'
+    ).fetchall()
+    last_run = get_setting('alerts_last_run', '')
+    return render_template(
+        'admin/alerts.html',
+        field_definitions=[dict(f) for f in fields],
+        alerts_last_run=last_run,
+        **tpl_ctx(),
+    )
+
+
+# ── BLUEPRINT: QR quick-session (v8.3) ───────────────────────────────────────
+#
+# Public mobile page + API for self sign-in / sign-out via QR code.
+# A session token (quick_signin_tokens table) is the sole gate on this flow.
+# All public API endpoints are CSRF-exempt; they validate via the token instead.
+
+# Simple in-memory rate limiter — (ip, endpoint, minute_bucket) → request count.
+# No external dependency needed for a youth-club scale deployment.
+_rl_store: dict = {}
+
+
+def _rl_check(endpoint: str, max_per_min: int) -> bool:
+    """Return True if the request is within rate limit, False if exceeded."""
+    ip     = request.remote_addr or 'unknown'
+    bucket = datetime.now().strftime('%Y%m%d%H%M')
+    key    = (ip, endpoint, bucket)
+    count  = _rl_store.get(key, 0) + 1
+    _rl_store[key] = count
+    # Prune old buckets (keep store small)
+    if len(_rl_store) > 2000:
+        cur = datetime.now().strftime('%Y%m%d%H%M')
+        for k in list(_rl_store.keys()):
+            if k[2] != cur:
+                del _rl_store[k]
+    return count <= max_per_min
+
+
+def _get_or_create_qr_token(session_type: str) -> str:
+    """Return today's active QR token for session_type, creating one if needed."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    db    = get_db()
+    row   = db.execute(
+        '''SELECT token FROM quick_signin_tokens
+           WHERE session_type = ? AND session_date = ? AND invalidated_at IS NULL''',
+        (session_type, today),
+    ).fetchone()
+    if row:
+        return row['token']
+    token = secrets.token_urlsafe(32)
+    db.execute(
+        'INSERT INTO quick_signin_tokens (token, session_type, session_date) VALUES (?,?,?)',
+        (token, session_type, today),
+    )
+    db.commit()
+    return token
+
+
+def _ensure_qr_tokens_for_today():
+    """Pre-create tokens for every active session type (called when register page loads)."""
+    for st in get_session_types():
+        _get_or_create_qr_token(st['name'])
+
+
+def _validate_qr_token(token: str):
+    """Return the token row if valid for today and not invalidated, else None."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    db    = get_db()
+    row   = db.execute(
+        '''SELECT * FROM quick_signin_tokens
+           WHERE token = ? AND session_date = ? AND invalidated_at IS NULL''',
+        (token, today),
+    ).fetchone()
+    return row
+
+
+def _invalidate_qr_token_for_session(session_type: str, session_date: str):
+    """Stamp invalidated_at on all active tokens for this session (called on register complete)."""
+    db = get_db()
+    db.execute(
+        '''UPDATE quick_signin_tokens
+           SET invalidated_at = datetime('now')
+           WHERE session_type = ? AND session_date = ? AND invalidated_at IS NULL''',
+        (session_type, session_date),
+    )
+    db.commit()
+
+
+# ── Public mobile landing page ────────────────────────────────────────────────
+
+@app.route('/quick-session')
+@csrf.exempt
+def quick_session_page():
+    """Mobile self-sign-in / sign-out page — no login required."""
+    return render_template('quick_session.html', club_name=CLUB_NAME)
+
+
+# ── Authenticated: token management (called by register page JS) ──────────────
+
+@app.route('/api/quick-signin/token/<session_type>')
+@login_required
+def api_qr_token_get(session_type):
+    """Return (or create) today's QR token + full URL for the given session."""
+    if session_type not in get_valid_session_names():
+        return jsonify({'error': 'Invalid session type'}), 400
+    token    = _get_or_create_qr_token(session_type)
+    base_url = request.host_url.rstrip('/')
+    qr_url   = f'{base_url}/quick-session?t={token}'
+    db       = get_db()
+    today    = datetime.now().strftime('%Y-%m-%d')
+    qr_in    = db.execute(
+        "SELECT COUNT(*) FROM attendance WHERE session_date=? AND session_type=? AND source='qr-self' AND signed_in_at IS NOT NULL",
+        (today, session_type),
+    ).fetchone()[0]
+    qr_out   = db.execute(
+        "SELECT COUNT(*) FROM attendance WHERE session_date=? AND session_type=? AND source='qr-self' AND signed_out_at IS NOT NULL",
+        (today, session_type),
+    ).fetchone()[0]
+    return jsonify({'token': token, 'qr_url': qr_url, 'qr_signin_count': qr_in, 'qr_signout_count': qr_out})
+
+
+@app.route('/api/quick-signin/token/<session_type>/regenerate', methods=['POST'])
+@permission_required('register.qr_manage')
+def api_qr_token_regenerate(session_type):
+    """Invalidate existing token and issue a fresh one."""
+    if session_type not in get_valid_session_names():
+        return jsonify({'error': 'Invalid session type'}), 400
+    today = datetime.now().strftime('%Y-%m-%d')
+    db    = get_db()
+    db.execute(
+        '''UPDATE quick_signin_tokens SET invalidated_at = datetime('now')
+           WHERE session_type = ? AND session_date = ? AND invalidated_at IS NULL''',
+        (session_type, today),
+    )
+    db.commit()
+    token    = _get_or_create_qr_token(session_type)
+    base_url = request.host_url.rstrip('/')
+    qr_url   = f'{base_url}/quick-session?t={token}'
+    log_action('qr_token_regenerated', 'quick_signin_tokens', None, {'session_type': session_type})
+    return jsonify({'token': token, 'qr_url': qr_url})
+
+
+# ── Public display-token endpoint (unauthenticated, for the TV display) ───────
+
+@app.route('/api/quick-signin/display-token/<session_type>')
+@csrf.exempt
+def api_qr_display_token(session_type):
+    """Return the current QR URL for the TV display, or null if none active."""
+    if session_type not in get_valid_session_names():
+        return jsonify({'qr_url': None})
+    today = datetime.now().strftime('%Y-%m-%d')
+    db    = get_db()
+    row   = db.execute(
+        '''SELECT token FROM quick_signin_tokens
+           WHERE session_type = ? AND session_date = ? AND invalidated_at IS NULL''',
+        (session_type, today),
+    ).fetchone()
+    if not row:
+        return jsonify({'qr_url': None})
+    # Also suppress if register is locked
+    if _is_register_locked(session_type, today):
+        return jsonify({'qr_url': None})
+    base_url = request.host_url.rstrip('/')
+    return jsonify({'qr_url': f'{base_url}/quick-session?t={row["token"]}'})
+
+
+# ── Public API: verify / search / signin / signout ────────────────────────────
+
+@app.route('/api/quick-signin/verify')
+@csrf.exempt
+def api_qr_verify():
+    """Validate a QR token and return which modes are enabled."""
+    token = request.args.get('t', '').strip()
+    if not token:
+        return jsonify({'valid': False, 'reason': 'No token provided.'})
+    row = _validate_qr_token(token)
+    if not row:
+        return jsonify({'valid': False, 'reason': 'This sign-in link has expired or is no longer valid.'})
+    sess_type = row['session_type']
+    sess_date = row['session_date']
+    if _is_register_locked(sess_type, sess_date):
+        return jsonify({'valid': False, 'reason': 'The session register has been completed and is now locked.'})
+    return jsonify({
+        'valid':            True,
+        'session_type':     sess_type,
+        'session_date':     sess_date,
+        'signin_enabled':   get_setting('quick_signin_enabled',  'true')  == 'true',
+        'signout_enabled':  get_setting('quick_signout_enabled', 'false') == 'true',
+    })
+
+
+@app.route('/api/quick-signin/search')
+@csrf.exempt
+def api_qr_search():
+    """Search members by first name for the QR session page."""
+    if not _rl_check('qr_search', 15):
+        return jsonify({'error': 'Too many requests — please slow down.'}), 429
+
+    token = request.args.get('t', '').strip()
+    q     = request.args.get('q', '').strip()
+    mode  = request.args.get('mode', 'signin').strip()   # 'signin' | 'signout'
+
+    if len(q) < 2:
+        return jsonify([])
+    tok_row = _validate_qr_token(token)
+    if not tok_row:
+        return jsonify({'error': 'Invalid or expired token.'}), 403
+
+    sess_type = tok_row['session_type']
+    sess_date = tok_row['session_date']
+
+    if _is_register_locked(sess_type, sess_date):
+        return jsonify({'error': 'Register is locked.'}), 403
+
+    db = get_db()
+
+    if mode == 'signout':
+        # Only show members currently signed IN (not yet signed out)
+        rows = db.execute(
+            '''SELECT m.id, m.first_name, m.surname,
+                      1 AS already_signed_in
+               FROM members m
+               JOIN attendance a ON a.member_id = m.id
+                 AND a.session_date = ? AND a.session_type = ?
+                 AND a.signed_in_at IS NOT NULL AND a.signed_out_at IS NULL
+               WHERE m.status = 'Active'
+                 AND LOWER(m.first_name) LIKE LOWER(?)
+               ORDER BY m.first_name, m.surname
+               LIMIT 20''',
+            (sess_date, sess_type, q + '%'),
+        ).fetchall()
+    else:
+        # Sign-in: all active members for this session, flag those already signed in
+        rows = db.execute(
+            '''SELECT m.id, m.first_name, m.surname,
+                      CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END AS already_signed_in
+               FROM members m
+               LEFT JOIN attendance a ON a.member_id = m.id
+                 AND a.session_date = ? AND a.session_type = ?
+               WHERE m.status = 'Active'
+                 AND (m.session = ? OR m.member_type = 'staff')
+                 AND LOWER(m.first_name) LIKE LOWER(?)
+               ORDER BY m.first_name, m.surname
+               LIMIT 20''',
+            (sess_date, sess_type, sess_type, q + '%'),
+        ).fetchall()
+
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/quick-signin/signin', methods=['POST'])
+@csrf.exempt
+def api_qr_signin():
+    """Sign a member in via QR token. Bulletproof against duplicates and races."""
+    if not _rl_check('qr_signin', 10):
+        return jsonify({'error': 'Too many requests — please slow down.'}), 429
+
+    data      = request.get_json() or {}
+    token     = data.get('token', '').strip()
+    member_id = data.get('member_id')
+
+    if not get_setting('quick_signin_enabled', 'true') == 'true':
+        return jsonify({'error': 'QR sign-in is not enabled.'}), 403
+
+    tok_row = _validate_qr_token(token)
+    if not tok_row:
+        return jsonify({'error': 'Invalid or expired token.'}), 403
+
+    sess_type = tok_row['session_type']
+    sess_date = tok_row['session_date']
+
+    if _is_register_locked(sess_type, sess_date):
+        return jsonify({'error': 'Register is locked.'}), 403
+
+    db     = get_db()
+    member = db.execute(
+        "SELECT id, first_name FROM members WHERE id = ? AND status = 'Active'",
+        (member_id,),
+    ).fetchone()
+    if not member:
+        return jsonify({'error': 'Member not found.'}), 404
+
+    first_name = member['first_name'] or 'there'
+    now        = datetime.now().strftime('%H:%M')
+
+    # Check if already signed in
+    existing = db.execute(
+        'SELECT id, signed_in_at FROM attendance WHERE member_id=? AND session_date=? AND session_type=?',
+        (member_id, sess_date, sess_type),
+    ).fetchone()
+
+    if existing and existing['signed_in_at']:
+        msg = get_setting('quick_signin_already_msg', "You're already signed in, {name}! See you inside 👋")
+        return jsonify({
+            'success':          True,
+            'already_signed_in': True,
+            'first_name':       first_name,
+            'welcome_message':  msg.replace('{name}', first_name),
+        })
+
+    # INSERT OR IGNORE protects against concurrent double-taps
+    # recorded_by stays NULL (no logged-in user); source = 'qr-self' identifies the channel
+    db.execute(
+        '''INSERT OR IGNORE INTO attendance
+               (member_id, session_date, session_type, signed_in_at, recorded_by, source)
+           VALUES (?,?,?,?,NULL,'qr-self')''',
+        (member_id, sess_date, sess_type, now),
+    )
+    if db.execute('SELECT changes()').fetchone()[0] == 0:
+        # Row already existed (race) — treat as already signed in
+        msg = get_setting('quick_signin_already_msg', "You're already signed in, {name}! See you inside 👋")
+        db.commit()
+        return jsonify({
+            'success':          True,
+            'already_signed_in': True,
+            'first_name':       first_name,
+            'welcome_message':  msg.replace('{name}', first_name),
+        })
+
+    # Auto-resolve attendance alert flags (mirrors api_attendance_signin logic)
+    att_flags = db.execute(
+        "SELECT mf.id FROM member_flags mf "
+        "JOIN alert_rules ar ON ar.id = mf.rule_id "
+        "WHERE mf.member_id = ? AND mf.resolved_at IS NULL "
+        "AND ar.rule_type = 'attendance' AND ar.auto_resolve = 1",
+        (member_id,),
+    ).fetchall()
+    for flag in att_flags:
+        db.execute(
+            "UPDATE member_flags SET resolved_at = datetime('now'), resolved_by = 'auto' WHERE id = ?",
+            (flag['id'],),
+        )
+
+    db.commit()
+    _touch_attendance()
+
+    msg = get_setting('quick_signin_welcome_msg', 'Welcome, {name}! Great to see you tonight! 🎉')
+    return jsonify({
+        'success':          True,
+        'already_signed_in': False,
+        'first_name':       first_name,
+        'welcome_message':  msg.replace('{name}', first_name),
+    })
+
+
+@app.route('/api/quick-signin/signout', methods=['POST'])
+@csrf.exempt
+def api_qr_signout():
+    """Sign a member out via QR token. Only active when quick_signout_enabled = true."""
+    if not _rl_check('qr_signout', 10):
+        return jsonify({'error': 'Too many requests — please slow down.'}), 429
+
+    if get_setting('quick_signout_enabled', 'false') != 'true':
+        return jsonify({'error': 'QR sign-out is not enabled for this organisation.'}), 403
+
+    data      = request.get_json() or {}
+    token     = data.get('token', '').strip()
+    member_id = data.get('member_id')
+
+    tok_row = _validate_qr_token(token)
+    if not tok_row:
+        return jsonify({'error': 'Invalid or expired token.'}), 403
+
+    sess_type = tok_row['session_type']
+    sess_date = tok_row['session_date']
+
+    if _is_register_locked(sess_type, sess_date):
+        return jsonify({'error': 'Register is locked.'}), 403
+
+    db     = get_db()
+    member = db.execute(
+        "SELECT id, first_name FROM members WHERE id = ? AND status = 'Active'",
+        (member_id,),
+    ).fetchone()
+    if not member:
+        return jsonify({'error': 'Member not found.'}), 404
+
+    first_name = member['first_name'] or 'there'
+    now        = datetime.now().strftime('%H:%M')
+
+    existing = db.execute(
+        'SELECT id, signed_in_at, signed_out_at FROM attendance WHERE member_id=? AND session_date=? AND session_type=?',
+        (member_id, sess_date, sess_type),
+    ).fetchone()
+
+    if not existing or not existing['signed_in_at']:
+        return jsonify({'error': 'This member is not currently signed in.'}), 400
+
+    if existing['signed_out_at']:
+        msg = get_setting('quick_signout_already_msg', "You're already signed out, {name}. Safe journey home!")
+        return jsonify({
+            'success':           True,
+            'already_signed_out': True,
+            'first_name':        first_name,
+            'goodbye_message':   msg.replace('{name}', first_name),
+        })
+
+    # UPDATE … WHERE signed_out_at IS NULL protects against concurrent races
+    # source already set to 'qr-self' on the original sign-in row if via QR;
+    # update it here too in case the member signed in via iPad but is signing out via QR
+    db.execute(
+        '''UPDATE attendance SET signed_out_at = ?, source = 'qr-self'
+           WHERE id = ? AND signed_out_at IS NULL''',
+        (now, existing['id']),
+    )
+    if db.execute('SELECT changes()').fetchone()[0] == 0:
+        msg = get_setting('quick_signout_already_msg', "You're already signed out, {name}. Safe journey home!")
+        db.commit()
+        return jsonify({
+            'success':           True,
+            'already_signed_out': True,
+            'first_name':        first_name,
+            'goodbye_message':   msg.replace('{name}', first_name),
+        })
+
+    db.commit()
+    _touch_attendance()
+
+    msg = get_setting('quick_signout_goodbye_msg', 'Goodbye, {name}! See you next time 👋')
+    return jsonify({
+        'success':           True,
+        'already_signed_out': False,
+        'first_name':        first_name,
+        'goodbye_message':   msg.replace('{name}', first_name),
+    })
+
+
+# ── APScheduler — nightly alert check at 02:00 ────────────────────────────────
+
+def _start_scheduler():
+    """Start the background scheduler for nightly alert rule evaluation.
+    Guarded against double-start in Flask debug mode (reloader spawns two processes).
+    """
+    # In debug mode with the reloader the child process has WERKZEUG_RUN_MAIN=true;
+    # only start the scheduler in the child so it doesn't run twice.
+    if os.environ.get('FLASK_DEBUG') == '1':
+        if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+            return
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        run_all_alert_rules,
+        CronTrigger(hour=2, minute=0),
+        id='nightly_alert_check',
+        replace_existing=True,
+    )
+    scheduler.start()
+    print('[alerts] Nightly scheduler started (02:00 daily)')
+
+
+_start_scheduler()
+
+
 # ── Run ────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -4005,4 +6628,4 @@ if __name__ == '__main__':
     _debug = os.environ.get('FLASK_DEBUG', '0') == '1'
     # PORT can be set by the service manager (launchd / systemd) for multi-instance
     _port = int(os.environ.get('PORT', 5001))
-    app.run(debug=_debug, host='127.0.0.1', port=_port, threaded=True)
+    app.run(debug=_debug, host='0.0.0.0', port=_port, threaded=True)

@@ -318,7 +318,9 @@
         <tr>
           <th class="w-num">#</th>
           <th>Name</th>
-          <th class="w-home">Go Home Alone</th>
+          {% for ef in export_fields %}
+          <th>{{ ef.label }}</th>
+          {% endfor %}
           <th class="w-time">Signed In</th>
           <th class="w-time">Signed Out</th>
           <th class="w-dur">Duration</th>
@@ -329,14 +331,20 @@
         <tr>
           <td class="num">{{ loop.index }}</td>
           <td>{{ m.first_name }} {{ m.surname }}</td>
-          <td class="{{ 'home-yes' if m.unattended_exit else 'home-no' }}">
-            {{ 'YES' if m.unattended_exit else 'NO' }}
-          </td>
+          {% for ef in export_fields %}
+            {% set val = m.export_extra.get(ef.key, '') %}
+            {% if ef.field_type == 'boolean' %}
+              <td class="{{ 'home-yes' if val and val != '0' and val|lower not in ('false','no') else 'home-no' }}">
+                {{ 'YES' if val and val != '0' and val|lower not in ('false','no') else 'NO' }}
+              </td>
+            {% else %}
+              <td>{{ val or '—' }}</td>
+            {% endif %}
+          {% endfor %}
           {% if m.signed_in_at %}
             <td class="time-val status-arrived">{{ m.signed_in_at }}</td>
             {% if m.signed_out_at %}
               <td class="time-val status-out">{{ m.signed_out_at }}</td>
-              {# Calculate duration in minutes #}
               {% set in_parts  = m.signed_in_at.split(':')  %}
               {% set out_parts = m.signed_out_at.split(':') %}
               {% set in_mins   = in_parts[0]|int  * 60 + in_parts[1]|int  %}

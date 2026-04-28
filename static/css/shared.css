@@ -346,7 +346,23 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   overflow-y: auto;
 }
 .modal h2 { font-size: 18px; font-weight: 900; color: var(--navy); margin-bottom: 22px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+  /* Stick to bottom of modal so it's always visible when content overflows */
+  position: sticky;
+  bottom: -32px;   /* cancel out the parent's padding */
+  padding: 16px 0 0;
+  margin-left: -32px;
+  margin-right: -32px;
+  padding-left: 32px;
+  padding-right: 32px;
+  padding-bottom: 24px;
+  background: white;
+  border-top: 1px solid var(--border);
+}
 
 /* ─── FORM ELEMENTS ──────────────────────────────── */
 .form-group { margin-bottom: 16px; }
