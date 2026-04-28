@@ -413,126 +413,151 @@ If you need to migrate manually or inspect the schema, see `scripts/schema_permi
 
 ## Docker deployment (QNAP / Linux server)
 
-The portal ships with a `Dockerfile` and `docker-compose.yml` that run two fully isolated instances — **live** (port 5001) and **dev** (port 5002) — side by side on the same host. All runtime data (database, uploaded documents, backups) is stored in named Docker volumes so it survives container rebuilds.
+The portal runs as a single Docker container. All runtime data (database, uploaded documents, backups) is stored in a named Docker volume so it survives container rebuilds completely untouched.
+
+The Docker project name is taken from the folder you clone into — so cloning into `ara-portal` gives you container `portal` and volume `ara-portal_portal-data`. Every club gets its own cleanly namespaced setup.
 
 ### Prerequisites
 
 - Docker Engine 24+ and Docker Compose V2
 - On QNAP: install **Container Station** from the App Center (this provides both)
+- A DuckDNS domain pointed at your public IP
+- Ports 80 and 443 forwarded on your router to the machine running Caddy
+
+---
 
 ### First-time setup on a new machine
 
-**1. Clone the repo**
+**1. Clone the repo into a club-named folder**
+
+Since the QNAP doesn't have git installed, use a temporary Docker container:
 ```bash
-git clone https://github.com/nikster2703/ayc-portal.git
-cd ayc-portal
+cd /share/Container
+docker run --rm -v /share/Container:/output \
+  alpine sh -c "apk add --no-cache git && \
+    git clone git@github.com:nikster2703/ayc-portal.git /output/ara-portal"
+```
+Replace `ara-portal` with your club's folder name (e.g. `burnham-portal`).
+
+**2. Set up the SSH deploy key**
+
+The repo uses an SSH deploy key instead of a password or token. On first install on a new machine:
+```bash
+# Create the SSH directory
+mkdir -p /share/Container/.ssh
+
+# Generate the deploy key pair
+docker run --rm -v /share/Container/.ssh:/root/.ssh \
+  alpine sh -c "apk add --no-cache openssh && \
+    ssh-keygen -t ed25519 -f /root/.ssh/ara-portal-deploy -N '' -C 'ara-portal-qnap-deploy'"
+
+# Set correct permissions
+chmod 600 /share/Container/.ssh/ara-portal-deploy
+
+# Fetch GitHub's host key
+docker run --rm -v /share/Container/.ssh:/root/.ssh \
+  alpine sh -c "apk add --no-cache openssh && \
+    ssh-keyscan github.com > /root/.ssh/known_hosts"
+
+# Show the public key — copy this to GitHub
+cat /share/Container/.ssh/ara-portal-deploy.pub
 ```
 
-**2. Create your instance .env files**
+Add the public key to GitHub: **repo → Settings → Deploy keys → Add deploy key** (read-only, no write access needed).
 
-Each instance needs its own secrets file. Start from the provided templates:
+Then update the git remote to use SSH:
 ```bash
-cp instances/live/.env.example instances/live/.env
-cp instances/dev/.env.example  instances/dev/.env
+cd /share/Container/ara-portal
+docker run --rm \
+  -v /share/Container/ara-portal:/repo \
+  -v /share/Container/.ssh:/root/.ssh:ro \
+  alpine sh -c "apk add --no-cache git openssh && \
+    git -C /repo remote set-url origin git@github.com:nikster2703/ayc-portal.git"
 ```
 
-Edit each file and fill in at minimum:
-- `SECRET_KEY` — generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`
-- `DB_ENCRYPTION_KEY` — generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
-- `CLUB_NAME` / `CLUB_SHORT_NAME`
-- Gmail SMTP credentials (for mailshots)
+**3. Create your .env file**
 
-**3. Build the Docker image**
+```bash
+cd /share/Container/ara-portal
+cp .env.example .env
+vi .env
+```
+
+Fill in at minimum:
+- `PORT` — the port you want (e.g. `5005`). This is the port in your browser and Caddyfile.
+- `CLUB_NAME` / `CLUB_SHORT_NAME` — full name and member ID prefix
+- `SECRET_KEY` — generate with: `docker run --rm python:3.11-slim python3 -c "import secrets; print(secrets.token_hex(32))"`
+- `DB_ENCRYPTION_KEY` — run the same command again for a second unique value. **Keep this safe — losing it means losing the database.**
+- `FLASK_ENV` — set to `production`
+- Gmail credentials — can be added later
+
+**4. Build the Docker image**
 ```bash
 docker compose build
 ```
-This compiles pysqlcipher3 and installs all Python dependencies. Takes a few minutes the first time; subsequent builds are fast due to layer caching.
+Takes a few minutes the first time (compiles pysqlcipher3). Subsequent builds are fast.
 
-**4. Create the first admin user**
+**5. Create the first admin user**
 ```bash
-# For the live instance:
-docker compose run --rm ayc-live python scripts/seed_admin.py
-
-# For the dev instance:
-docker compose run --rm ayc-dev python scripts/seed_admin.py
+docker compose run --rm portal python scripts/seed_admin.py
 ```
 
-**5. Import existing member data (live instance only)**
-
-Copy your `SYC Member Details-2.xlsx` into the project folder first, then:
-```bash
-docker compose run --rm -v "$(pwd)/SYC Member Details-2.xlsx:/SYC Member Details-2.xlsx" \
-  ayc-live python scripts/migrate_members.py
-```
-
-**6. Start both instances**
+**6. Start the portal**
 ```bash
 docker compose up -d
 ```
 
-Visit `http://<QNAP-IP>:5001` for live and `http://<QNAP-IP>:5002` for dev.
+Visit `http://<server-IP>:<PORT>` to confirm it's running.
+
+**7. Add to Caddy for HTTPS**
+
+On the machine running Caddy (e.g. Mac Mini), add a block to the Caddyfile:
+```
+your-domain.duckdns.org {
+    reverse_proxy <QNAP-IP>:<PORT>
+}
+```
+
+Reload Caddy:
+```bash
+sudo caddy reload --config /path/to/Caddyfile
+```
+
+The portal will then be live at `https://your-domain.duckdns.org`.
 
 ---
 
 ### Deploying an update
 
+A single script handles everything — pull, rebuild, restart:
 ```bash
-git pull
-docker compose build
-docker compose up -d
+cd /share/Container/ara-portal
+./update.sh
 ```
 
-Docker Compose restarts each container with the new image. Downtime is typically under 5 seconds per service.
+Downtime is typically under 10 seconds. Your data is never touched.
 
 ---
 
-### Caddy reverse proxy (HTTPS)
+### Backing up and restoring data
 
-Run Caddy on the QNAP host (or as a third Docker service) to handle HTTPS and route traffic.
-
-**Install Caddy on the QNAP** (via the Entware package manager or a Caddy container):
-
-Example `Caddyfile` routing two subdomains to the two instances:
-```
-ayc-portal.duckdns.org {
-    reverse_proxy localhost:5001
-}
-
-dev.ayc-portal.duckdns.org {
-    reverse_proxy localhost:5002
-}
-```
-
-Start Caddy:
+All data lives in the Docker volume `<folder-name>_portal-data`. Back it up with:
 ```bash
-sudo caddy run --config /path/to/Caddyfile
-```
-
-Caddy handles TLS certificates automatically via Let's Encrypt.
-
----
-
-### Managing volumes (backup & restore)
-
-All instance data lives in named Docker volumes. To back up:
-```bash
-# Backup live database
 docker run --rm \
-  -v ayc-portal_ayc-live-data:/data \
-  -v $(pwd):/backup \
-  alpine tar czf /backup/ayc-live-backup-$(date +%Y%m%d).tar.gz -C /data .
+  -v ara-portal_portal-data:/data \
+  -v /share/Container/ara-portal:/backup \
+  alpine tar czf /backup/portal-backup-$(date +%Y%m%d).tar.gz -C /data .
 ```
 
 To restore on a new machine:
 ```bash
-docker volume create ayc-portal_ayc-live-data
+docker volume create ara-portal_portal-data
 docker run --rm \
-  -v ayc-portal_ayc-live-data:/data \
-  -v $(pwd):/backup \
-  alpine tar xzf /backup/ayc-live-backup-YYYYMMDD.tar.gz -C /data
+  -v ara-portal_portal-data:/data \
+  -v /share/Container/ara-portal:/backup \
+  alpine tar xzf /backup/portal-backup-YYYYMMDD.tar.gz -C /data
+docker compose up -d
 ```
-
-Then run `docker compose up -d` as normal.
 
 ---
 
@@ -540,24 +565,23 @@ Then run `docker compose up -d` as normal.
 
 | Task | Command |
 |------|---------|
-| View live logs | `docker compose logs -f ayc-live` |
-| View dev logs | `docker compose logs -f ayc-dev` |
-| Restart live only | `docker compose restart ayc-live` |
-| Open a shell in live container | `docker compose exec ayc-live bash` |
-| Stop everything | `docker compose down` |
-| Stop and remove volumes (destructive!) | `docker compose down -v` |
-| Check container health | `docker compose ps` |
+| View logs | `docker compose logs -f portal` |
+| Restart portal | `docker compose restart portal` |
+| Open a shell in the container | `docker compose exec portal bash` |
+| Check status | `docker compose ps` |
+| Stop portal | `docker compose down` |
+| Stop and delete all data (destructive!) | `docker compose down -v` |
 
 ---
 
 ### Troubleshooting (Docker)
 
-**Build fails on pysqlcipher3** — The Dockerfile installs `libsqlcipher-dev` in the builder stage. If you see a compilation error, make sure your Docker Engine is up to date (24+).
+**Build fails on pysqlcipher3** — The Dockerfile installs `libsqlcipher-dev` in the builder stage. Make sure Docker Engine is 24+.
 
-**Container starts then immediately exits** — Check logs with `docker compose logs ayc-live`. Most likely cause is a missing or malformed `instances/live/.env` — particularly `DB_ENCRYPTION_KEY` or `SECRET_KEY` not set.
+**Container starts then immediately exits** — Check logs with `docker compose logs portal`. Most likely cause is a missing or malformed `.env` — check `DB_ENCRYPTION_KEY` and `SECRET_KEY` are set.
 
-**Port already in use** — Change the host-side ports in `docker-compose.yml` (e.g. `"5011:5001"` for live). Update your Caddyfile to match.
+**Port already in use** — Change `PORT=` in `.env` to a free port, then run `docker compose up -d --force-recreate`. Update your Caddyfile to match.
 
-**Times showing 1 hour behind in Docker** — Add `TZ=Europe/London` to the `environment:` block for each service in `docker-compose.yml`.
+**Times showing 1 hour behind** — Add `TZ=Europe/London` to the `environment:` block in `docker-compose.yml` and force-recreate.
 
-**Uploaded documents not persisting** — Make sure the named volumes exist (`docker volume ls`). If you used `docker compose down -v` at any point, the volumes were deleted.
+**Uploaded documents not persisting** — Run `docker volume ls` to confirm the volume exists. If you ran `docker compose down -v` at any point, the volume was deleted.
