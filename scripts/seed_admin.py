@@ -116,8 +116,9 @@ def seed():
             (username, email, pw_hash, 'admin')
         )
         conn.commit()
+        port = os.environ.get('PORT', '5001')
         print(f"\nAdmin user '{username}' created successfully.")
-        print('You can now log in at http://localhost:5001')
+        print(f'You can now log in at http://localhost:{port}')
     except sqlite3.IntegrityError:
         print(f"\nA user named '{username}' already exists.")
     finally:
