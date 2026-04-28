@@ -8,12 +8,12 @@
 #   container:  portal
 #   volume:     <folder-name>_portal-data
 #
-# Secrets and club identity are read from .env in this folder.
-# Copy .env.example → .env and fill in your values before first run.
+# All configuration — including the port — is set in .env before first run.
+# Copy .env.example → .env and fill in your values before building.
 #
 # First-time setup:
 #   cp .env.example .env
-#   vi .env                        ← fill in SECRET_KEY, DB_ENCRYPTION_KEY, CLUB_NAME etc.
+#   vi .env                        ← set PORT, SECRET_KEY, DB_ENCRYPTION_KEY, CLUB_NAME etc.
 #   docker compose build
 #   docker compose run --rm portal python scripts/seed_admin.py
 #   docker compose up -d
@@ -30,17 +30,17 @@ services:
     container_name: portal
     restart: unless-stopped
     ports:
-      - "5001:5001"           # Change left number to move the external port (e.g. "5005:5001")
+      - "${PORT:-5001}:${PORT:-5001}"
     environment:
       - INSTANCE_DIR=/data
-      - PORT=5001
+      - PORT=${PORT:-5001}
       - FLASK_DEBUG=0
     env_file:
       - .env
     volumes:
       - portal-data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-5001}/api/auth/me')"]
       interval: 30s
       timeout: 10s
       retries: 3
