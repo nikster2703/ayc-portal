@@ -30,6 +30,7 @@ instances/*/logs/
 # Environment / secrets
 .env
 *.env
+!*.env.example
 config_local.py
 
 # OS

@@ -1,0 +1,73 @@
+# ── AYC Portal — Docker Compose ───────────────────────────────────────────────
+#
+# Two services:
+#   ayc-live  — production instance  (port 5001, data in ayc-live-data volume)
+#   ayc-dev   — development instance (port 5002, data in ayc-dev-data volume)
+#
+# Instance data (database, uploaded documents, backups) is stored in named
+# Docker volumes so it survives container rebuilds.
+#
+# Each instance reads its own .env file from the instances/ directory.
+# Copy instances/live/.env.example → instances/live/.env and fill in your values
+# before starting for the first time.  Same for instances/dev/.env.
+#
+# First-time setup:
+#   docker compose build
+#   docker compose run --rm ayc-live python scripts/seed_admin.py
+#   docker compose run --rm ayc-live python scripts/migrate_members.py
+#   docker compose up -d
+#
+# Deploy an update:
+#   git pull
+#   docker compose build
+#   docker compose up -d        # zero-downtime rolling restart
+
+services:
+
+  ayc-live:
+    build: .
+    container_name: ayc-live
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - INSTANCE_DIR=/data
+      - PORT=5001
+      - FLASK_DEBUG=0
+    env_file:
+      - instances/live/.env
+    volumes:
+      - ayc-live-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  ayc-dev:
+    build: .
+    container_name: ayc-dev
+    restart: unless-stopped
+    ports:
+      - "5002:5001"
+    environment:
+      - INSTANCE_DIR=/data
+      - PORT=5001
+      - FLASK_DEBUG=1
+    env_file:
+      - instances/dev/.env
+    volumes:
+      - ayc-dev-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  ayc-live-data:
+    driver: local
+  ayc-dev-data:
+    driver: local

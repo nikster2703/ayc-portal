@@ -1,7 +1,7 @@
 # AYC Portal — Setup & Reference Guide
 
 Full-stack member management portal for Ashford Youth Club.
-Built with Python / Flask / SQLite. Runs on a Mac Mini M1, accessible over the internet via DuckDNS + Caddy.
+Built with Python / Flask / SQLite. Can run directly on a Mac Mini (development) or in Docker containers on a QNAP NAS or any Linux server (production).
 
 ---
 
@@ -389,3 +389,156 @@ If you need to migrate manually or inspect the schema, see `scripts/schema_permi
 **Uploaded documents not appearing** — The `data/documents/` folder is created automatically on startup. If it's missing permissions, run `chmod 755 data/documents` from inside `ayc-portal/`.
 
 **Times showing 1 hour behind** — Make sure your Mac Mini's System Settings → General → Date & Time is set to the correct timezone (Europe/London) and "Set time zone automatically" is on.
+
+---
+
+## Docker deployment (QNAP / Linux server)
+
+The portal ships with a `Dockerfile` and `docker-compose.yml` that run two fully isolated instances — **live** (port 5001) and **dev** (port 5002) — side by side on the same host. All runtime data (database, uploaded documents, backups) is stored in named Docker volumes so it survives container rebuilds.
+
+### Prerequisites
+
+- Docker Engine 24+ and Docker Compose V2
+- On QNAP: install **Container Station** from the App Center (this provides both)
+
+### First-time setup on a new machine
+
+**1. Clone the repo**
+```bash
+git clone https://github.com/nikster2703/ayc-portal.git
+cd ayc-portal
+```
+
+**2. Create your instance .env files**
+
+Each instance needs its own secrets file. Start from the provided templates:
+```bash
+cp instances/live/.env.example instances/live/.env
+cp instances/dev/.env.example  instances/dev/.env
+```
+
+Edit each file and fill in at minimum:
+- `SECRET_KEY` — generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`
+- `DB_ENCRYPTION_KEY` — generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
+- `CLUB_NAME` / `CLUB_SHORT_NAME`
+- Gmail SMTP credentials (for mailshots)
+
+**3. Build the Docker image**
+```bash
+docker compose build
+```
+This compiles pysqlcipher3 and installs all Python dependencies. Takes a few minutes the first time; subsequent builds are fast due to layer caching.
+
+**4. Create the first admin user**
+```bash
+# For the live instance:
+docker compose run --rm ayc-live python scripts/seed_admin.py
+
+# For the dev instance:
+docker compose run --rm ayc-dev python scripts/seed_admin.py
+```
+
+**5. Import existing member data (live instance only)**
+
+Copy your `SYC Member Details-2.xlsx` into the project folder first, then:
+```bash
+docker compose run --rm -v "$(pwd)/SYC Member Details-2.xlsx:/SYC Member Details-2.xlsx" \
+  ayc-live python scripts/migrate_members.py
+```
+
+**6. Start both instances**
+```bash
+docker compose up -d
+```
+
+Visit `http://<QNAP-IP>:5001` for live and `http://<QNAP-IP>:5002` for dev.
+
+---
+
+### Deploying an update
+
+```bash
+git pull
+docker compose build
+docker compose up -d
+```
+
+Docker Compose restarts each container with the new image. Downtime is typically under 5 seconds per service.
+
+---
+
+### Caddy reverse proxy (HTTPS)
+
+Run Caddy on the QNAP host (or as a third Docker service) to handle HTTPS and route traffic.
+
+**Install Caddy on the QNAP** (via the Entware package manager or a Caddy container):
+
+Example `Caddyfile` routing two subdomains to the two instances:
+```
+ayc-portal.duckdns.org {
+    reverse_proxy localhost:5001
+}
+
+dev.ayc-portal.duckdns.org {
+    reverse_proxy localhost:5002
+}
+```
+
+Start Caddy:
+```bash
+sudo caddy run --config /path/to/Caddyfile
+```
+
+Caddy handles TLS certificates automatically via Let's Encrypt.
+
+---
+
+### Managing volumes (backup & restore)
+
+All instance data lives in named Docker volumes. To back up:
+```bash
+# Backup live database
+docker run --rm \
+  -v ayc-portal_ayc-live-data:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/ayc-live-backup-$(date +%Y%m%d).tar.gz -C /data .
+```
+
+To restore on a new machine:
+```bash
+docker volume create ayc-portal_ayc-live-data
+docker run --rm \
+  -v ayc-portal_ayc-live-data:/data \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/ayc-live-backup-YYYYMMDD.tar.gz -C /data
+```
+
+Then run `docker compose up -d` as normal.
+
+---
+
+### Useful Docker commands
+
+| Task | Command |
+|------|---------|
+| View live logs | `docker compose logs -f ayc-live` |
+| View dev logs | `docker compose logs -f ayc-dev` |
+| Restart live only | `docker compose restart ayc-live` |
+| Open a shell in live container | `docker compose exec ayc-live bash` |
+| Stop everything | `docker compose down` |
+| Stop and remove volumes (destructive!) | `docker compose down -v` |
+| Check container health | `docker compose ps` |
+
+---
+
+### Troubleshooting (Docker)
+
+**Build fails on pysqlcipher3** — The Dockerfile installs `libsqlcipher-dev` in the builder stage. If you see a compilation error, make sure your Docker Engine is up to date (24+).
+
+**Container starts then immediately exits** — Check logs with `docker compose logs ayc-live`. Most likely cause is a missing or malformed `instances/live/.env` — particularly `DB_ENCRYPTION_KEY` or `SECRET_KEY` not set.
+
+**Port already in use** — Change the host-side ports in `docker-compose.yml` (e.g. `"5011:5001"` for live). Update your Caddyfile to match.
+
+**Times showing 1 hour behind in Docker** — Add `TZ=Europe/London` to the `environment:` block for each service in `docker-compose.yml`.
+
+**Uploaded documents not persisting** — Make sure the named volumes exist (`docker volume ls`). If you used `docker compose down -v` at any point, the volumes were deleted.

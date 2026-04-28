@@ -1,0 +1,44 @@
+# ── AYC Portal — .dockerignore ────────────────────────────────────────────────
+# Files excluded from the Docker build context.
+# Keep this in sync with .gitignore.
+
+# Virtual environment — dependencies are installed inside the image
+venv/
+.venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Database and runtime data — stored in named volumes, not baked into the image
+data/
+instances/*/data/
+instances/*/logs/
+
+# Secrets — never bake into image; passed via env_file at runtime
+.env
+instances/live/.env
+instances/dev/.env
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Docker files themselves (no need to copy into the image)
+Dockerfile
+docker-compose.yml
+.dockerignore
