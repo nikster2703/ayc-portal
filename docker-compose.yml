@@ -1,34 +1,36 @@
-# ── AYC Portal — Docker Compose ───────────────────────────────────────────────
+# ── Portal — Docker Compose ───────────────────────────────────────────────────
 #
-# Two services:
-#   portal-live  — production instance  (port 5001, data in portal-live-data volume)
-#   portal-dev   — development instance (port 5002, data in portal-dev-data volume)
+# Single service: portal
 #
-# Instance data (database, uploaded documents, backups) is stored in named
-# Docker volumes so it survives container rebuilds.
+# The Docker project name is taken from the folder this file lives in.
+# Clone the repo into a club-named folder (e.g. ara-portal, burnham-portal)
+# and Docker will automatically namespace everything accordingly:
+#   container:  portal
+#   volume:     <folder-name>_portal-data
 #
-# Secrets are read from .env (live) and .env.dev (dev) in the project root.
-# Copy .env.example → .env and fill in your values before starting.
+# Secrets and club identity are read from .env in this folder.
+# Copy .env.example → .env and fill in your values before first run.
 #
 # First-time setup:
-#   cp .env.example .env && vi .env
+#   cp .env.example .env
+#   vi .env                        ← fill in SECRET_KEY, DB_ENCRYPTION_KEY, CLUB_NAME etc.
 #   docker compose build
-#   docker compose run --rm portal-live python scripts/seed_admin.py
+#   docker compose run --rm portal python scripts/seed_admin.py
 #   docker compose up -d
 #
 # Deploy an update:
-#   docker run --rm -v $(pwd):/output alpine sh -c "apk add --no-cache git && git -C /output pull"
+#   docker run --rm -v $(pwd):/repo alpine sh -c "apk add --no-cache git && git -C /repo pull"
 #   docker compose build
-#   docker compose up -d
+#   docker compose up -d --force-recreate
 
 services:
 
-  portal-live:
+  portal:
     build: .
-    container_name: portal-live
+    container_name: portal
     restart: unless-stopped
     ports:
-      - "5001:5001"
+      - "5001:5001"           # Change left number to move the external port (e.g. "5005:5001")
     environment:
       - INSTANCE_DIR=/data
       - PORT=5001
@@ -36,28 +38,7 @@ services:
     env_file:
       - .env
     volumes:
-      - portal-live-data:/data
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-
-  portal-dev:
-    build: .
-    container_name: portal-dev
-    restart: unless-stopped
-    ports:
-      - "5002:5001"
-    environment:
-      - INSTANCE_DIR=/data
-      - PORT=5001
-      - FLASK_DEBUG=1
-    env_file:
-      - .env.dev
-    volumes:
-      - portal-dev-data:/data
+      - portal-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
       interval: 30s
@@ -66,7 +47,5 @@ services:
       start_period: 15s
 
 volumes:
-  portal-live-data:
-    driver: local
-  portal-dev-data:
+  portal-data:
     driver: local
