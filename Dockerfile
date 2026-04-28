@@ -7,7 +7,7 @@
 # Run:    docker compose up -d
 
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 # Build deps for pysqlcipher3 + cryptography
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,7 +28,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels \
     -r requirements.txt
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim-bookworm AS runtime
 
 # Runtime deps: libsqlcipher0 (shared library used at runtime by pysqlcipher3)
 RUN apt-get update && apt-get install -y --no-install-recommends \
