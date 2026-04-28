@@ -1,32 +1,31 @@
 # ── AYC Portal — Docker Compose ───────────────────────────────────────────────
 #
 # Two services:
-#   ayc-live  — production instance  (port 5001, data in ayc-live-data volume)
-#   ayc-dev   — development instance (port 5002, data in ayc-dev-data volume)
+#   portal-live  — production instance  (port 5001, data in portal-live-data volume)
+#   portal-dev   — development instance (port 5002, data in portal-dev-data volume)
 #
 # Instance data (database, uploaded documents, backups) is stored in named
 # Docker volumes so it survives container rebuilds.
 #
-# Each instance reads its own .env file from the instances/ directory.
-# Copy instances/live/.env.example → instances/live/.env and fill in your values
-# before starting for the first time.  Same for instances/dev/.env.
+# Secrets are read from .env (live) and .env.dev (dev) in the project root.
+# Copy .env.example → .env and fill in your values before starting.
 #
 # First-time setup:
+#   cp .env.example .env && vi .env
 #   docker compose build
-#   docker compose run --rm ayc-live python scripts/seed_admin.py
-#   docker compose run --rm ayc-live python scripts/migrate_members.py
+#   docker compose run --rm portal-live python scripts/seed_admin.py
 #   docker compose up -d
 #
 # Deploy an update:
-#   git pull
+#   docker run --rm -v $(pwd):/output alpine sh -c "apk add --no-cache git && git -C /output pull"
 #   docker compose build
-#   docker compose up -d        # zero-downtime rolling restart
+#   docker compose up -d
 
 services:
 
-  ayc-live:
+  portal-live:
     build: .
-    container_name: ayc-live
+    container_name: portal-live
     restart: unless-stopped
     ports:
       - "5001:5001"
@@ -35,9 +34,9 @@ services:
       - PORT=5001
       - FLASK_DEBUG=0
     env_file:
-      - instances/live/.env
+      - .env
     volumes:
-      - ayc-live-data:/data
+      - portal-live-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
       interval: 30s
@@ -45,9 +44,9 @@ services:
       retries: 3
       start_period: 15s
 
-  ayc-dev:
+  portal-dev:
     build: .
-    container_name: ayc-dev
+    container_name: portal-dev
     restart: unless-stopped
     ports:
       - "5002:5001"
@@ -56,9 +55,9 @@ services:
       - PORT=5001
       - FLASK_DEBUG=1
     env_file:
-      - instances/dev/.env
+      - .env.dev
     volumes:
-      - ayc-dev-data:/data
+      - portal-dev-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/auth/me')"]
       interval: 30s
@@ -67,7 +66,7 @@ services:
       start_period: 15s
 
 volumes:
-  ayc-live-data:
+  portal-live-data:
     driver: local
-  ayc-dev-data:
+  portal-dev-data:
     driver: local
