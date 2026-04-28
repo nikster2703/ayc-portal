@@ -344,6 +344,25 @@ ayc-portal/
 
 ---
 
+## Code vs data — where things live (Docker)
+
+This is important to understand when running in Docker on the QNAP.
+
+**The `ara-portal` folder** (visible via SMB in the Container share) contains only the **code** — `app.py`, templates, static files etc. You will not find a `data/` folder here and that is normal.
+
+**The database and uploaded documents** live in a Docker named volume (`ara-portal_portal-live-data`) which Docker manages in its own internal storage area, separate from the code folder. This is intentional — it means you can update the code (git pull + rebuild) without ever touching your data.
+
+To see exactly where Docker keeps the volume on disk:
+```bash
+docker volume inspect ara-portal_portal-live-data
+```
+
+The golden rule:
+- **Code update** → `git pull` + `docker compose build` + `docker compose up -d` — your data is untouched
+- **Data lives** in the Docker volume — back it up with the `docker run ... tar` command in the Docker section above, or via Settings → Maintenance in the portal
+
+---
+
 ## Backing up the database
 
 Everything is in one file: `data/ayc.db`. Back it up with:
