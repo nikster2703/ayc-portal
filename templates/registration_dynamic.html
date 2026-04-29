@@ -292,6 +292,7 @@ const declarations = {};   // { key: 'yes'|'no' }
 let requiredFieldIds  = [];
 let requiredDeclKeys  = [];
 let hasUnattendedExit = false;
+let hasSignature      = false;
 let _postcodeResults  = [];
 
 /* ── Escape helper ─────────────────────────────────────────────────────── */
@@ -324,36 +325,68 @@ async function init() {
   }
 }
 
-/* ── Build the form ────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUILD FORM — fully driven by Field Builder config, no hardcoded sections
+   ═══════════════════════════════════════════════════════════════════════════ */
 function buildForm() {
-  const style  = (typeConfig.type.registration_style || 'member');
-  const fields  = typeConfig.fields;
-  const wrap    = document.getElementById('form-wrap');
+  const fields = typeConfig.fields;
+  const wrap   = document.getElementById('form-wrap');
 
-  // Separate fields into categories
-  // DECL_KEYS: system boolean fields handled specially (not rendered as regular inputs)
-  const DECL_KEYS  = new Set(['unattended_exit', 'gdpr_consent']);
-  const META_KEYS  = new Set(['session', 'staff_role', 'comments']);
-  // declFields: configurable declaration-type fields (rendered as Yes/No consent rows)
-  const declFields = fields.filter(f => f.field_type === 'declaration');
-  declFields.forEach(f => DECL_KEYS.add(f.key));
-  const mainFields = fields.filter(f => !DECL_KEYS.has(f.key) && !META_KEYS.has(f.key));
-  const metaFields = fields.filter(f => META_KEYS.has(f.key));
+  requiredFieldIds = [];
+  requiredDeclKeys = [];
+
+  // ── Categorise fields ────────────────────────────────────────────────────
+  // System booleans handled outside normal field rendering
+  const BOOL_KEYS = new Set(['unattended_exit', 'gdpr_consent']);
+
+  const declFields     = fields.filter(f => f.field_type === 'declaration');
+  const signatureField = fields.find(f => f.field_type === 'signature');
+  const contact1Fields = fields.filter(f => f.key.startsWith('contact1_'));
+  const contact2Fields = fields.filter(f => f.key.startsWith('contact2_'));
+  const ownContactFields = fields.filter(f => f.key === 'mobile' || f.key === 'email');
+
+  // Everything else lands in the main details section
+  const EXCLUDE_KEYS = new Set([
+    ...Array.from(BOOL_KEYS),
+    ...declFields.map(f => f.key),
+    ...(signatureField ? [signatureField.key] : []),
+    ...contact1Fields.map(f => f.key),
+    ...contact2Fields.map(f => f.key),
+    ...ownContactFields.map(f => f.key),
+  ]);
+  const mainFields = fields.filter(f => !EXCLUDE_KEYS.has(f.key));
 
   hasUnattendedExit = fields.some(f => f.key === 'unattended_exit');
+  hasSignature      = !!signatureField;
 
+  declFields.forEach(f => requiredDeclKeys.push(f.key));
+  if (hasUnattendedExit) requiredDeclKeys.push('unattended-exit');
+
+  // ── Build sections ───────────────────────────────────────────────────────
   let html = '';
 
-  if (style === 'staff') {
-    html += buildStaffForm(mainFields, metaFields);
-  } else {
-    html += buildMemberForm(mainFields, declFields);
-  }
+  if (mainFields.length)
+    html += buildSection(`${esc(typeConfig.type.name)} Details`, mainFields, true);
+
+  if (ownContactFields.length)
+    html += buildSection('Your Contact Details', ownContactFields, false);
+
+  if (contact1Fields.length)
+    html += buildSection('Primary Contact', contact1Fields, false);
+
+  if (contact2Fields.length)
+    html += buildContact2Section(contact2Fields);
+
+  if (declFields.length || hasUnattendedExit)
+    html += buildDeclarationsSection(declFields);
+
+  if (signatureField)
+    html += buildSignatureSection();
 
   html += `
     <div class="submit-section">
       <div class="form-error" id="form-error">
-        Please complete all required fields before submitting.
+        Please complete all required fields and answer every declaration before submitting.
       </div>
       <button class="submit-btn" id="submit-btn" onclick="submitForm()">
         Submit Registration
@@ -362,7 +395,6 @@ function buildForm() {
 
   wrap.innerHTML = html;
 
-  // Postcode finder hookup (if postcode field rendered)
   if (document.getElementById('postcode')) {
     document.getElementById('postcode').addEventListener('input', onPostcodeInput);
   }
@@ -371,256 +403,126 @@ function buildForm() {
   wrap.style.display = 'block';
 }
 
-/* ── Member form (guardian contacts + declarations + signature) ─────────── */
-function buildMemberForm(mainFields, declFields) {
-  const typeName = esc(typeConfig.type.name);
-  requiredFieldIds  = [];
-  // requiredDeclKeys is derived from the configurable declaration fields plus the
-  // conditional unattended-exit boolean — no longer hardcoded.
-  requiredDeclKeys  = declFields.map(f => f.key);
-  if (hasUnattendedExit) requiredDeclKeys.push('unattended-exit');
-
-  // --- Section 1: Details ---
-  let detailRows = '';
-  // Group first_name + surname side by side, everything else full width
-  const firstNameF = mainFields.find(f => f.key === 'first_name');
-  const surnameF   = mainFields.find(f => f.key === 'surname');
-  const rest       = mainFields.filter(f => f.key !== 'first_name' && f.key !== 'surname');
+/* ── Generic section builder ───────────────────────────────────────────── */
+function buildSection(title, fields, includePostcodeLookup) {
+  let rows = '';
+  const firstNameF = fields.find(f => f.key === 'first_name');
+  const surnameF   = fields.find(f => f.key === 'surname');
+  const rest       = fields.filter(f => f.key !== 'first_name' && f.key !== 'surname');
 
   if (firstNameF || surnameF) {
-    detailRows += `<div class="field-row">`;
-    if (firstNameF) detailRows += renderField(firstNameF);
-    if (surnameF)   detailRows += renderField(surnameF);
-    detailRows += `</div>`;
+    rows += `<div class="field-row">`;
+    if (firstNameF) rows += renderField(firstNameF);
+    if (surnameF)   rows += renderField(surnameF);
+    rows += `</div>`;
   }
   for (const f of rest) {
-    if (f.key === 'postcode') {
-      detailRows += renderPostcodeField(f);
-    } else {
-      detailRows += renderField(f);
-    }
+    rows += (f.key === 'postcode') ? renderPostcodeField(f) : renderField(f);
   }
 
-  const section1 = `
-    <div class="form-section">
-      <div class="section-title">${typeName} Details</div>
-      <div class="section-body">${detailRows}
-        <div class="lookup-msg" id="lookup-msg" style="display:none"></div>
-        <div class="field" id="address-picker-wrap" style="display:none">
-          <label>Select your address</label>
-          <select id="address-picker" onchange="selectAddress()">
-            <option value="">— Select address —</option>
-          </select>
-        </div>
-      </div>
-    </div>`;
+  const lookupHtml = includePostcodeLookup ? `
+    <div class="lookup-msg" id="lookup-msg" style="display:none"></div>
+    <div class="field" id="address-picker-wrap" style="display:none">
+      <label>Select your address</label>
+      <select id="address-picker" onchange="selectAddress()">
+        <option value="">— Select address —</option>
+      </select>
+    </div>` : '';
 
-  // --- Section 2: Primary Contact ---
-  const section2 = `
+  return `
     <div class="form-section">
-      <div class="section-title">Parent / Guardian — Primary Contact</div>
-      <div class="section-body">
-        <div class="field-row">
-          <div class="field">
-            <label>Full Name <span class="req">*</span></label>
-            <input type="text" id="contact1-name" placeholder="e.g. Charlotte Day" autocomplete="name">
-          </div>
-          <div class="field">
-            <label>Mobile / Home Number <span class="req">*</span></label>
-            <input type="tel" id="contact1-number" placeholder="e.g. 07590 118098" autocomplete="tel">
-          </div>
-        </div>
-        <div class="field">
-          <label>Email Address <span class="req">*</span></label>
-          <input type="email" id="contact1-email" placeholder="e.g. charlotte.day@email.com" autocomplete="email">
-        </div>
-      </div>
+      <div class="section-title">${title}</div>
+      <div class="section-body">${rows}${lookupHtml}</div>
     </div>`;
+}
 
-  // --- Section 3: Second Contact (optional) ---
-  const section3 = `
+/* ── Second contact section (collapsible toggle) ───────────────────────── */
+function buildContact2Section(fields) {
+  // If any contact2 field is required, show them expanded by default
+  const anyRequired = fields.some(f => f.required);
+  let innerRows = '';
+  fields.forEach(f => { innerRows += renderField(f); });
+
+  if (anyRequired) {
+    return `
+      <div class="form-section">
+        <div class="section-title">Second Contact</div>
+        <div class="section-body">${innerRows}</div>
+      </div>`;
+  }
+
+  // Optional — collapsible
+  return `
     <div class="form-section">
-      <div class="section-title">Second Contact <span style="opacity:.6;font-weight:600;text-transform:none;letter-spacing:0">— Optional</span></div>
+      <div class="section-title">Second Contact
+        <span style="opacity:.6;font-weight:600;text-transform:none;letter-spacing:0"> — Optional</span>
+      </div>
       <div class="section-body">
         <button type="button" class="add-contact-btn" id="add-contact-btn" onclick="toggleSecondContact()">
-          ＋ Add a second parent / guardian contact
+          ＋ Add a second contact
         </button>
-        <div id="second-contact">
-          <div class="field-row">
-            <div class="field">
-              <label>Full Name</label>
-              <input type="text" id="contact2-name" placeholder="e.g. James Day" autocomplete="name">
-            </div>
-            <div class="field">
-              <label>Mobile / Home Number</label>
-              <input type="tel" id="contact2-number" placeholder="e.g. 07700 900000" autocomplete="tel">
-            </div>
-          </div>
-          <div class="field">
-            <label>Email Address <span class="opt-badge">Optional</span></label>
-            <input type="email" id="contact2-email" placeholder="e.g. james.day@email.com" autocomplete="email">
-          </div>
-        </div>
+        <div id="second-contact">${innerRows}</div>
       </div>
     </div>`;
+}
 
-  // --- Section 4: Declarations ---
+/* ── Declarations section ──────────────────────────────────────────────── */
+function buildDeclarationsSection(declFields) {
+  const declRows = declFields.map(f => {
+    const key  = f.key;
+    const text = f.label.replace(/\{club\}/gi, esc(CLUB_NAME));
+    return `<div class="declaration-row" data-key="${esc(key)}">
+      <p>${text}</p>
+      <div class="yn-group">
+        <button class="yn-btn yes" onclick="setDeclaration('${esc(key)}','yes',this)">Yes</button>
+        <button class="yn-btn no"  onclick="setDeclaration('${esc(key)}','no',this)">No</button>
+      </div>
+    </div>`;
+  }).join('');
+
   const unattendedRow = hasUnattendedExit ? `
-      <div class="declaration-row" data-key="unattended-exit"
-           style="background:#fffbeb;border-radius:10px;padding:14px;margin:4px -4px 0;
-                  border:2px solid #fde68a;border-bottom:2px solid #fde68a;align-items:center">
-        <p><strong>⚠️ Unattended Exit</strong><br>
-          <span style="font-weight:400">My child will make their own way home unaccompanied at the end of the session.</span>
-        </p>
-        <div class="yn-group">
-          <button class="yn-btn no"  onclick="setDeclaration('unattended-exit','no',this)">No</button>
-          <button class="yn-btn yes" onclick="setDeclaration('unattended-exit','yes',this)">Yes</button>
-        </div>
-      </div>` : '';
+    <div class="declaration-row" data-key="unattended-exit"
+         style="background:#fffbeb;border-radius:10px;padding:14px;margin:4px -4px 0;
+                border:2px solid #fde68a;border-bottom:2px solid #fde68a;align-items:center">
+      <p><strong>⚠️ Unattended Exit</strong><br>
+        <span style="font-weight:400">My child will make their own way home unaccompanied at the end of the session.</span>
+      </p>
+      <div class="yn-group">
+        <button class="yn-btn no"  onclick="setDeclaration('unattended-exit','no',this)">No</button>
+        <button class="yn-btn yes" onclick="setDeclaration('unattended-exit','yes',this)">Yes</button>
+      </div>
+    </div>` : '';
 
-  const section4 = `
+  return `
     <div class="form-section">
       <div class="section-title">Declarations — Please tick Yes or No for each</div>
       <div class="section-body" style="gap:0;padding:18px">
-        ${declFields.map(f => {
-          const key  = f.key;
-          // Substitute {club} placeholder with the club name (already HTML-escaped below)
-          const text = f.label.replace(/\{club\}/gi, esc(CLUB_NAME));
-          return `<div class="declaration-row" data-key="${esc(key)}">
-            <p>${text}</p>
-            <div class="yn-group">
-              <button class="yn-btn yes" onclick="setDeclaration('${esc(key)}','yes',this)">Yes</button>
-              <button class="yn-btn no"  onclick="setDeclaration('${esc(key)}','no',this)">No</button>
-            </div>
-          </div>`;
-        }).join('')}
-        ${unattendedRow}
+        ${declRows}${unattendedRow}
       </div>
     </div>`;
+}
 
-  // --- Section 5: Signature ---
-  const section5 = `
+/* ── Signature / guardian confirmation section ─────────────────────────── */
+function buildSignatureSection() {
+  return `
     <div class="form-section">
-      <div class="section-title">Parent / Guardian Confirmation</div>
+      <div class="section-title">Confirmation</div>
       <div class="section-body">
         <div class="field">
           <label>Print Full Name <span class="req">*</span></label>
           <input type="text" id="signature-name" placeholder="Please type your full name to confirm">
         </div>
         <p style="font-size:13px;color:var(--muted);line-height:1.55">
-          By typing your name above you confirm that you are the legal parent or guardian of the child named on this form,
-          and that all details provided are correct and up to date. It is your responsibility to ensure that
-          ${esc(CLUB_NAME)} is able to contact you in case of emergency.
+          By typing your name above you confirm that the details provided are correct and up to date.
+          It is your responsibility to ensure that ${esc(CLUB_NAME)} is able to contact you in case of emergency.
         </p>
       </div>
     </div>`;
-
-  return section1 + section2 + section3 + section4 + section5;
 }
 
-/* ── Staff form (own contact + role + session) ─────────────────────────── */
-function buildStaffForm(mainFields, metaFields) {
-  const typeName = esc(typeConfig.type.name);
-  requiredFieldIds = [];
-  requiredDeclKeys = [];
-
-  // --- Section 1: Personal Details ---
-  let detailRows = '';
-  const firstNameF = mainFields.find(f => f.key === 'first_name');
-  const surnameF   = mainFields.find(f => f.key === 'surname');
-  const rest       = mainFields.filter(f => f.key !== 'first_name' && f.key !== 'surname');
-
-  if (firstNameF || surnameF) {
-    detailRows += `<div class="field-row">`;
-    if (firstNameF) detailRows += renderField(firstNameF);
-    if (surnameF)   detailRows += renderField(surnameF);
-    detailRows += `</div>`;
-  }
-  for (const f of rest) {
-    if (f.key === 'postcode') {
-      detailRows += renderPostcodeField(f);
-    } else {
-      detailRows += renderField(f);
-    }
-  }
-
-  const section1 = `
-    <div class="form-section">
-      <div class="section-title">${typeName} Details</div>
-      <div class="section-body">${detailRows}
-        <div class="lookup-msg" id="lookup-msg" style="display:none"></div>
-        <div class="field" id="address-picker-wrap" style="display:none">
-          <label>Select your address</label>
-          <select id="address-picker" onchange="selectAddress()">
-            <option value="">— Select address —</option>
-          </select>
-        </div>
-      </div>
-    </div>`;
-
-  // --- Section 2: Contact Details ---
-  const section2 = `
-    <div class="form-section">
-      <div class="section-title">Your Contact Details</div>
-      <div class="section-body">
-        <div class="field-row">
-          <div class="field">
-            <label>Mobile Number <span class="req">*</span></label>
-            <input type="tel" id="mobile" placeholder="e.g. 07700 900000" autocomplete="tel">
-          </div>
-          <div class="field">
-            <label>Email Address <span class="req">*</span></label>
-            <input type="email" id="email" placeholder="e.g. you@email.com" autocomplete="email">
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-  // --- Section 3: Role & Session ---
-  const hasRole    = metaFields.some(f => f.key === 'staff_role');
-  const hasSession = metaFields.some(f => f.key === 'session');
-
-  let roleHtml = '';
-  if (hasRole && staffRoles.length) {
-    const roleRequired = metaFields.find(f => f.key === 'staff_role')?.required;
-    const req = roleRequired ? '<span class="req">*</span>' : '<span class="opt-badge">Optional</span>';
-    if (roleRequired) requiredFieldIds.push('staff-role');
-    roleHtml = `
-      <div class="field">
-        <label>Your Role ${req}</label>
-        <select id="staff-role">
-          <option value="">— Select your role —</option>
-          ${staffRoles.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}
-        </select>
-      </div>`;
-  }
-
-  let sessionHtml = '';
-  if (hasSession && sessionTypes.length) {
-    const sessRequired = metaFields.find(f => f.key === 'session')?.required;
-    const req = sessRequired ? '<span class="req">*</span>' : '<span class="opt-badge">Optional</span>';
-    if (sessRequired) requiredFieldIds.push('session-pref');
-    sessionHtml = `
-      <div class="field">
-        <label>Session Preference ${req}</label>
-        <select id="session-pref">
-          <option value="">— Select a session —</option>
-          ${sessionTypes.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('')}
-          ${sessionTypes.length > 1 ? `<option value="Both">Both sessions</option>` : ''}
-        </select>
-      </div>`;
-  }
-
-  const section3 = (roleHtml || sessionHtml) ? `
-    <div class="form-section">
-      <div class="section-title">Role &amp; Preferences</div>
-      <div class="section-body">${roleHtml}${sessionHtml}</div>
-    </div>` : '';
-
-  return section1 + section2 + section3;
-}
-
-/* ── Field renderers ───────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   FIELD RENDERERS
+   ═══════════════════════════════════════════════════════════════════════════ */
 function fieldId(field) {
   return field.system_field ? field.column_name : `cf_${field.key}`;
 }
@@ -636,6 +538,31 @@ function renderField(field) {
   const helpHtml = field.help_text
     ? `<p class="field-help">${esc(field.help_text)}</p>` : '';
   const ph = esc(field.placeholder || '');
+
+  // Session — renders as a select populated from session-types API
+  if (field.key === 'session' && sessionTypes.length) {
+    return `<div class="field">
+      <label>${esc(field.label)} ${req}</label>
+      ${helpHtml}
+      <select id="${id}">
+        <option value="">— Select a session —</option>
+        ${sessionTypes.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('')}
+        ${sessionTypes.length > 1 ? `<option value="Both">Both sessions</option>` : ''}
+      </select>
+    </div>`;
+  }
+
+  // Staff role — renders as a select populated from staff-roles API
+  if (field.key === 'staff_role' && staffRoles.length) {
+    return `<div class="field">
+      <label>${esc(field.label)} ${req}</label>
+      ${helpHtml}
+      <select id="${id}">
+        <option value="">— Select your role —</option>
+        ${staffRoles.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}
+      </select>
+    </div>`;
+  }
 
   if (field.field_type === 'textarea') {
     return `<div class="field">
@@ -705,7 +632,9 @@ function renderPostcodeField(field) {
   </div>`;
 }
 
-/* ── Declarations ──────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   DECLARATIONS / SECOND CONTACT INTERACTIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
 function setDeclaration(key, val, btn) {
   declarations[key] = val;
   const row = btn.closest('.declaration-row');
@@ -714,29 +643,24 @@ function setDeclaration(key, val, btn) {
   row.classList.remove('required-err');
 }
 
-/* ── Second contact toggle ─────────────────────────────────────────────── */
 function toggleSecondContact() {
   const el  = document.getElementById('second-contact');
   const btn = document.getElementById('add-contact-btn');
   if (!el) return;
   const visible = el.classList.toggle('visible');
-  btn.textContent = visible
-    ? '✕ Remove second contact'
-    : '＋ Add a second parent / guardian contact';
+  btn.textContent = visible ? '✕ Remove second contact' : '＋ Add a second contact';
   if (!visible) {
-    ['contact2-name','contact2-number','contact2-email'].forEach(id => {
-      const el2 = document.getElementById(id);
-      if (el2) el2.value = '';
-    });
+    el.querySelectorAll('input, select, textarea').forEach(inp => { inp.value = ''; });
   }
 }
 
-/* ── Validation ────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   VALIDATION — fully field-driven, no hardcoded required lists
+   ═══════════════════════════════════════════════════════════════════════════ */
 function validate() {
   let ok = true;
-  const style = typeConfig.type.registration_style || 'member';
 
-  // Dynamic required fields
+  // 1. Required fields (populated by renderField)
   requiredFieldIds.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -744,55 +668,48 @@ function validate() {
     else el.classList.remove('error');
   });
 
-  // Member-style structural required fields
-  if (style !== 'staff') {
-    ['contact1-name','contact1-number','contact1-email','signature-name'].forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      if (!el.value.trim()) { el.classList.add('error'); ok = false; }
-      else el.classList.remove('error');
-    });
-
-    // Email format check
-    const emailEl = document.getElementById('contact1-email');
-    if (emailEl && emailEl.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
-      emailEl.classList.add('error'); ok = false;
+  // 2. Email format — any email-type field that has a value
+  typeConfig.fields.filter(f => f.field_type === 'email').forEach(f => {
+    const el = document.getElementById(fieldId(f));
+    if (el && el.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(el.value.trim())) {
+      el.classList.add('error'); ok = false;
     }
+  });
 
-    // Declarations
-    requiredDeclKeys.forEach(key => {
-      const row = document.querySelector(`[data-key="${key}"]`);
-      if (!row) return;
-      if (!declarations[key]) { row.classList.add('required-err'); ok = false; }
-      else row.classList.remove('required-err');
-    });
-  } else {
-    // Staff: mobile + email required
-    ['mobile','email'].forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      if (!el.value.trim()) { el.classList.add('error'); ok = false; }
-      else el.classList.remove('error');
-    });
-    const emailEl = document.getElementById('email');
-    if (emailEl && emailEl.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
-      emailEl.classList.add('error'); ok = false;
+  // 3. Declarations
+  requiredDeclKeys.forEach(key => {
+    const row = document.querySelector(`[data-key="${key}"]`);
+    if (!row) return;
+    if (!declarations[key]) { row.classList.add('required-err'); ok = false; }
+    else row.classList.remove('required-err');
+  });
+
+  // 4. Signature (if section is present)
+  if (hasSignature) {
+    const sigEl = document.getElementById('signature-name');
+    if (sigEl) {
+      if (!sigEl.value.trim()) { sigEl.classList.add('error'); ok = false; }
+      else sigEl.classList.remove('error');
     }
   }
 
   return ok;
 }
 
-/* ── Collect field values ──────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLECT FIELDS & SUBMIT
+   ═══════════════════════════════════════════════════════════════════════════ */
 function collectFields() {
   const system = {};
   const custom = {};
 
-  const SKIP_KEYS = new Set(['unattended_exit','gdpr_consent','session','staff_role','comments']);
+  // These keys are handled outside the normal input loop
+  const SKIP_KEYS = new Set(['unattended_exit', 'gdpr_consent', 'guardian_confirmation']);
 
   for (const field of typeConfig.fields) {
     if (SKIP_KEYS.has(field.key)) continue;
-    if (field.field_type === 'declaration') continue;  // handled via declarations dict
+    if (field.field_type === 'declaration') continue;
+    if (field.field_type === 'signature')   continue;
     const id  = fieldId(field);
     const el  = document.getElementById(id);
     const val = el ? el.value.trim() : '';
@@ -805,7 +722,6 @@ function collectFields() {
   return { system, custom };
 }
 
-/* ── Submit ────────────────────────────────────────────────────────────── */
 async function submitForm() {
   document.getElementById('form-error').classList.remove('show');
 
@@ -813,7 +729,9 @@ async function submitForm() {
     document.getElementById('form-error').textContent =
       'Please complete all required fields and answer every declaration before submitting.';
     document.getElementById('form-error').classList.add('show');
-    const firstErr = document.querySelector('.field input.error, .field textarea.error, .field select.error, .declaration-row.required-err');
+    const firstErr = document.querySelector(
+      '.field input.error, .field textarea.error, .field select.error, .declaration-row.required-err'
+    );
     firstErr?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
@@ -822,7 +740,6 @@ async function submitForm() {
   btn.disabled    = true;
   btn.textContent = 'Submitting…';
 
-  const style = typeConfig.type.registration_style || 'member';
   const { system, custom } = collectFields();
 
   let payload = {
@@ -831,36 +748,31 @@ async function submitForm() {
     custom_fields: Object.keys(custom).length ? custom : undefined,
   };
 
-  if (style === 'staff') {
-    payload.mobile          = (document.getElementById('mobile')?.value || '').trim();
-    payload.email           = (document.getElementById('email')?.value || '').trim();
-    payload.staff_role      = (document.getElementById('staff-role')?.value || '').trim();
-    payload.assigned_session = (document.getElementById('session-pref')?.value || '').trim();
-  } else {
-    payload.contact1_name  = (document.getElementById('contact1-name')?.value  || '').trim();
-    payload.contact1_phone = (document.getElementById('contact1-number')?.value || '').trim();
-    payload.contact1_email = (document.getElementById('contact1-email')?.value  || '').trim();
-    payload.contact2_name  = (document.getElementById('contact2-name')?.value  || '').trim();
-    payload.contact2_phone = (document.getElementById('contact2-number')?.value || '').trim();
-    payload.contact2_email = (document.getElementById('contact2-email')?.value  || '').trim();
+  // Unattended exit boolean
+  if (hasUnattendedExit) {
     payload.unattended_exit = declarations['unattended-exit'] === 'yes';
-    // Map the communications consent declaration to the gdpr_consent member field
-    const _commsDecl = typeConfig.fields.find(f => f.key === 'consent_comms');
-    if (_commsDecl) {
-      payload.gdpr_consent  = declarations['consent_comms'] === 'yes';
-      payload.comms_consent = declarations['consent_comms'] === 'yes';
-    }
-    // Build declarations JSON dynamically from all declaration-type fields
-    const _declFields = typeConfig.fields.filter(f => f.field_type === 'declaration');
-    const _declJson   = {};
-    for (const f of _declFields) {
-      _declJson[f.key] = declarations[f.key] || null;
-    }
-    if (hasUnattendedExit) {
-      _declJson['unattended_exit'] = declarations['unattended-exit'] || null;
-    }
+  }
+
+  // Map comms consent declaration → DB columns
+  const _commsDecl = typeConfig.fields.find(f => f.key === 'consent_comms');
+  if (_commsDecl) {
+    payload.gdpr_consent  = declarations['consent_comms'] === 'yes';
+    payload.comms_consent = declarations['consent_comms'] === 'yes';
+  }
+
+  // Build declarations JSON from all declaration-type fields
+  const _declFields = typeConfig.fields.filter(f => f.field_type === 'declaration');
+  const _declJson   = {};
+  _declFields.forEach(f => { _declJson[f.key] = declarations[f.key] || null; });
+  if (hasUnattendedExit) _declJson['unattended_exit'] = declarations['unattended-exit'] || null;
+
+  // Signature
+  if (hasSignature) {
     _declJson.signature_name = (document.getElementById('signature-name')?.value || '').trim();
     _declJson.submitted_at   = new Date().toISOString();
+  }
+
+  if (Object.keys(_declJson).length > 0) {
     payload.declarations = _declJson;
   }
 
@@ -893,9 +805,12 @@ function showSuccess() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-/* ── Postcode lookup ───────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   POSTCODE LOOKUP
+   ═══════════════════════════════════════════════════════════════════════════ */
 function onPostcodeInput() {
-  document.getElementById('address-picker-wrap').style.display = 'none';
+  const wrap = document.getElementById('address-picker-wrap');
+  if (wrap) wrap.style.display = 'none';
   showLookupMsg('', '');
   _postcodeResults = [];
 }
@@ -943,8 +858,8 @@ function selectAddress() {
   const picker = document.getElementById('address-picker');
   const idx    = parseInt(picker.value);
   if (isNaN(idx)) return;
-  const addr    = _postcodeResults[idx];
-  const addrEl  = document.getElementById('address');
+  const addr   = _postcodeResults[idx];
+  const addrEl = document.getElementById('address');
   if (addrEl && addr) {
     addrEl.value = addr.formatted || addr.line_1 || String(addr);
     addrEl.classList.remove('error');

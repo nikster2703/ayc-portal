@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.4'  # v8.4: Data import wizard (xlsx/csv, field mapping, duplicate skip)
+APP_VERSION = 'v8.5'  # v8.5: Fully configurable registration forms — contact/signature fields now Field Builder-driven, no hardcoded sections
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -789,19 +789,30 @@ def ensure_tables():
 
     # ── Seed system field definitions (v8.0) ───────────────────────────────────
     for key, label, field_type, column_name, placeholder, help_text, sort_order in [
-        ('first_name',         'First Name',                      'text',     'first_name',         'e.g. Isabella',                             None,                                                                      1),
-        ('surname',            'Surname',                         'text',     'surname',            'e.g. Fitzpatrick',                          None,                                                                      2),
-        ('date_of_birth',      'Date of Birth',                   'date',     'date_of_birth',      None,                                        None,                                                                      3),
-        ('address',            'Home Address',                    'text',     'address',            'Start typing or use the postcode finder',    None,                                                                      4),
-        ('postcode',           'Postcode',                        'postcode', 'postcode',           'e.g. TW15 3EL',                             None,                                                                      5),
-        ('ethnicity_religion', 'Ethnicity / Religion',            'text',     'ethnicity_religion', 'e.g. English / Christian',                  None,                                                                      6),
-        ('medical_sen',        'Medical Needs, Allergies or SEN', 'textarea', 'medical_sen',        None,                                        'Describe any medical conditions, allergies or special educational needs.', 7),
-        ('gp_contact',         'GP / Doctor Surgery Contact',     'text',     'gp_contact',         'e.g. Stanwell Road Surgery — 01784 123456', None,                                                                      8),
-        ('unattended_exit',    'Unattended Exit',                 'boolean',  'unattended_exit',    None,                                        'Will make their own way home unaccompanied at the end of the session.',    9),
-        ('gdpr_consent',       'Communications Consent',          'boolean',  'gdpr_consent',       None,                                        'Happy to be contacted about upcoming events and club information.',        10),
-        ('session',            'Session',                         'text',     'session',            None,                                        'Which session this person attends.',                                       11),
-        ('staff_role',         'Staff Role',                      'text',     'staff_role',         None,                                        None,                                                                      12),
-        ('comments',           'Internal Notes',                  'textarea', 'comments',           None,                                        'Internal notes — not visible to members or parents.',                      13),
+        ('first_name',            'First Name',                      'text',      'first_name',         'e.g. Isabella',                             None,                                                                      1),
+        ('surname',               'Surname',                         'text',      'surname',            'e.g. Fitzpatrick',                          None,                                                                      2),
+        ('date_of_birth',         'Date of Birth',                   'date',      'date_of_birth',      None,                                        None,                                                                      3),
+        ('address',               'Home Address',                    'text',      'address',            'Start typing or use the postcode finder',    None,                                                                      4),
+        ('postcode',              'Postcode',                        'postcode',  'postcode',           'e.g. TW15 3EL',                             None,                                                                      5),
+        ('ethnicity_religion',    'Ethnicity / Religion',            'text',      'ethnicity_religion', 'e.g. English / Christian',                  None,                                                                      6),
+        ('medical_sen',           'Medical Needs, Allergies or SEN', 'textarea',  'medical_sen',        None,                                        'Describe any medical conditions, allergies or special educational needs.', 7),
+        ('gp_contact',            'GP / Doctor Surgery Contact',     'text',      'gp_contact',         'e.g. Stanwell Road Surgery — 01784 123456', None,                                                                      8),
+        ('unattended_exit',       'Unattended Exit',                 'boolean',   'unattended_exit',    None,                                        'Will make their own way home unaccompanied at the end of the session.',    9),
+        ('gdpr_consent',          'Communications Consent',          'boolean',   'gdpr_consent',       None,                                        'Happy to be contacted about upcoming events and club information.',        10),
+        ('session',               'Session',                         'text',      'session',            None,                                        'Which session this person attends.',                                       11),
+        ('staff_role',            'Staff Role',                      'text',      'staff_role',         None,                                        None,                                                                      12),
+        ('comments',              'Internal Notes',                  'textarea',  'comments',           None,                                        'Internal notes — not visible to members or parents.',                      13),
+        # Contact fields — previously hardcoded in the registration form
+        ('contact1_name',         'Primary Contact — Full Name',     'text',      'contact1_name',      'e.g. Charlotte Day',                        None,                                                                      30),
+        ('contact1_phone',        'Primary Contact — Phone',         'phone',     'contact1_phone',     'e.g. 07590 118098',                         None,                                                                      31),
+        ('contact1_email',        'Primary Contact — Email',         'email',     'contact1_email',     'e.g. charlotte.day@email.com',              None,                                                                      32),
+        ('contact2_name',         'Second Contact — Full Name',      'text',      'contact2_name',      'e.g. James Day',                            None,                                                                      33),
+        ('contact2_phone',        'Second Contact — Phone',          'phone',     'contact2_phone',     'e.g. 07700 900000',                         None,                                                                      34),
+        ('contact2_email',        'Second Contact — Email',          'email',     'contact2_email',     'e.g. james.day@email.com',                  None,                                                                      35),
+        ('mobile',                'Mobile Number',                   'phone',     'mobile',             'e.g. 07700 900000',                         None,                                                                      36),
+        ('email',                 'Email Address',                   'email',     'email',              'e.g. you@email.com',                        None,                                                                      37),
+        # Signature field — renders guardian confirmation block on registration form
+        ('guardian_confirmation', 'Guardian Confirmation',           'signature', None,                 None,                                        'Parent or guardian types their full name to confirm the registration.',   38),
     ]:
         mtdb.execute(
             '''INSERT OR IGNORE INTO field_definitions
@@ -846,31 +857,43 @@ def ensure_tables():
     # ── Seed default member_type_fields (v8.0) ─────────────────────────────────
     _default_fields = {
         'member': [
-            ('first_name',         1, 1, 1, 1, 1, 1, 1),
-            ('surname',            1, 1, 1, 1, 1, 1, 2),
-            ('date_of_birth',      1, 1, 0, 0, 1, 1, 3),
-            ('address',            1, 1, 0, 0, 1, 1, 4),
-            ('postcode',           1, 1, 0, 0, 1, 0, 5),
-            ('ethnicity_religion', 0, 1, 0, 0, 1, 0, 6),
-            ('medical_sen',        0, 1, 0, 0, 1, 1, 7),
-            ('gp_contact',         1, 1, 0, 0, 1, 1, 8),
-            ('unattended_exit',    0, 1, 0, 1, 1, 1, 9),
-            ('gdpr_consent',       0, 1, 0, 0, 1, 0, 10),
-            ('session',            1, 0, 0, 0, 1, 1, 11),
-            ('comments',           0, 0, 0, 0, 1, 0, 12),
+            # key,                   req, reg, list, card, detail, print, sort
+            ('first_name',           1,   1,   1,    1,    1,      1,     1),
+            ('surname',              1,   1,   1,    1,    1,      1,     2),
+            ('date_of_birth',        1,   1,   0,    0,    1,      1,     3),
+            ('address',              1,   1,   0,    0,    1,      1,     4),
+            ('postcode',             1,   1,   0,    0,    1,      0,     5),
+            ('ethnicity_religion',   0,   1,   0,    0,    1,      0,     6),
+            ('medical_sen',          0,   1,   0,    0,    1,      1,     7),
+            ('gp_contact',           1,   1,   0,    0,    1,      1,     8),
+            ('unattended_exit',      0,   1,   0,    1,    1,      1,     9),
+            ('gdpr_consent',         0,   1,   0,    0,    1,      0,     10),
+            ('session',              1,   0,   0,    0,    1,      1,     11),
+            ('comments',             0,   0,   0,    0,    1,      0,     12),
             # Declaration fields — shown only on registration form
-            ('consent_attend',     1, 1, 0, 0, 0, 0, 20),
-            ('consent_photos',     1, 1, 0, 0, 0, 0, 21),
-            ('consent_comms',      1, 1, 0, 0, 0, 0, 22),
-            ('consent_belongings', 1, 1, 0, 0, 0, 0, 23),
-            ('consent_medical',    1, 1, 0, 0, 0, 0, 24),
+            ('consent_attend',       1,   1,   0,    0,    0,      0,     20),
+            ('consent_photos',       1,   1,   0,    0,    0,      0,     21),
+            ('consent_comms',        1,   1,   0,    0,    0,      0,     22),
+            ('consent_belongings',   1,   1,   0,    0,    0,      0,     23),
+            ('consent_medical',      1,   1,   0,    0,    0,      0,     24),
+            # Contact fields — now Field Builder-driven
+            ('contact1_name',        1,   1,   0,    0,    1,      1,     30),
+            ('contact1_phone',       1,   1,   0,    0,    1,      1,     31),
+            ('contact1_email',       1,   1,   0,    0,    1,      1,     32),
+            ('contact2_name',        0,   1,   0,    0,    1,      1,     33),
+            ('contact2_phone',       0,   1,   0,    0,    1,      0,     34),
+            ('contact2_email',       0,   1,   0,    0,    1,      0,     35),
+            ('guardian_confirmation',0,   1,   0,    0,    0,      0,     38),
         ],
         'staff': [
-            ('first_name',  1, 1, 1, 1, 1, 1, 1),
-            ('surname',     1, 1, 1, 1, 1, 1, 2),
-            ('staff_role',  0, 1, 0, 1, 1, 1, 3),
-            ('session',     1, 0, 0, 0, 1, 1, 4),
-            ('comments',    0, 0, 0, 0, 1, 0, 5),
+            # key,          req, reg, list, card, detail, print, sort
+            ('first_name',  1,   1,   1,    1,    1,      1,     1),
+            ('surname',     1,   1,   1,    1,    1,      1,     2),
+            ('mobile',      1,   1,   0,    0,    1,      0,     3),
+            ('email',       1,   1,   0,    0,    1,      0,     4),
+            ('staff_role',  0,   1,   0,    1,    1,      1,     5),
+            ('session',     1,   0,   0,    0,    1,      1,     6),
+            ('comments',    0,   0,   0,    0,    1,      0,     7),
         ],
     }
     for type_slug, field_rows in _default_fields.items():
@@ -921,6 +944,55 @@ def ensure_tables():
                        VALUES (?,?,1,1,0,0,0,0,0,?)''',
                     (_mt['id'], _fd['id'], _sort),
                 )
+    mtdb.commit()
+
+    # ── Migrate existing deployments: add contact/signature fields to member type ─
+    # Previously hardcoded in the registration form; now Field Builder-driven.
+    # Uses INSERT OR IGNORE so safe to run on every startup.
+    _mt = mtdb.execute('SELECT id FROM member_types WHERE slug = ?', ('member',)).fetchone()
+    if _mt:
+        for _fkey, _required, _show_print, _sort in [
+            ('contact1_name',         1, 1, 30),
+            ('contact1_phone',        1, 1, 31),
+            ('contact1_email',        1, 1, 32),
+            ('contact2_name',         0, 1, 33),
+            ('contact2_phone',        0, 0, 34),
+            ('contact2_email',        0, 0, 35),
+            ('guardian_confirmation', 0, 0, 38),
+        ]:
+            _fd = mtdb.execute(
+                'SELECT id FROM field_definitions WHERE key = ?', (_fkey,)
+            ).fetchone()
+            if _fd:
+                mtdb.execute(
+                    '''INSERT OR IGNORE INTO member_type_fields
+                       (member_type_id, field_id, required, show_on_registration,
+                        show_on_list, show_on_card, show_on_detail, show_on_print,
+                        show_on_export, sort_order)
+                       VALUES (?,?,?,1,0,0,1,?,0,?)''',
+                    (_mt['id'], _fd['id'], _required, _show_print, _sort),
+                )
+
+    # ── Migrate existing deployments: add mobile/email to staff type ──────────────
+    _st = mtdb.execute('SELECT id FROM member_types WHERE slug = ?', ('staff',)).fetchone()
+    if _st:
+        for _fkey, _required, _sort in [
+            ('mobile', 1, 3),
+            ('email',  1, 4),
+        ]:
+            _fd = mtdb.execute(
+                'SELECT id FROM field_definitions WHERE key = ?', (_fkey,)
+            ).fetchone()
+            if _fd:
+                mtdb.execute(
+                    '''INSERT OR IGNORE INTO member_type_fields
+                       (member_type_id, field_id, required, show_on_registration,
+                        show_on_list, show_on_card, show_on_detail, show_on_print,
+                        show_on_export, sort_order)
+                       VALUES (?,?,?,1,0,0,1,0,0,?)''',
+                    (_st['id'], _fd['id'], _required, _sort),
+                )
+
     mtdb.commit()
     mtdb.close()
 
@@ -2252,14 +2324,11 @@ def api_staff_roles_public():
 @csrf.exempt   # public unauthenticated endpoint — no session token available
 def api_registration():
     """Accept a public self-registration and store it as pending.
+    Fully field-driven — no hardcoded member/staff branching.
     Supports both legacy (registration_type) and new dynamic (member_type_slug) payloads.
     """
     data = request.get_json() or {}
-
-    if not data.get('first_name', '').strip() or not data.get('surname', '').strip():
-        return jsonify({'error': 'First name and surname are required'}), 400
-
-    db = get_db()
+    db   = get_db()
 
     # Determine member type and registration style
     slug  = (data.get('member_type_slug') or data.get('registration_type') or 'member').strip()
@@ -2277,80 +2346,65 @@ def api_registration():
         style         = rtype
         type_slug_val = slug
 
+    # Validate staff role if provided
+    applicant_role = (data.get('applicant_role') or data.get('staff_role') or '').strip()
+    if applicant_role:
+        valid_roles = [r['name'] for r in db.execute(
+            'SELECT name FROM staff_roles WHERE active = 1'
+        ).fetchall()]
+        if applicant_role not in valid_roles:
+            return jsonify({'error': 'Invalid role'}), 400
+
+    # Validate session if provided
+    session_pref = (data.get('assigned_session') or data.get('session') or '').strip()
+    valid_sessions = get_valid_session_names()
+    if session_pref and session_pref not in valid_sessions:
+        return jsonify({'error': 'Invalid session preference'}), 400
+
     # Serialize any custom fields submitted by the dynamic form
     raw_custom = data.get('custom_fields')
     custom_fields_json = json.dumps(raw_custom) if isinstance(raw_custom, dict) and raw_custom else None
 
-    if style == 'staff':
-        # Staff / volunteer registration
-        applicant_role = (data.get('applicant_role') or data.get('staff_role') or '').strip()
-        if applicant_role:
-            valid_roles = [r['name'] for r in db.execute(
-                'SELECT name FROM staff_roles WHERE active = 1'
-            ).fetchall()]
-            if applicant_role not in valid_roles:
-                return jsonify({'error': 'Invalid role'}), 400
-
-        session_pref = (data.get('assigned_session') or data.get('session') or '').strip()
-        valid_sessions = get_valid_session_names()
-        if session_pref and session_pref not in valid_sessions:
-            return jsonify({'error': 'Invalid session preference'}), 400
-
-        db.execute('''
-            INSERT INTO pending_registrations
-                (first_name, surname, date_of_birth, address, postcode,
-                 mobile, email, registration_type, applicant_role, assigned_session,
-                 custom_fields, member_type_slug)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-        ''', (
-            data.get('first_name', '').strip(),
-            data.get('surname', '').strip(),
-            data.get('date_of_birth', ''),
-            data.get('address', '').strip(),
-            data.get('postcode', '').strip(),
-            data.get('mobile', '').strip(),
-            data.get('email', '').strip(),
-            'staff',
-            applicant_role,
-            session_pref,
-            custom_fields_json,
-            type_slug_val,
-        ))
-    else:
-        # Member registration (child / young person)
-        db.execute('''
-            INSERT INTO pending_registrations
-                (first_name, surname, date_of_birth, address, postcode,
-                 ethnicity_religion, medical_sen, gp_contact,
-                 unattended_exit, gdpr_consent, comms_consent,
-                 contact1_name, contact1_phone, contact1_email,
-                 contact2_name, contact2_phone, contact2_email,
-                 declarations, registration_type,
-                 custom_fields, member_type_slug)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ''', (
-            data.get('first_name', '').strip(),
-            data.get('surname', '').strip(),
-            data.get('date_of_birth', ''),
-            data.get('address', '').strip(),
-            data.get('postcode', '').strip(),
-            data.get('ethnicity_religion', '').strip(),
-            data.get('medical_sen', '').strip(),
-            data.get('gp_contact', '').strip(),
-            1 if data.get('unattended_exit') else 0,
-            1 if data.get('gdpr_consent') else 0,
-            1 if data.get('comms_consent') else 0,
-            data.get('contact1_name', '').strip(),
-            data.get('contact1_phone', '').strip(),
-            data.get('contact1_email', '').strip(),
-            data.get('contact2_name', '').strip(),
-            data.get('contact2_phone', '').strip(),
-            data.get('contact2_email', '').strip(),
-            json.dumps(data.get('declarations', {})),
-            'member',
-            custom_fields_json,
-            type_slug_val,
-        ))
+    # Single unified INSERT — all columns nullable, unused ones default to NULL/0
+    db.execute('''
+        INSERT INTO pending_registrations
+            (first_name, surname, date_of_birth, address, postcode,
+             ethnicity_religion, medical_sen, gp_contact,
+             unattended_exit, gdpr_consent, comms_consent,
+             contact1_name, contact1_phone, contact1_email,
+             contact2_name, contact2_phone, contact2_email,
+             mobile, email,
+             declarations, registration_type,
+             custom_fields, member_type_slug,
+             applicant_role, assigned_session)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ''', (
+        data.get('first_name', '').strip(),
+        data.get('surname', '').strip(),
+        data.get('date_of_birth', ''),
+        data.get('address', '').strip(),
+        data.get('postcode', '').strip(),
+        data.get('ethnicity_religion', '').strip(),
+        data.get('medical_sen', '').strip(),
+        data.get('gp_contact', '').strip(),
+        1 if data.get('unattended_exit') else 0,
+        1 if data.get('gdpr_consent') else 0,
+        1 if data.get('comms_consent') else 0,
+        data.get('contact1_name', '').strip(),
+        data.get('contact1_phone', '').strip(),
+        data.get('contact1_email', '').strip(),
+        data.get('contact2_name', '').strip(),
+        data.get('contact2_phone', '').strip(),
+        data.get('contact2_email', '').strip(),
+        data.get('mobile', '').strip(),
+        data.get('email', '').strip(),
+        json.dumps(data.get('declarations', {})),
+        rtype,
+        custom_fields_json,
+        type_slug_val,
+        applicant_role,
+        session_pref,
+    ))
 
     db.commit()
     return jsonify({'success': True})
