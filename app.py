@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.6'  # v8.6: Fix import wizard (apiFetch conflict with utils.js); add .xls support via xlrd
+APP_VERSION = 'v8.7'  # v8.7: Dashboard fix (None session key crashes JSON); import not-imported CSV report
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -2213,8 +2213,9 @@ def api_dashboard():
         ''', (scoped,)).fetchall()
 
     # Build per-session dict: {session_name: {members: N, staff: N}}
+    # Filter out rows where session IS NULL (e.g. members imported without a session assigned).
     session_counts = {r['session']: {'members': r['members'], 'staff': r['staff']}
-                      for r in session_rows}
+                      for r in session_rows if r['session'] is not None}
 
     # Today's attendance (scoped where applicable)
     if scoped is None:
@@ -4862,18 +4863,19 @@ def api_import_run():
     # Load all data rows from the saved file
     try:
         if file_ext in ('xlsx', 'xls'):
-            _, _, _headers, data_rows = _read_xlsx_file(save_path, sheet_name)
+            _, _, file_headers, data_rows = _read_xlsx_file(save_path, sheet_name)
         else:
-            _headers, data_rows = _read_csv_file(save_path)
+            file_headers, data_rows = _read_csv_file(save_path)
     except Exception as exc:
         return jsonify({'error': f'Could not read file: {exc}'}), 400
 
     CORE_KEYS = {'first_name', 'surname', 'date_of_birth', 'address',
                  'postcode', 'date_registered', 'comments', 'status'}
 
-    imported = 0
-    skipped  = 0
-    errors   = []
+    imported     = 0
+    skipped      = 0
+    errors       = []
+    not_imported = []   # [{row, name, reason}] — used for the CSV report
 
     for row_num, row in enumerate(data_rows, start=2):
         try:
@@ -4896,9 +4898,18 @@ def api_import_run():
                 elif field_key in custom_fields:
                     custom_vals[field_key] = val
 
+            # Helper: identify the row for the report
+            def _row_name():
+                parts = [core.get('first_name', ''), core.get('surname', '')]
+                return ' '.join(p for p in parts if p) or f'Row {row_num}'
+
             # Skip rows with no name data at all
             if not core.get('first_name') and not core.get('surname'):
                 skipped += 1
+                not_imported.append({
+                    'row': row_num, 'name': f'Row {row_num} (blank)',
+                    'reason': 'Blank row — no name data found',
+                })
                 continue
 
             # Duplicate check
@@ -4907,6 +4918,10 @@ def api_import_run():
                 (core.get('first_name', ''), core.get('surname', ''), core.get('postcode', ''))
             ).fetchone():
                 skipped += 1
+                not_imported.append({
+                    'row': row_num, 'name': _row_name(),
+                    'reason': 'Duplicate — already exists in the portal (same name + postcode)',
+                })
                 continue
 
             # Insert member record
@@ -4950,6 +4965,14 @@ def api_import_run():
 
         except Exception as exc:
             errors.append({'row': row_num, 'error': str(exc)})
+            not_imported.append({
+                'row': row_num,
+                'name': ' '.join(filter(None, [
+                    (row[int(k)] if int(k) < len(row) else '') for k, v in mapping.items()
+                    if v in ('first_name', 'surname')
+                ])) or f'Row {row_num}',
+                'reason': f'Error: {exc}',
+            })
             try:
                 db.rollback()
             except Exception:
@@ -4961,12 +4984,48 @@ def api_import_run():
     except OSError:
         pass
 
+    # Write a CSV report if any rows were not imported
+    report_id = None
+    if not_imported:
+        report_id = str(_uuid_mod.uuid4())
+        report_path = os.path.join(imports_dir, f'{report_id}_report.csv')
+        with open(report_path, 'w', newline='', encoding='utf-8') as fh:
+            writer = _csv_mod.writer(fh)
+            writer.writerow(['Row #', 'Name', 'Reason Not Imported'])
+            for rec in not_imported:
+                writer.writerow([rec['row'], rec['name'], rec['reason']])
+
     log_action('import.run', 'members', None, {
         'imported': imported, 'skipped': skipped,
         'errors':   len(errors), 'member_type': mt['slug'],
     })
 
-    return jsonify({'imported': imported, 'skipped': skipped, 'errors': errors})
+    return jsonify({
+        'imported':  imported,
+        'skipped':   skipped,
+        'errors':    errors,
+        'report_id': report_id,   # present only when some rows were not imported
+    })
+
+
+@app.route('/api/admin/import/report/<report_id>')
+@permission_required('admin.maintenance')
+def api_import_report(report_id):
+    """Download the not-imported rows CSV report generated by a previous import run."""
+    # Basic sanity-check on the ID to prevent path traversal
+    if not report_id or '/' in report_id or '..' in report_id:
+        return jsonify({'error': 'Invalid report ID'}), 400
+    imports_dir = os.path.join(INSTANCE_DIR, 'data', 'imports')
+    report_path = os.path.join(imports_dir, f'{report_id}_report.csv')
+    if not os.path.exists(report_path):
+        return jsonify({'error': 'Report not found — it may have expired'}), 404
+    from flask import send_file
+    return send_file(
+        report_path,
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name='import_not_imported.csv',
+    )
 
 
 # ── BLUEPRINT: roles + permissions (v6.0) ─────────────────────────────────────

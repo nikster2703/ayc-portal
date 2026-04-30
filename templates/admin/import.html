@@ -212,6 +212,20 @@
                   max-height:200px;overflow-y:auto" id="error-list"></div>
     </div>
 
+    <!-- Download report (shown when some rows were not imported) -->
+    <div id="report-card" style="display:none;margin-bottom:20px;padding:14px 16px;
+                background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px">
+      <div style="font-weight:600;font-size:14px;color:#1e40af;margin-bottom:6px">
+        📄 Not-imported rows report
+      </div>
+      <div style="font-size:13px;color:#1e3a8a;margin-bottom:10px">
+        Some rows were skipped or could not be imported. Download the report to see
+        each record and the reason it wasn't added.
+      </div>
+      <a id="report-link" href="#" class="btn btn-secondary btn-sm"
+         style="text-decoration:none">⬇ Download Report (CSV)</a>
+    </div>
+
     <div style="display:flex;gap:10px">
       <a href="/members" class="btn btn-primary">View Members</a>
       <button class="btn btn-ghost" onclick="location.reload()">Import Another File</button>
@@ -570,6 +584,13 @@ async function doImport() {
       document.getElementById('error-detail').style.display = 'block';
       document.getElementById('error-list').innerHTML =
         data.errors.map(e => `Row ${e.row}: ${esc(e.error)}`).join('<br>');
+    }
+
+    // Show download link if any rows were not imported
+    if (data.report_id) {
+      document.getElementById('report-card').style.display = 'block';
+      document.getElementById('report-link').href =
+        `/api/admin/import/report/${data.report_id}`;
     }
 
     goStep(4);
