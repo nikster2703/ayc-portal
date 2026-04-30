@@ -222,7 +222,7 @@
 <script>
 // ── API helper ────────────────────────────────────────────────────────────────
 function csrfToken() {
-  return document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '';
+  return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
 function apiFetch(url, options = {}) {
   return fetch(url, {
