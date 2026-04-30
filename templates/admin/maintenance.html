@@ -250,7 +250,7 @@
       const blob     = await resp.blob();
       const cd       = resp.headers.get('Content-Disposition') || '';
       const match    = cd.match(/filename="([^"]+)"/);
-      const filename = match ? match[1] : 'ayc_backup.db';
+      const filename = match ? match[1] : 'portal_backup.db';
 
       // Trigger browser download
       const url  = URL.createObjectURL(blob);

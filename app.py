@@ -4510,7 +4510,8 @@ def api_maintenance_backup():
     import tempfile
 
     timestamp  = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename   = f'ayc_backup_{timestamp}.db'
+    slug       = CLUB_SHORT_NAME.lower().replace(' ', '_')
+    filename   = f'{slug}_backup_{timestamp}.db'
 
     # Write a hot backup to a temporary file, then stream it.
     # We use a temp file rather than an in-memory buffer because SQLite's
