@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.10'  # v8.10: Import pipeline fix — session, contact, ethnicity/medical/consent fields
+APP_VERSION = 'v8.11'  # v8.11: status + date_registered added as system fields in Field Builder
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -802,6 +802,8 @@ def ensure_tables():
         ('session',               'Session',                         'text',      'session',            None,                                        'Which session this person attends.',                                       11),
         ('staff_role',            'Staff Role',                      'text',      'staff_role',         None,                                        None,                                                                      12),
         ('comments',              'Internal Notes',                  'textarea',  'comments',           None,                                        'Internal notes — not visible to members or parents.',                      13),
+        ('status',                'Status',                          'select',    'status',             None,                                        None,                                                                      14),
+        ('date_registered',       'Date Registered',                 'date',      'date_registered',    None,                                        None,                                                                      15),
         # Contact fields — previously hardcoded in the registration form
         ('contact1_name',         'Primary Contact — Full Name',     'text',      'contact1_name',      'e.g. Charlotte Day',                        None,                                                                      30),
         ('contact1_phone',        'Primary Contact — Phone',         'phone',     'contact1_phone',     'e.g. 07590 118098',                         None,                                                                      31),
@@ -820,6 +822,10 @@ def ensure_tables():
                VALUES (?,?,?,?,?,?,?,1)''',
             (key, label, field_type, column_name, placeholder, help_text, sort_order),
         )
+    # Ensure status field always has the correct options (idempotent)
+    mtdb.execute(
+        "UPDATE field_definitions SET options = 'Active\nInactive\nLeaver' WHERE key = 'status' AND (options IS NULL OR options = '')"
+    )
 
     # ── Seed declaration field definitions (v8.1) ──────────────────────────────
     # These are non-system (system_field=0) — they render as Yes/No consent rows
@@ -870,6 +876,8 @@ def ensure_tables():
             ('gdpr_consent',         0,   1,   0,    0,    1,      0,     10),
             ('session',              1,   0,   0,    0,    1,      1,     11),
             ('comments',             0,   0,   0,    0,    1,      0,     12),
+            ('status',               0,   0,   0,    1,    1,      1,     13),
+            ('date_registered',      0,   0,   0,    0,    1,      1,     14),
             # Declaration fields — shown only on registration form
             ('consent_attend',       1,   1,   0,    0,    0,      0,     20),
             ('consent_photos',       1,   1,   0,    0,    0,      0,     21),
@@ -971,6 +979,28 @@ def ensure_tables():
                         show_on_export, sort_order)
                        VALUES (?,?,?,1,0,0,1,?,0,?)''',
                     (_mt['id'], _fd['id'], _required, _show_print, _sort),
+                )
+
+    # ── Migrate existing deployments: add status + date_registered to member type ─
+    # These were previously hardcoded columns, not Field Builder entries.
+    # show_on_card=1 for status so it's visible on member cards.
+    _mt = mtdb.execute('SELECT id FROM member_types WHERE slug = ?', ('member',)).fetchone()
+    if _mt:
+        for _fkey, _show_card, _show_detail, _show_print, _sort in [
+            ('status',          1, 1, 1, 13),
+            ('date_registered', 0, 1, 1, 14),
+        ]:
+            _fd = mtdb.execute(
+                'SELECT id FROM field_definitions WHERE key = ?', (_fkey,)
+            ).fetchone()
+            if _fd:
+                mtdb.execute(
+                    '''INSERT OR IGNORE INTO member_type_fields
+                       (member_type_id, field_id, required, show_on_registration,
+                        show_on_list, show_on_card, show_on_detail, show_on_print,
+                        show_on_export, sort_order)
+                       VALUES (?,?,0,0,0,?,?,?,0,?)''',
+                    (_mt['id'], _fd['id'], _show_card, _show_detail, _show_print, _sort),
                 )
 
     # ── Migrate existing deployments: add mobile/email to staff type ──────────────
