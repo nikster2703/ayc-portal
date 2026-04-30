@@ -238,7 +238,8 @@ let state = {
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-(async function init() {
+// Deferred to DOMContentLoaded so utils.js (loaded after this block) is ready.
+async function init() {
   try {
     const types = await apiFetch('/api/admin/member-types');
     const sel   = document.getElementById('sel-type');
@@ -256,7 +257,8 @@ let state = {
   } catch(e) {
     showToast('Could not load member types: ' + e.message, 'error');
   }
-})();
+}
+document.addEventListener('DOMContentLoaded', init);
 
 async function onTypeChange() {
   state.typeId = document.getElementById('sel-type').value || null;
