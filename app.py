@@ -822,10 +822,23 @@ def ensure_tables():
                VALUES (?,?,?,?,?,?,?,1)''',
             (key, label, field_type, column_name, placeholder, help_text, sort_order),
         )
-    # Ensure status field always has the correct options (idempotent)
-    mtdb.execute(
-        "UPDATE field_definitions SET options = 'Active\nInactive\nLeaver' WHERE key = 'status' AND (options IS NULL OR options = '')"
-    )
+    # Ensure status + date_registered are always marked as system fields with
+    # correct metadata — handles existing DBs where these rows predate v8.11.
+    mtdb.execute("""
+        UPDATE field_definitions
+        SET system_field  = 1,
+            column_name   = 'status',
+            field_type    = 'select',
+            options       = CASE WHEN options IS NULL OR options = '' THEN 'Active\nInactive\nLeaver' ELSE options END
+        WHERE key = 'status'
+    """)
+    mtdb.execute("""
+        UPDATE field_definitions
+        SET system_field = 1,
+            column_name  = 'date_registered',
+            field_type   = 'date'
+        WHERE key = 'date_registered'
+    """)
 
     # ── Seed declaration field definitions (v8.1) ──────────────────────────────
     # These are non-system (system_field=0) — they render as Yes/No consent rows
