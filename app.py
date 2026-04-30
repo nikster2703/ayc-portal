@@ -4729,6 +4729,7 @@ def import_page():
 
 
 @app.route('/api/admin/import/analyse', methods=['POST'])
+@csrf.exempt
 @permission_required('admin.maintenance')
 def api_import_analyse():
     """Upload a file and return sheet names, column headers, and preview rows.
@@ -4802,6 +4803,7 @@ def api_import_fields(type_id):
 
 
 @app.route('/api/admin/import/run', methods=['POST'])
+@csrf.exempt
 @permission_required('admin.maintenance')
 def api_import_run():
     """Execute the import with the provided column-to-field mapping.
