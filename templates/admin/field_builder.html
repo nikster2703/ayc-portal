@@ -437,13 +437,26 @@
   }
 
   function refreshCatalogue() {
-    const sel        = document.getElementById('catalogue-select');
+    const sel         = document.getElementById('catalogue-select');
     const assignedIds = new Set(_assignedFields.map(f => f.field_id));
-    const available  = _allFields.filter(f => !assignedIds.has(f.id) && f.active);
-    sel.innerHTML    = '<option value="">— select a field —</option>' +
-      available.map(f =>
-        `<option value="${f.id}">${esc(f.label)} (${esc(f.field_type)}${f.system_field ? ' 🔒' : ''})</option>`
-      ).join('');
+    const available   = _allFields.filter(f => !assignedIds.has(f.id) && f.active);
+
+    const core   = available.filter(f =>  f.system_field);
+    const custom = available.filter(f => !f.system_field);
+
+    function optionHtml(f) {
+      return `<option value="${f.id}">${esc(f.label)} (${esc(f.field_type)})</option>`;
+    }
+
+    let html = '<option value="">— select a field —</option>';
+    if (core.length) {
+      html += `<optgroup label="🔒 Core Fields">${core.map(optionHtml).join('')}</optgroup>`;
+    }
+    if (custom.length) {
+      html += `<optgroup label="⚙️ Custom Fields">${custom.map(optionHtml).join('')}</optgroup>`;
+    }
+
+    sel.innerHTML = html;
     // Hide preview if visible
     document.getElementById('catalogue-preview').style.display = 'none';
     sel.value = '';
