@@ -12,112 +12,96 @@
 </div>
 
 <style>
-  .fb-section {
-    background: white;
-    border: 2px solid var(--border);
-    border-radius: 14px;
-    padding: 20px 24px;
-    margin-bottom: 20px;
-  }
-  .fb-section h2 {
-    font-size: 15px;
-    font-weight: 900;
-    color: var(--navy);
-    margin: 0 0 16px;
-  }
-  .fields-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  .fields-table th {
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--muted);
-    text-align: left;
-    padding: 6px 8px;
-    border-bottom: 2px solid var(--border);
-  }
-  .fields-table td {
-    padding: 10px 8px;
-    border-bottom: 1px solid var(--border);
-    vertical-align: middle;
-  }
-  .fields-table tr:last-child td { border-bottom: none; }
-  .fields-table tr:hover td { background: var(--cream); }
-  .type-badge {
-    font-size: 10px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 8px;
-    background: #e0f2fe;
-    color: #0369a1;
-    border: 1px solid #bae6fd;
-    white-space: nowrap;
-  }
-  .type-badge.decl {
-    background: #fef3c7;
-    color: #92400e;
-    border-color: #fde68a;
-  }
-  .system-lock {
-    font-size: 11px;
-    margin-left: 4px;
-    opacity: .7;
-    cursor: default;
-  }
-  /* Toggle pill buttons */
-  .toggle-pill {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 3px 9px;
-    border-radius: 20px;
-    border: 1.5px solid var(--border);
-    background: white;
-    color: var(--muted);
-    cursor: pointer;
-    transition: background .12s, color .12s, border-color .12s;
-    white-space: nowrap;
-  }
-  .toggle-pill.on {
-    background: var(--teal);
-    color: white;
-    border-color: var(--teal);
-  }
-  .toggle-pill:hover:not(.on) {
-    border-color: var(--teal);
-    color: var(--teal);
-  }
-  .toggle-group {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-  .order-btns {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .order-btn {
-    font-size: 12px;
-    width: 22px;
-    height: 20px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background .1s;
-  }
-  .order-btn:hover { background: var(--cream); }
-  .required-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--teal); }
-  .fb-empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+  .fb-section { background:white;border:2px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:20px; }
+  .fb-section h2 { font-size:15px;font-weight:900;color:var(--navy);margin:0 0 16px; }
+  .fields-table { width:100%;border-collapse:collapse; }
+  .fields-table th { font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+                     color:var(--muted);text-align:left;padding:6px 8px;border-bottom:2px solid var(--border); }
+  .fields-table td { padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:middle; }
+  .fields-table tr:last-child td { border-bottom:none; }
+  .fields-table tr:hover td { background:var(--cream); }
+  .type-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;
+                background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;white-space:nowrap; }
+  .type-badge.decl { background:#fef3c7;color:#92400e;border-color:#fde68a; }
+  .system-lock { font-size:11px;margin-left:4px;opacity:.7;cursor:default; }
+  .toggle-pill { font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;
+                 border:1.5px solid var(--border);background:white;color:var(--muted);
+                 cursor:pointer;transition:background .12s,color .12s,border-color .12s;white-space:nowrap; }
+  .toggle-pill.on { background:var(--teal);color:white;border-color:var(--teal); }
+  .toggle-pill:hover:not(.on) { border-color:var(--teal);color:var(--teal); }
+  .toggle-group { display:flex;gap:4px;flex-wrap:wrap; }
+  .order-btns { display:flex;flex-direction:column;gap:2px; }
+  .order-btn { font-size:12px;width:22px;height:20px;border:1px solid var(--border);border-radius:4px;
+               background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s; }
+  .order-btn:hover { background:var(--cream); }
+  .required-chk { width:16px;height:16px;cursor:pointer;accent-color:var(--teal); }
+  .fb-empty { color:var(--muted);font-size:13px;padding:12px 0; }
+  .field-edit-panel { margin-top:14px;padding:16px 18px;background:#f8fafc;
+                      border:1.5px solid var(--border);border-radius:10px; }
 </style>
 
-<!-- ── Section 1: Assigned Fields ─────────────────────────────────────── -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Edit Field Modal                                                        -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="field-edit-modal">
+  <div class="modal" style="max-width:540px">
+    <h2>✏️ Edit Field</h2>
+    <input id="fe-id" type="hidden">
+
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Label <span style="color:var(--red)">*</span></label>
+      <input id="fe-label" class="form-input" placeholder="e.g. Emergency Contact">
+    </div>
+
+    <div id="fe-type-wrap" style="margin-bottom:14px">
+      <label class="form-label">Type</label>
+      <select id="fe-type" class="form-input" onchange="onFeTypeChange()">
+        <option value="text">Text</option>
+        <option value="textarea">Text Area</option>
+        <option value="date">Date</option>
+        <option value="number">Number</option>
+        <option value="boolean">Yes / No</option>
+        <option value="select">Select (dropdown)</option>
+        <option value="email">Email</option>
+        <option value="tel">Phone</option>
+        <option value="declaration">Declaration (consent question)</option>
+      </select>
+    </div>
+
+    <div id="fe-type-locked" style="display:none;margin-bottom:14px;padding:8px 12px;
+         background:#f1f5f9;border-radius:8px;font-size:13px;color:var(--muted)">
+      🔒 System field — type cannot be changed
+    </div>
+
+    <div id="fe-options-wrap" style="display:none;margin-bottom:14px">
+      <label class="form-label">
+        Options <span style="font-weight:400;color:var(--muted)">(one per line — add, edit or remove)</span>
+      </label>
+      <textarea id="fe-options" class="form-input" rows="5"
+                placeholder="Option A&#10;Option B&#10;Option C"></textarea>
+    </div>
+
+    <div id="fe-placeholder-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="form-group">
+        <label class="form-label">Placeholder</label>
+        <input id="fe-placeholder" class="form-input" placeholder="Hint inside the input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Help Text</label>
+        <input id="fe-help" class="form-input" placeholder="Shown below the field">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="saveFieldEdit()" id="fe-save-btn">Save Changes</button>
+      <button class="btn btn-ghost" onclick="closeFieldEdit()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Section 1: Assigned Fields                                             -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
 <div class="fb-section">
   <h2>Assigned Fields</h2>
   <div id="assigned-fields-wrap">
@@ -125,21 +109,93 @@
   </div>
 </div>
 
-<!-- ── Section 2: Add from catalogue ─────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Section 2: Add from catalogue                                          -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
 <div class="fb-section">
   <h2>Add Existing Field</h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
-    Choose a field from the catalogue to add to this member type.
+    Select a field from the catalogue. You can edit it before adding, or delete unused fields here.
   </p>
+
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <select id="catalogue-select" class="form-input" style="flex:1;min-width:200px;max-width:360px">
+    <select id="catalogue-select" class="form-input" style="flex:1;min-width:200px;max-width:380px"
+            onchange="onCatalogueChange()">
       <option value="">— select a field —</option>
     </select>
-    <button class="btn btn-primary" onclick="addFromCatalogue()">Add</button>
+  </div>
+
+  <!-- Preview / edit panel — shown when a catalogue field is selected -->
+  <div id="catalogue-preview" style="display:none" class="field-edit-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span id="cp-type-badge" class="type-badge" style="font-size:11px"></span>
+      <button id="cp-delete-btn" class="btn btn-ghost btn-sm"
+              style="color:var(--red);display:none" onclick="deleteCatalogueField()">
+        🗑 Delete from catalogue
+      </button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div>
+        <label class="form-label" style="font-size:11px">Label <span style="color:var(--red)">*</span></label>
+        <input id="cp-label" class="form-input" style="font-size:13px">
+      </div>
+      <div id="cp-type-select-wrap">
+        <label class="form-label" style="font-size:11px">Type</label>
+        <select id="cp-type" class="form-input" style="font-size:13px" onchange="onCpTypeChange()">
+          <option value="text">Text</option>
+          <option value="textarea">Text Area</option>
+          <option value="date">Date</option>
+          <option value="number">Number</option>
+          <option value="boolean">Yes / No</option>
+          <option value="select">Select (dropdown)</option>
+          <option value="email">Email</option>
+          <option value="tel">Phone</option>
+          <option value="declaration">Declaration</option>
+        </select>
+      </div>
+      <div id="cp-type-locked-wrap" style="display:none">
+        <label class="form-label" style="font-size:11px">Type</label>
+        <div style="padding:8px 10px;background:#f1f5f9;border-radius:6px;font-size:12px;color:var(--muted)">
+          🔒 System field — type fixed
+        </div>
+      </div>
+    </div>
+
+    <div id="cp-options-wrap" style="display:none;margin-bottom:10px">
+      <label class="form-label" style="font-size:11px">
+        Options <span style="font-weight:400;color:var(--muted)">(one per line)</span>
+      </label>
+      <textarea id="cp-options" class="form-input" style="font-size:13px" rows="4"
+                placeholder="Option A&#10;Option B&#10;Option C"></textarea>
+    </div>
+
+    <div id="cp-placeholder-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div>
+        <label class="form-label" style="font-size:11px">Placeholder</label>
+        <input id="cp-placeholder" class="form-input" style="font-size:13px">
+      </div>
+      <div>
+        <label class="form-label" style="font-size:11px">Help Text</label>
+        <input id="cp-help" class="form-input" style="font-size:13px">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="addFromCatalogue()">
+        ➕ Save changes &amp; Add to type
+      </button>
+      <button class="btn btn-secondary btn-sm" id="cp-add-only-btn"
+              onclick="addFromCatalogueOnly()" title="Add without saving edits">
+        Add without changes
+      </button>
+    </div>
   </div>
 </div>
 
-<!-- ── Section 3: Create new custom field ─────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Section 3: Create new custom field                                     -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
 <div class="fb-section">
   <h2>Create New Custom Field</h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
@@ -167,13 +223,10 @@
     </div>
   </div>
 
-  <!-- Hint shown only for declaration type -->
   <div id="declaration-hint" style="display:none;margin-bottom:12px;padding:10px 14px;
        background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1e40af">
-    💡 The <strong>Label</strong> field above is the full question text shown to parents on the
-    registration form. Use <code>{club}</code> anywhere in the text and it will be replaced
-    with the club name automatically (e.g. <em>"I consent to activities organised by {club}."</em>).
-    Placeholder and help text are not used for declaration fields.
+    💡 The <strong>Label</strong> field above is the full question text shown on the registration form.
+    Use <code>{club}</code> anywhere and it will be replaced with the club name automatically.
   </div>
 
   <div id="new-field-placeholder-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -206,17 +259,13 @@
   let _assignedFields = [];
   let _allFields      = [];
 
-  /* ── Boot ──────────────────────────────────────────────── */
-  (function init() {
-    loadAll();
-  })();
-
-  async function loadAll() {
+  /* ── Boot ──────────────────────────────────────────────────────────── */
+  document.addEventListener('DOMContentLoaded', async () => {
     await Promise.all([loadAssigned(), loadAllFields()]);
     refreshCatalogue();
-  }
+  });
 
-  /* ── Load assigned fields ──────────────────────────────── */
+  /* ── Load assigned fields ──────────────────────────────────────────── */
   async function loadAssigned() {
     const wrap = document.getElementById('assigned-fields-wrap');
     try {
@@ -234,20 +283,19 @@
       return;
     }
     const rows = _assignedFields.map((f, idx) => {
-      const isFirst   = idx === 0;
-      const isLast    = idx === _assignedFields.length - 1;
+      const isFirst     = idx === 0;
+      const isLast      = idx === _assignedFields.length - 1;
       const isProtected = (f.key === 'first_name' || f.key === 'surname');
-      const lockBadge = f.system_field ? `<span class="system-lock" title="System field">🔒</span>` : '';
-      const removeBtn = isProtected
-        ? ''
+      const lockBadge   = f.system_field ? `<span class="system-lock" title="System field">🔒</span>` : '';
+      const editBtn     = `<button class="btn btn-ghost btn-sm"
+                                   onclick="openFieldEdit(${f.field_id})" title="Edit field definition">✏️</button>`;
+      const removeBtn   = isProtected ? ''
         : `<button class="btn btn-ghost btn-sm" style="color:var(--red)"
                    onclick="removeField(${f.field_id})" title="Remove from type">✕</button>`;
 
       function pill(key, label, val) {
-        const active = val ? 'on' : '';
-        return `<button class="toggle-pill ${active}"
-                        data-field="${f.field_id}" data-key="${key}"
-                        onclick="togglePill(this, ${f.field_id}, '${key}', ${val ? 0 : 1})">
+        return `<button class="toggle-pill ${val ? 'on' : ''}"
+                        onclick="togglePill(this,${f.field_id},'${key}',${val ? 0 : 1})">
                   ${label}
                 </button>`;
       }
@@ -255,8 +303,8 @@
       return `<tr id="field-row-${f.field_id}">
         <td style="width:44px">
           <div class="order-btns">
-            ${!isFirst ? `<button class="order-btn" onclick="moveField(${idx}, -1)" title="Move up">▲</button>` : '<div style="height:22px"></div>'}
-            ${!isLast  ? `<button class="order-btn" onclick="moveField(${idx}, +1)" title="Move down">▼</button>` : '<div style="height:22px"></div>'}
+            ${!isFirst ? `<button class="order-btn" onclick="moveField(${idx},-1)" title="Move up">▲</button>` : '<div style="height:22px"></div>'}
+            ${!isLast  ? `<button class="order-btn" onclick="moveField(${idx},+1)" title="Move down">▼</button>` : '<div style="height:22px"></div>'}
           </div>
         </td>
         <td>
@@ -265,24 +313,29 @@
           <br>
           <code style="font-size:11px;color:var(--muted)">${esc(f.key)}</code>
         </td>
-        <td style="width:90px"><span class="type-badge${f.field_type === 'declaration' ? ' decl' : ''}">${esc(f.field_type)}</span></td>
+        <td style="width:90px">
+          <span class="type-badge${f.field_type==='declaration'?' decl':''}">${esc(f.field_type)}</span>
+          ${f.field_type==='select' && f.options
+            ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(f.options.split('\n').length)} options</div>`
+            : ''}
+        </td>
         <td style="width:60px;text-align:center">
-          <input type="checkbox" class="required-chk"
-                 ${f.required ? 'checked' : ''}
-                 onchange="toggleRequired(${f.field_id}, this.checked ? 1 : 0)"
-                 title="Required">
+          <input type="checkbox" class="required-chk" ${f.required ? 'checked' : ''}
+                 onchange="toggleRequired(${f.field_id},this.checked?1:0)" title="Required">
         </td>
         <td>
           <div class="toggle-group">
-            ${pill('show_on_registration', 'Reg',    f.show_on_registration)}
-            ${pill('show_on_list',         'List',   f.show_on_list)}
-            ${pill('show_on_card',         'Card',   f.show_on_card)}
-            ${pill('show_on_detail',       'Detail', f.show_on_detail)}
-            ${pill('show_on_print',        'Print',  f.show_on_print)}
-            ${pill('show_on_export',       'Export', f.show_on_export)}
+            ${pill('show_on_registration','Reg',   f.show_on_registration)}
+            ${pill('show_on_list',        'List',  f.show_on_list)}
+            ${pill('show_on_card',        'Card',  f.show_on_card)}
+            ${pill('show_on_detail',      'Detail',f.show_on_detail)}
+            ${pill('show_on_print',       'Print', f.show_on_print)}
+            ${pill('show_on_export',      'Export',f.show_on_export)}
           </div>
         </td>
-        <td style="width:40px;text-align:right">${removeBtn}</td>
+        <td style="width:72px;text-align:right;white-space:nowrap">
+          ${editBtn}${removeBtn}
+        </td>
       </tr>`;
     }).join('');
 
@@ -302,26 +355,220 @@
       </table>`;
   }
 
-  /* ── Load all field definitions ────────────────────────── */
-  async function loadAllFields() {
+  /* ── Edit field modal ─────────────────────────────────────────────── */
+  function openFieldEdit(fieldId) {
+    // fieldId is the field_definition id (f.field_id from assigned list)
+    const f = _assignedFields.find(x => x.field_id === fieldId)
+           || _allFields.find(x => x.id === fieldId);
+    if (!f) return;
+
+    document.getElementById('fe-id').value          = fieldId;
+    document.getElementById('fe-label').value        = f.label || '';
+    document.getElementById('fe-placeholder').value  = f.placeholder || '';
+    document.getElementById('fe-help').value         = f.help_text || '';
+    document.getElementById('fe-options').value      = f.options || '';
+
+    const isSystem = f.system_field;
+    document.getElementById('fe-type-wrap').style.display   = isSystem ? 'none' : '';
+    document.getElementById('fe-type-locked').style.display  = isSystem ? '' : 'none';
+    if (!isSystem) document.getElementById('fe-type').value  = f.field_type || 'text';
+
+    _updateFeVisibility(f.field_type);
+    document.getElementById('field-edit-modal').classList.add('open');
+    document.getElementById('fe-label').focus();
+  }
+
+  function _updateFeVisibility(type) {
+    const isDecl = type === 'declaration';
+    const isSel  = type === 'select';
+    document.getElementById('fe-options-wrap').style.display      = isSel  ? '' : 'none';
+    document.getElementById('fe-placeholder-wrap').style.display  = isDecl ? 'none' : '';
+  }
+
+  function onFeTypeChange() {
+    _updateFeVisibility(document.getElementById('fe-type').value);
+  }
+
+  function closeFieldEdit() {
+    document.getElementById('field-edit-modal').classList.remove('open');
+  }
+
+  async function saveFieldEdit() {
+    const fieldId = parseInt(document.getElementById('fe-id').value, 10);
+    const label   = document.getElementById('fe-label').value.trim();
+    if (!label) { showToast('Label is required.', true); return; }
+
+    const f      = _assignedFields.find(x => x.field_id === fieldId) || _allFields.find(x => x.id === fieldId);
+    const type   = f && f.system_field
+      ? (f.field_type)   // can't change type for system fields
+      : document.getElementById('fe-type').value;
+
+    const payload = {
+      label,
+      field_type:  type,
+      placeholder: document.getElementById('fe-placeholder').value.trim() || null,
+      help_text:   document.getElementById('fe-help').value.trim() || null,
+      options:     type === 'select' ? (document.getElementById('fe-options').value.trim() || null) : null,
+    };
+
+    const btn = document.getElementById('fe-save-btn');
+    btn.disabled = true;
     try {
-      _allFields = await apiFetch('/api/admin/field-definitions');
+      await apiFetch(`/api/admin/field-definitions/${fieldId}`, {
+        method: 'PUT',
+        body:   JSON.stringify(payload),
+      });
+      showToast(`"${label}" saved.`);
+      closeFieldEdit();
+      await Promise.all([loadAllFields(), loadAssigned()]);
+      refreshCatalogue();
     } catch (e) {
-      // Non-fatal — catalogue just won't populate
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
     }
   }
 
+  /* ── Load all field definitions ────────────────────────────────────── */
+  async function loadAllFields() {
+    try {
+      _allFields = await apiFetch('/api/admin/field-definitions');
+    } catch (e) { /* non-fatal */ }
+  }
+
   function refreshCatalogue() {
-    const sel = document.getElementById('catalogue-select');
+    const sel        = document.getElementById('catalogue-select');
     const assignedIds = new Set(_assignedFields.map(f => f.field_id));
-    const available   = _allFields.filter(f => !assignedIds.has(f.id) && f.active);
-    sel.innerHTML = '<option value="">— select a field —</option>' +
+    const available  = _allFields.filter(f => !assignedIds.has(f.id) && f.active);
+    sel.innerHTML    = '<option value="">— select a field —</option>' +
       available.map(f =>
         `<option value="${f.id}">${esc(f.label)} (${esc(f.field_type)}${f.system_field ? ' 🔒' : ''})</option>`
       ).join('');
+    // Hide preview if visible
+    document.getElementById('catalogue-preview').style.display = 'none';
+    sel.value = '';
   }
 
-  /* ── Toggle pill ───────────────────────────────────────── */
+  /* ── Catalogue preview panel ────────────────────────────────────────── */
+  function onCatalogueChange() {
+    const fieldId = parseInt(document.getElementById('catalogue-select').value, 10);
+    const preview = document.getElementById('catalogue-preview');
+    if (!fieldId) { preview.style.display = 'none'; return; }
+
+    const f = _allFields.find(x => x.id === fieldId);
+    if (!f) { preview.style.display = 'none'; return; }
+
+    // Populate preview
+    document.getElementById('cp-label').value       = f.label || '';
+    document.getElementById('cp-placeholder').value = f.placeholder || '';
+    document.getElementById('cp-help').value        = f.help_text || '';
+    document.getElementById('cp-options').value     = f.options || '';
+    document.getElementById('cp-type-badge').textContent = f.field_type;
+    document.getElementById('cp-type-badge').className   =
+      'type-badge' + (f.field_type === 'declaration' ? ' decl' : '');
+
+    // Type: show select or locked badge
+    const isSystem = f.system_field;
+    document.getElementById('cp-type-select-wrap').style.display  = isSystem ? 'none' : '';
+    document.getElementById('cp-type-locked-wrap').style.display  = isSystem ? '' : 'none';
+    if (!isSystem) document.getElementById('cp-type').value = f.field_type;
+
+    _updateCpVisibility(f.field_type);
+
+    // Delete button: only for non-system fields with no assignments anywhere
+    const canDelete = !f.system_field && (f.assigned_to === 0);
+    const delBtn    = document.getElementById('cp-delete-btn');
+    delBtn.style.display = canDelete ? '' : 'none';
+
+    // "Add without changes" button: hide if the field IS clean (nothing to diverge from)
+    document.getElementById('cp-add-only-btn').style.display = '';
+
+    preview.style.display = '';
+  }
+
+  function _updateCpVisibility(type) {
+    const isDecl = type === 'declaration';
+    const isSel  = type === 'select';
+    document.getElementById('cp-options-wrap').style.display     = isSel  ? '' : 'none';
+    document.getElementById('cp-placeholder-wrap').style.display = isDecl ? 'none' : '';
+  }
+
+  function onCpTypeChange() {
+    _updateCpVisibility(document.getElementById('cp-type').value);
+  }
+
+  async function addFromCatalogue() {
+    // Save any edits to the field definition first, then add to type
+    const sel     = document.getElementById('catalogue-select');
+    const fieldId = parseInt(sel.value, 10);
+    if (!fieldId) { showToast('Please select a field.', true); return; }
+
+    const f       = _allFields.find(x => x.id === fieldId);
+    const isSystem = f && f.system_field;
+    const type    = isSystem ? f.field_type : document.getElementById('cp-type').value;
+    const label   = document.getElementById('cp-label').value.trim();
+    if (!label) { showToast('Label is required.', true); return; }
+
+    try {
+      // Save edits to the definition
+      await apiFetch(`/api/admin/field-definitions/${fieldId}`, {
+        method: 'PUT',
+        body:   JSON.stringify({
+          label,
+          field_type:  type,
+          placeholder: document.getElementById('cp-placeholder').value.trim() || null,
+          help_text:   document.getElementById('cp-help').value.trim() || null,
+          options:     type === 'select' ? (document.getElementById('cp-options').value.trim() || null) : null,
+        }),
+      });
+      // Add to this member type
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {
+        method: 'POST',
+        body:   JSON.stringify({ field_id: fieldId }),
+      });
+      showToast(`"${label}" added.`);
+      await Promise.all([loadAllFields(), loadAssigned()]);
+      refreshCatalogue();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function addFromCatalogueOnly() {
+    // Add to type without saving edits
+    const sel     = document.getElementById('catalogue-select');
+    const fieldId = parseInt(sel.value, 10);
+    if (!fieldId) { showToast('Please select a field.', true); return; }
+    const f = _allFields.find(x => x.id === fieldId);
+    try {
+      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {
+        method: 'POST',
+        body:   JSON.stringify({ field_id: fieldId }),
+      });
+      showToast(`"${f ? f.label : 'Field'}" added.`);
+      await Promise.all([loadAllFields(), loadAssigned()]);
+      refreshCatalogue();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function deleteCatalogueField() {
+    const fieldId = parseInt(document.getElementById('catalogue-select').value, 10);
+    const f       = _allFields.find(x => x.id === fieldId);
+    if (!f) return;
+    if (!confirm(`Delete "${f.label}" from the catalogue permanently? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/api/admin/field-definitions/${fieldId}`, { method: 'DELETE' });
+      showToast(`"${f.label}" deleted.`);
+      await loadAllFields();
+      refreshCatalogue();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Toggle pill ───────────────────────────────────────────────────── */
   async function togglePill(btn, fieldId, key, newVal) {
     btn.disabled = true;
     try {
@@ -329,15 +576,14 @@
         method: 'PUT',
         body:   JSON.stringify({ [key]: newVal }),
       });
-      // Update local state
       const f = _assignedFields.find(x => x.field_id === fieldId);
       if (f) f[key] = newVal;
       if (newVal) {
         btn.classList.add('on');
-        btn.setAttribute('onclick', `togglePill(this, ${fieldId}, '${key}', 0)`);
+        btn.setAttribute('onclick', `togglePill(this,${fieldId},'${key}',0)`);
       } else {
         btn.classList.remove('on');
-        btn.setAttribute('onclick', `togglePill(this, ${fieldId}, '${key}', 1)`);
+        btn.setAttribute('onclick', `togglePill(this,${fieldId},'${key}',1)`);
       }
     } catch (e) {
       showToast(e.message, true);
@@ -356,26 +602,20 @@
       if (f) f.required = newVal;
     } catch (e) {
       showToast(e.message, true);
-      // Revert checkbox
       await loadAssigned();
       refreshCatalogue();
     }
   }
 
-  /* ── Reorder ───────────────────────────────────────────── */
+  /* ── Reorder ───────────────────────────────────────────────────────── */
   async function moveField(idx, direction) {
     const swapIdx = idx + direction;
     if (swapIdx < 0 || swapIdx >= _assignedFields.length) return;
-
-    // Swap locally
-    const tmp               = _assignedFields[idx];
-    _assignedFields[idx]    = _assignedFields[swapIdx];
+    const tmp                = _assignedFields[idx];
+    _assignedFields[idx]     = _assignedFields[swapIdx];
     _assignedFields[swapIdx] = tmp;
-
-    // Assign new sort_orders
     const payload = _assignedFields.map((f, i) => ({ field_id: f.field_id, sort_order: i + 1 }));
     _assignedFields.forEach((f, i) => { f.sort_order = i + 1; });
-
     renderAssigned();
     try {
       await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields/reorder`, {
@@ -387,99 +627,68 @@
     }
   }
 
-  /* ── Remove field ──────────────────────────────────────── */
+  /* ── Remove field from type ────────────────────────────────────────── */
   async function removeField(fieldId) {
     const f = _assignedFields.find(x => x.field_id === fieldId);
     if (!f) return;
-    if (!confirm(`Remove "${f.label}" from this member type?`)) return;
+    if (!confirm(`Remove "${f.label}" from this member type?\n\nThe field definition stays in the catalogue.`)) return;
     try {
       await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields/${fieldId}`, { method: 'DELETE' });
-      showToast(`"${f.label}" removed.`);
+      showToast(`"${f.label}" removed from type.`);
       await loadAssigned();
+      await loadAllFields();
       refreshCatalogue();
     } catch (e) {
       showToast(e.message, true);
     }
   }
 
-  /* ── Add from catalogue ────────────────────────────────── */
-  async function addFromCatalogue() {
-    const sel     = document.getElementById('catalogue-select');
-    const fieldId = parseInt(sel.value, 10);
-    if (!fieldId) { showToast('Please select a field.', true); return; }
-    try {
-      await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {
-        method: 'POST',
-        body:   JSON.stringify({ field_id: fieldId }),
-      });
-      const fd = _allFields.find(x => x.id === fieldId);
-      showToast(`"${fd ? fd.label : 'Field'}" added.`);
-      sel.value = '';
-      await loadAssigned();
-      refreshCatalogue();
-    } catch (e) {
-      showToast(e.message, true);
-    }
-  }
-
-  /* ── Create new custom field ───────────────────────────── */
+  /* ── Create new custom field ───────────────────────────────────────── */
   function onNewFieldTypeChange() {
-    const type = document.getElementById('new-field-type').value;
+    const type   = document.getElementById('new-field-type').value;
     const isDecl = type === 'declaration';
-    document.getElementById('new-field-options-wrap').style.display =
-      type === 'select' ? '' : 'none';
-    document.getElementById('new-field-placeholder-wrap').style.display =
-      isDecl ? 'none' : '';
-    document.getElementById('declaration-hint').style.display =
-      isDecl ? '' : 'none';
-    // For declarations, update the label placeholder to guide the admin
+    document.getElementById('new-field-options-wrap').style.display     = type === 'select' ? '' : 'none';
+    document.getElementById('new-field-placeholder-wrap').style.display = isDecl ? 'none' : '';
+    document.getElementById('declaration-hint').style.display            = isDecl ? '' : 'none';
     document.getElementById('new-field-label').placeholder =
-      isDecl ? 'e.g. I give consent for my child to attend activities organised by {club}.'
+      isDecl ? 'e.g. I give consent for my child to attend activities run by {club}.'
              : 'e.g. Emergency Contact';
   }
 
   async function createAndAddField() {
-    const label       = document.getElementById('new-field-label').value.trim();
-    const field_type  = document.getElementById('new-field-type').value;
+    const label      = document.getElementById('new-field-label').value.trim();
+    const field_type = document.getElementById('new-field-type').value;
     const placeholder = document.getElementById('new-field-placeholder').value.trim() || null;
-    const help_text   = document.getElementById('new-field-help').value.trim() || null;
-    const options     = field_type === 'select'
-      ? (document.getElementById('new-field-options').value.trim() || null)
-      : null;
+    const help_text  = document.getElementById('new-field-help').value.trim() || null;
+    const options    = field_type === 'select'
+      ? (document.getElementById('new-field-options').value.trim() || null) : null;
 
     if (!label) { showToast('Please enter a field label.', true); return; }
 
     const btn = document.getElementById('create-field-btn');
     btn.disabled = true;
     try {
-      // Step 1: Create the field definition
       const newField = await apiFetch('/api/admin/field-definitions', {
         method: 'POST',
         body:   JSON.stringify({ label, field_type, placeholder, help_text, options }),
       });
-
-      // Step 2: Assign to this type
       await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {
         method: 'POST',
         body:   JSON.stringify({ field_id: newField.id }),
       });
-
       showToast(`"${label}" created and added.`);
 
       // Reset form
-      document.getElementById('new-field-label').value       = '';
-      document.getElementById('new-field-label').placeholder = 'e.g. Emergency Contact';
-      document.getElementById('new-field-type').value        = 'text';
-      document.getElementById('new-field-placeholder').value = '';
-      document.getElementById('new-field-help').value        = '';
-      document.getElementById('new-field-options').value     = '';
-      document.getElementById('new-field-options-wrap').style.display      = 'none';
-      document.getElementById('new-field-placeholder-wrap').style.display  = '';
-      document.getElementById('declaration-hint').style.display             = 'none';
+      ['new-field-label','new-field-placeholder','new-field-help','new-field-options'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('new-field-label').placeholder       = 'e.g. Emergency Contact';
+      document.getElementById('new-field-type').value              = 'text';
+      document.getElementById('new-field-options-wrap').style.display     = 'none';
+      document.getElementById('new-field-placeholder-wrap').style.display = '';
+      document.getElementById('declaration-hint').style.display            = 'none';
 
-      // Reload both sections
-      await loadAllFields();
-      await loadAssigned();
+      await Promise.all([loadAllFields(), loadAssigned()]);
       refreshCatalogue();
     } catch (e) {
       showToast(e.message, true);
