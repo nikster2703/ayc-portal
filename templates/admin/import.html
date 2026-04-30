@@ -220,6 +220,18 @@
 </div>
 
 <script>
+// ── API helper ────────────────────────────────────────────────────────────────
+function csrfToken() {
+  return document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '';
+}
+function apiFetch(url, options = {}) {
+  return fetch(url, {
+    credentials: 'same-origin',
+    headers: { 'X-CSRFToken': csrfToken(), ...(options.headers || {}) },
+    ...options,
+  });
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
   typeId:      null,
@@ -303,9 +315,8 @@ async function doAnalyse() {
   if (state.activeSheet) fd.append('sheet_name', state.activeSheet);
 
   try {
-    const res  = await fetch('/api/admin/import/analyse', {
+    const res  = await apiFetch('/api/admin/import/analyse', {
       method: 'POST',
-      headers: { 'X-CSRFToken': document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '' },
       body: fd,
     });
     const data = await res.json();
@@ -351,9 +362,8 @@ async function reAnalyse() {
   fd.append('file', file);
   fd.append('sheet_name', state.activeSheet);
 
-  const res  = await fetch('/api/admin/import/analyse', {
+  const res  = await apiFetch('/api/admin/import/analyse', {
     method: 'POST',
-    headers: { 'X-CSRFToken': document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '' },
     body: fd,
   });
   const data = await res.json();
