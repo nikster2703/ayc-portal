@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.9'  # v8.9: Field Builder overhaul — edit fields inline, catalogue preview+edit+delete
+APP_VERSION = 'v8.10'  # v8.10: Import pipeline fix — session, contact, ethnicity/medical/consent fields
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -4716,20 +4716,48 @@ import csv as _csv_mod
 import uuid as _uuid_mod
 
 # Core members-table columns available for import mapping.
-# 'email' and 'member_id' are special cases handled separately in api_import_run.
+# Keys marked _SPECIAL are handled explicitly in api_import_run rather than
+# going into the generic `core` dict — see that function for details.
 _IMPORT_CORE_FIELDS = [
-    {'key': 'member_id',       'label': 'Member ID (existing)', 'field_type': 'text',     'required': False},
-    {'key': 'first_name',      'label': 'First Name',           'field_type': 'text',     'required': True},
-    {'key': 'surname',         'label': 'Surname',              'field_type': 'text',     'required': True},
-    {'key': 'email',           'label': 'Email Address',        'field_type': 'email',    'required': False},
-    {'key': 'postcode',        'label': 'Postcode',             'field_type': 'text',     'required': False},
-    {'key': 'address',         'label': 'Address',              'field_type': 'text',     'required': False},
-    {'key': 'date_of_birth',   'label': 'Date of Birth',        'field_type': 'date',     'required': False},
-    {'key': 'date_registered', 'label': 'Date Registered',      'field_type': 'date',     'required': False},
-    {'key': 'comments',        'label': 'Notes / Comments',     'field_type': 'textarea', 'required': False},
-    {'key': 'status',          'label': 'Status',               'field_type': 'select',   'required': False,
+    # ── Identity ────────────────────────────────────────────────────────
+    {'key': 'member_id',          'label': 'Member ID (existing)',      'field_type': 'text',     'required': False},
+    {'key': 'first_name',         'label': 'First Name',                'field_type': 'text',     'required': True},
+    {'key': 'surname',            'label': 'Surname',                   'field_type': 'text',     'required': True},
+    {'key': 'date_of_birth',      'label': 'Date of Birth',             'field_type': 'date',     'required': False},
+    # ── Membership ──────────────────────────────────────────────────────
+    {'key': 'status',             'label': 'Status',                    'field_type': 'select',   'required': False,
      'options': 'Active,Inactive,Leaver'},
+    {'key': 'session',            'label': 'Session',                   'field_type': 'text',     'required': False},
+    {'key': 'date_registered',    'label': 'Date Registered',           'field_type': 'date',     'required': False},
+    {'key': 'staff_role',         'label': 'Staff Role',                'field_type': 'text',     'required': False},
+    # ── Address ─────────────────────────────────────────────────────────
+    {'key': 'address',            'label': 'Address',                   'field_type': 'text',     'required': False},
+    {'key': 'postcode',           'label': 'Postcode',                  'field_type': 'text',     'required': False},
+    # ── Additional info ─────────────────────────────────────────────────
+    {'key': 'ethnicity_religion', 'label': 'Ethnicity / Religion',      'field_type': 'text',     'required': False},
+    {'key': 'medical_sen',        'label': 'Medical / SEN',             'field_type': 'text',     'required': False},
+    {'key': 'gp_contact',         'label': 'GP Contact',                'field_type': 'text',     'required': False},
+    {'key': 'unattended_exit',    'label': 'Unattended Exit (Yes/No)',  'field_type': 'text',     'required': False},
+    {'key': 'gdpr_consent',       'label': 'GDPR Consent (Yes/No)',     'field_type': 'text',     'required': False},
+    {'key': 'comments',           'label': 'Notes / Comments',          'field_type': 'textarea', 'required': False},
+    # ── Primary contact (writes to member_contacts table) ───────────────
+    {'key': 'contact1_name',      'label': 'Contact 1 — Full Name',     'field_type': 'text',     'required': False},
+    {'key': 'contact1_phone',     'label': 'Contact 1 — Phone',         'field_type': 'text',     'required': False},
+    {'key': 'contact1_email',     'label': 'Contact 1 — Email',         'field_type': 'email',    'required': False},
+    {'key': 'email',              'label': 'Email (shorthand → Contact 1)', 'field_type': 'email', 'required': False},
+    # ── Secondary contact ────────────────────────────────────────────────
+    {'key': 'contact2_name',      'label': 'Contact 2 — Full Name',     'field_type': 'text',     'required': False},
+    {'key': 'contact2_phone',     'label': 'Contact 2 — Phone',         'field_type': 'text',     'required': False},
+    {'key': 'contact2_email',     'label': 'Contact 2 — Email',         'field_type': 'email',    'required': False},
 ]
+
+def _bool_val(v):
+    """Convert a spreadsheet cell to 0/1 for boolean DB columns.
+    Accepts: 1/0, True/False, Yes/No, Y/N (case-insensitive)."""
+    if isinstance(v, (int, float)):
+        return 1 if v else 0
+    return 1 if str(v).strip().lower() in ('yes', 'true', '1', 'y') else 0
+
 
 def _fmt_cell(v):
     """Normalise a spreadsheet cell value to a plain string."""
@@ -4931,10 +4959,18 @@ def api_import_run():
     except Exception as exc:
         return jsonify({'error': f'Could not read file: {exc}'}), 400
 
-    CORE_KEYS = {'first_name', 'surname', 'date_of_birth', 'address',
-                 'postcode', 'date_registered', 'comments', 'status'}
+    CORE_KEYS = {
+        'first_name', 'surname', 'date_of_birth', 'address', 'postcode',
+        'session', 'ethnicity_religion', 'medical_sen', 'gp_contact',
+        'unattended_exit', 'gdpr_consent', 'staff_role',
+        'date_registered', 'comments', 'status',
+    }
     # Special-cased keys handled outside the generic core/custom branches
-    SPECIAL_KEYS = {'email', 'member_id'}
+    SPECIAL_KEYS = {
+        'email', 'member_id',
+        'contact1_name', 'contact1_phone', 'contact1_email',
+        'contact2_name', 'contact2_phone', 'contact2_email',
+    }
 
     imported          = 0
     skipped           = 0
@@ -4946,6 +4982,7 @@ def api_import_run():
         try:
             core        = {}
             custom_vals = {}
+            contacts    = {}   # contact1_name / contact1_phone / etc.
             email_val   = None
             provided_id = None   # explicit member_id from the spreadsheet
 
@@ -4958,11 +4995,21 @@ def api_import_run():
                     continue
 
                 if field_key == 'email':
+                    # Legacy single-email → treat as contact1_email
                     email_val = val
                 elif field_key == 'member_id':
                     provided_id = str(val).strip()
+                elif field_key in (
+                    'contact1_name', 'contact1_phone', 'contact1_email',
+                    'contact2_name', 'contact2_phone', 'contact2_email',
+                ):
+                    contacts[field_key] = str(val).strip()
                 elif field_key in CORE_KEYS:
-                    core[field_key] = val
+                    # Bool conversion for flag columns
+                    if field_key in ('unattended_exit', 'gdpr_consent'):
+                        core[field_key] = _bool_val(val)
+                    else:
+                        core[field_key] = val
                 elif field_key in custom_fields:
                     custom_vals[field_key] = val
 
@@ -5008,8 +5055,10 @@ def api_import_run():
             db.execute('''
                 INSERT INTO members
                     (member_id, first_name, surname, date_of_birth, address,
-                     postcode, date_registered, comments, status, member_type)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                     postcode, session, ethnicity_religion, medical_sen,
+                     gp_contact, unattended_exit, gdpr_consent, staff_role,
+                     date_registered, comments, status, member_type)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ''', (
                 member_id,
                 core.get('first_name', ''),
@@ -5017,6 +5066,13 @@ def api_import_run():
                 core.get('date_of_birth') or None,
                 core.get('address') or None,
                 core.get('postcode') or None,
+                core.get('session') or None,
+                core.get('ethnicity_religion') or None,
+                core.get('medical_sen') or None,
+                core.get('gp_contact') or None,
+                core.get('unattended_exit', 0),
+                core.get('gdpr_consent', 0),
+                core.get('staff_role') or None,
                 core.get('date_registered') or None,
                 core.get('comments') or None,
                 core.get('status', 'Active'),
@@ -5024,12 +5080,25 @@ def api_import_run():
             ))
             new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
 
-            # Primary contact email
-            if email_val:
-                db.execute(
-                    'INSERT INTO member_contacts (member_id, contact_order, contact_email) VALUES (?,1,?)',
-                    (new_id, email_val)
-                )
+            # Contact rows — contact1 and contact2
+            # Legacy single-email mapping populates contact1_email if not already set
+            if email_val and 'contact1_email' not in contacts:
+                contacts['contact1_email'] = email_val
+
+            for order, prefix in ((1, 'contact1'), (2, 'contact2')):
+                name  = contacts.get(f'{prefix}_name',  '').strip()
+                phone = contacts.get(f'{prefix}_phone', '').strip()
+                email = contacts.get(f'{prefix}_email', '').strip()
+                if name or phone or email:
+                    db.execute(
+                        '''INSERT INTO member_contacts
+                               (member_id, contact_order, contact_name, contact_phone, contact_email)
+                           VALUES (?,?,?,?,?)''',
+                        (new_id, order,
+                         name  or None,
+                         phone or None,
+                         email or None)
+                    )
 
             # Custom field values
             for fkey, fval in custom_vals.items():
