@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.7'  # v8.7: Dashboard fix (None session key crashes JSON); import not-imported CSV report
+APP_VERSION = 'v8.8'  # v8.8: Smart member ID — visible read-only badge; import learns custom ID format
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -2869,22 +2869,82 @@ def api_users_permanent_delete(user_id):
 # ── BLUEPRINT: approvals ──────────────────────────────────────────────────────
 
 def _next_member_id(db):
-    """Generate the next sequential member ID using CLUB_SHORT_NAME, e.g. AYC042."""
-    prefix = CLUB_SHORT_NAME
-    prefix_len = len(prefix)
-    row = db.execute(
-        'SELECT member_id FROM members WHERE member_id LIKE ?'
-        ' ORDER BY CAST(SUBSTR(member_id, ?) AS INTEGER) DESC LIMIT 1',
-        (f'{prefix}%', prefix_len + 1)
-    ).fetchone()
-    if row:
-        try:
-            num = int(row['member_id'][prefix_len:]) + 1
-        except (ValueError, AttributeError):
-            num = 1
+    """Generate the next sequential member ID.
+
+    Uses a custom format persisted in settings if one was learned during a
+    bulk import (e.g. 'M-' prefix with 3-digit padding).  Falls back to
+    CLUB_SHORT_NAME + 3-digit zero-padding (e.g. ARA001) if no custom
+    format has been set.
+    """
+    import re as _re
+
+    prefix_row  = db.execute("SELECT value FROM settings WHERE key='member_id_prefix'").fetchone()
+    padding_row = db.execute("SELECT value FROM settings WHERE key='member_id_padding'").fetchone()
+
+    if prefix_row is not None and padding_row is not None:
+        prefix  = prefix_row['value']
+        padding = int(padding_row['value'])
     else:
-        num = 1
-    return f'{prefix}{num:03d}'
+        prefix  = CLUB_SHORT_NAME
+        padding = 3
+
+    # Find the highest existing numeric suffix for this prefix across all members.
+    all_ids  = db.execute('SELECT member_id FROM members').fetchall()
+    max_num  = 0
+    suffix_re = _re.compile(r'(\d+)$')
+    for r in all_ids:
+        mid = r['member_id'] or ''
+        if not mid.startswith(prefix):
+            continue
+        m = suffix_re.search(mid)
+        if m:
+            max_num = max(max_num, int(m.group(1)))
+
+    return f'{prefix}{max_num + 1:0{padding}d}'
+
+
+def _save_id_format_from_import(db, imported_ids):
+    """Detect and persist the member ID format from successfully imported IDs.
+
+    Analyses the list, extracts a common non-numeric prefix and the maximum
+    zero-padding width, then stores them in settings so _next_member_id picks
+    them up for all future auto-generated IDs.
+
+    Does nothing if the IDs are inconsistent (mixed prefixes, unparseable
+    values, or only a single ID that could be coincidental).
+    """
+    import re as _re
+    if not imported_ids:
+        return
+
+    pattern  = _re.compile(r'^([^0-9]*)(\d+)$')
+    prefixes = []
+    paddings = []
+
+    for mid in imported_ids:
+        m = pattern.match(str(mid).strip())
+        if not m:
+            return   # Unparseable ID — bail, don't guess
+        prefixes.append(m.group(1))
+        paddings.append(len(m.group(2)))
+
+    if len(set(prefixes)) != 1:
+        return   # Mixed prefixes — inconsistent, bail
+
+    prefix  = prefixes[0]
+    padding = max(paddings)
+
+    db.execute(
+        "INSERT INTO settings (key,value) VALUES ('member_id_prefix',?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
+        (prefix,)
+    )
+    db.execute(
+        "INSERT INTO settings (key,value) VALUES ('member_id_padding',?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
+        (str(padding),)
+    )
+    db.commit()
 
 
 @app.route('/api/approvals')
@@ -4656,17 +4716,18 @@ import csv as _csv_mod
 import uuid as _uuid_mod
 
 # Core members-table columns available for import mapping.
-# 'email' is a special case — it writes to member_contacts, not members directly.
+# 'email' and 'member_id' are special cases handled separately in api_import_run.
 _IMPORT_CORE_FIELDS = [
-    {'key': 'first_name',      'label': 'First Name',       'field_type': 'text',     'required': True},
-    {'key': 'surname',         'label': 'Surname',           'field_type': 'text',     'required': True},
-    {'key': 'email',           'label': 'Email Address',     'field_type': 'email',    'required': False},
-    {'key': 'postcode',        'label': 'Postcode',          'field_type': 'text',     'required': False},
-    {'key': 'address',         'label': 'Address',           'field_type': 'text',     'required': False},
-    {'key': 'date_of_birth',   'label': 'Date of Birth',     'field_type': 'date',     'required': False},
-    {'key': 'date_registered', 'label': 'Date Registered',   'field_type': 'date',     'required': False},
-    {'key': 'comments',        'label': 'Notes / Comments',  'field_type': 'textarea', 'required': False},
-    {'key': 'status',          'label': 'Status',            'field_type': 'select',   'required': False,
+    {'key': 'member_id',       'label': 'Member ID (existing)', 'field_type': 'text',     'required': False},
+    {'key': 'first_name',      'label': 'First Name',           'field_type': 'text',     'required': True},
+    {'key': 'surname',         'label': 'Surname',              'field_type': 'text',     'required': True},
+    {'key': 'email',           'label': 'Email Address',        'field_type': 'email',    'required': False},
+    {'key': 'postcode',        'label': 'Postcode',             'field_type': 'text',     'required': False},
+    {'key': 'address',         'label': 'Address',              'field_type': 'text',     'required': False},
+    {'key': 'date_of_birth',   'label': 'Date of Birth',        'field_type': 'date',     'required': False},
+    {'key': 'date_registered', 'label': 'Date Registered',      'field_type': 'date',     'required': False},
+    {'key': 'comments',        'label': 'Notes / Comments',     'field_type': 'textarea', 'required': False},
+    {'key': 'status',          'label': 'Status',               'field_type': 'select',   'required': False,
      'options': 'Active,Inactive,Leaver'},
 ]
 
@@ -4872,17 +4933,21 @@ def api_import_run():
 
     CORE_KEYS = {'first_name', 'surname', 'date_of_birth', 'address',
                  'postcode', 'date_registered', 'comments', 'status'}
+    # Special-cased keys handled outside the generic core/custom branches
+    SPECIAL_KEYS = {'email', 'member_id'}
 
-    imported     = 0
-    skipped      = 0
-    errors       = []
-    not_imported = []   # [{row, name, reason}] — used for the CSV report
+    imported          = 0
+    skipped           = 0
+    errors            = []
+    not_imported      = []   # [{row, name, reason}] — used for the CSV report
+    imported_ids_used = []   # track member_ids that were explicitly provided
 
     for row_num, row in enumerate(data_rows, start=2):
         try:
             core        = {}
             custom_vals = {}
             email_val   = None
+            provided_id = None   # explicit member_id from the spreadsheet
 
             for col_str, field_key in mapping.items():
                 if field_key == '_skip':
@@ -4894,6 +4959,8 @@ def api_import_run():
 
                 if field_key == 'email':
                     email_val = val
+                elif field_key == 'member_id':
+                    provided_id = str(val).strip()
                 elif field_key in CORE_KEYS:
                     core[field_key] = val
                 elif field_key in custom_fields:
@@ -4913,8 +4980,19 @@ def api_import_run():
                 })
                 continue
 
-            # Duplicate check
-            if skip_dupes and db.execute(
+            # If an explicit member_id was provided, check it isn't already taken
+            if provided_id and db.execute(
+                'SELECT id FROM members WHERE member_id = ?', (provided_id,)
+            ).fetchone():
+                skipped += 1
+                not_imported.append({
+                    'row': row_num, 'name': _row_name(),
+                    'reason': f'Member ID {provided_id} already exists in the portal',
+                })
+                continue
+
+            # Name+postcode duplicate check (only when not using an explicit ID)
+            if skip_dupes and not provided_id and db.execute(
                 'SELECT id FROM members WHERE first_name=? AND surname=? AND postcode=?',
                 (core.get('first_name', ''), core.get('surname', ''), core.get('postcode', ''))
             ).fetchone():
@@ -4925,8 +5003,8 @@ def api_import_run():
                 })
                 continue
 
-            # Insert member record
-            member_id = _next_member_id(db)
+            # Use the provided ID, or auto-generate one
+            member_id = provided_id if provided_id else _next_member_id(db)
             db.execute('''
                 INSERT INTO members
                     (member_id, first_name, surname, date_of_birth, address,
@@ -4963,6 +5041,8 @@ def api_import_run():
 
             db.commit()
             imported += 1
+            if provided_id:
+                imported_ids_used.append(member_id)
 
         except Exception as exc:
             errors.append({'row': row_num, 'error': str(exc)})
@@ -4984,6 +5064,11 @@ def api_import_run():
         os.remove(save_path)
     except OSError:
         pass
+
+    # If the import provided explicit member IDs, detect their format and
+    # persist it so future auto-generated IDs continue in the same style.
+    if imported_ids_used:
+        _save_id_format_from_import(db, imported_ids_used)
 
     # Write a CSV report if any rows were not imported
     report_id = None

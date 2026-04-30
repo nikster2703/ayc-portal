@@ -66,6 +66,15 @@
   <div class="modal" style="max-width:580px">
     <h2>✏️ Edit Member</h2>
 
+    <div style="margin-bottom:14px;padding:10px 12px;background:#f8fafc;
+                border:1.5px solid var(--border);border-radius:8px;
+                display:flex;align-items:center;gap:10px">
+      <span style="font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap">Member ID</span>
+      <span id="e-member_id" style="font-family:monospace;font-size:14px;font-weight:700;
+                                    color:var(--navy)"></span>
+      <span style="font-size:11px;color:var(--muted);margin-left:auto">Read-only · assigned automatically</span>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label>First Name</label>
@@ -612,12 +621,21 @@
         </button>
       </div>` : '';
 
+    const memberIdBadge = m.member_id
+      ? `<span style="font-family:monospace;font-size:11px;font-weight:600;
+                      color:var(--muted);background:#f1f5f9;
+                      border:1px solid var(--border);border-radius:4px;
+                      padding:1px 6px;margin-left:6px;vertical-align:middle">
+           ${esc(m.member_id)}
+         </span>`
+      : '';
+
     return `
 <div class="member-card${isLeaver ? ' leaver-card' : ''}" id="mc${idx}" onclick="toggleCard(${idx})">
   <div class="card-head">
     <div class="avatar" style="background:${colour}">${esc(init)}</div>
     <div class="card-name-wrap">
-      <h3>${esc(full)}${typeBadge}</h3>
+      <h3>${esc(full)}${typeBadge}${memberIdBadge}</h3>
       <p>${sessionLabel} · ${statusBadge}${flagBadgesHtml}</p>
       ${listInfoHtml}
     </div>
@@ -717,6 +735,7 @@
     if (!m) return;
     editingId = memberId;
 
+    document.getElementById('e-member_id').textContent  = m.member_id || '—';
     document.getElementById('e-first_name').value       = m.first_name || '';
     document.getElementById('e-surname').value          = m.surname || '';
     document.getElementById('e-date_of_birth').value    = m.date_of_birth || '';
