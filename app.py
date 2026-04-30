@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.5'  # v8.5: Fully configurable registration forms — contact/signature fields now Field Builder-driven, no hardcoded sections
+APP_VERSION = 'v8.6'  # v8.6: Fix import wizard (apiFetch conflict with utils.js); add .xls support via xlrd
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -4684,14 +4684,25 @@ def _fmt_cell(v):
     return str(v).strip()
 
 def _read_xlsx_file(path, sheet_name=None):
-    """Return (sheet_names, active_sheet, headers, data_rows) from an xlsx file."""
-    import openpyxl
-    wb          = openpyxl.load_workbook(path, data_only=True)
-    sheet_names = wb.sheetnames
-    ws          = wb[sheet_name] if (sheet_name and sheet_name in wb.sheetnames) else wb.active
-    active      = ws.title
+    """Return (sheet_names, active_sheet, headers, data_rows) from an xlsx or xls file."""
+    ext = path.rsplit('.', 1)[-1].lower()
 
-    rows = list(ws.iter_rows(values_only=True))
+    if ext == 'xls':
+        import xlrd
+        wb          = xlrd.open_workbook(path)
+        sheet_names = wb.sheet_names()
+        ws          = wb.sheet_by_name(sheet_name) if (sheet_name and sheet_name in sheet_names) \
+                      else wb.sheet_by_index(0)
+        active      = ws.name
+        rows        = [ws.row_values(i) for i in range(ws.nrows)]
+    else:
+        import openpyxl
+        wb          = openpyxl.load_workbook(path, data_only=True)
+        sheet_names = wb.sheetnames
+        ws          = wb[sheet_name] if (sheet_name and sheet_name in wb.sheetnames) else wb.active
+        active      = ws.title
+        rows        = list(ws.iter_rows(values_only=True))
+
     if not rows:
         return sheet_names, active, [], []
 

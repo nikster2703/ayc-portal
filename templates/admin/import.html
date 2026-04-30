@@ -220,17 +220,7 @@
 </div>
 
 <script>
-// ── API helper ────────────────────────────────────────────────────────────────
-function csrfToken() {
-  return document.querySelector('meta[name="csrf-token"]')?.content || '';
-}
-function apiFetch(url, options = {}) {
-  return fetch(url, {
-    credentials: 'same-origin',
-    headers: { 'X-CSRFToken': csrfToken(), ...(options.headers || {}) },
-    ...options,
-  });
-}
+// apiFetch, csrfToken, showToast, esc are provided globally by utils.js (loaded in base.html).
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
@@ -249,19 +239,22 @@ let state = {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
-  const res  = await apiFetch('/api/admin/member-types');
-  const data = await res.json();
-  const sel  = document.getElementById('sel-type');
-  data.forEach(t => {
-    const o  = document.createElement('option');
-    o.value  = t.id;
-    o.text   = `${t.icon || '👤'} ${t.name}`;
-    sel.appendChild(o);
-  });
-  // If only one type, auto-select it
-  if (data.length === 1) {
-    sel.value = data[0].id;
-    onTypeChange();
+  try {
+    const types = await apiFetch('/api/admin/member-types');
+    const sel   = document.getElementById('sel-type');
+    types.forEach(t => {
+      const o  = document.createElement('option');
+      o.value  = t.id;
+      o.text   = `${t.icon || '👤'} ${t.name}`;
+      sel.appendChild(o);
+    });
+    // If only one type, auto-select it
+    if (types.length === 1) {
+      sel.value = types[0].id;
+      onTypeChange();
+    }
+  } catch(e) {
+    showToast('Could not load member types: ' + e.message, 'error');
   }
 })();
 
@@ -269,10 +262,13 @@ async function onTypeChange() {
   state.typeId = document.getElementById('sel-type').value || null;
   checkAnalyseReady();
   if (!state.typeId) return;
-  const res  = await apiFetch(`/api/admin/import/fields/${state.typeId}`);
-  const data = await res.json();
-  state.coreFields   = data.core_fields   || [];
-  state.customFields = data.custom_fields || [];
+  try {
+    const data = await apiFetch(`/api/admin/import/fields/${state.typeId}`);
+    state.coreFields   = data.core_fields   || [];
+    state.customFields = data.custom_fields || [];
+  } catch(e) {
+    showToast('Could not load fields: ' + e.message, 'error');
+  }
 }
 
 // ── File handling ──────────────────────────────────────────────────────────────
@@ -315,12 +311,10 @@ async function doAnalyse() {
   if (state.activeSheet) fd.append('sheet_name', state.activeSheet);
 
   try {
-    const res  = await apiFetch('/api/admin/import/analyse', {
+    const data = await apiFetch('/api/admin/import/analyse', {
       method: 'POST',
       body: fd,
     });
-    const data = await res.json();
-    if (!res.ok) { showToast(data.error || 'Analysis failed', 'error'); return; }
 
     state.fileId      = data.file_id;
     state.fileExt     = data.file_ext;
@@ -362,19 +356,20 @@ async function reAnalyse() {
   fd.append('file', file);
   fd.append('sheet_name', state.activeSheet);
 
-  const res  = await apiFetch('/api/admin/import/analyse', {
-    method: 'POST',
-    body: fd,
-  });
-  const data = await res.json();
-  if (!res.ok) { showToast(data.error || 'Re-analysis failed', 'error'); return; }
-
-  state.fileId      = data.file_id;
-  state.columns     = data.columns || [];
-  state.preview     = data.preview || [];
-  state.totalRows   = data.total_rows || 0;
-  buildMappingTable();
-  goStep(2);
+  try {
+    const data = await apiFetch('/api/admin/import/analyse', {
+      method: 'POST',
+      body: fd,
+    });
+    state.fileId      = data.file_id;
+    state.columns     = data.columns || [];
+    state.preview     = data.preview || [];
+    state.totalRows   = data.total_rows || 0;
+    buildMappingTable();
+    goStep(2);
+  } catch(e) {
+    showToast('Re-analysis failed: ' + e.message, 'error');
+  }
 }
 
 // ── Step 2: Build mapping table ───────────────────────────────────────────────
@@ -557,14 +552,10 @@ async function doImport() {
   };
 
   try {
-    const res  = await apiFetch('/api/admin/import/run', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
+    const data = await apiFetch('/api/admin/import/run', {
+      method: 'POST',
+      body:   JSON.stringify(payload),
     });
-    const data = await res.json();
-
-    if (!res.ok) { showToast(data.error || 'Import failed', 'error'); return; }
 
     // Show results
     document.getElementById('res-imported').textContent = data.imported.toLocaleString();
