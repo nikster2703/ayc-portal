@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.16'  # v8.16: normalise dirty status values in ensure_tables(); fix all hardcoded member_type slug references
+APP_VERSION = 'v8.18'  # v8.18: fix empty/null status stored from whitespace CSV cells; normalise on startup
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -665,18 +665,23 @@ def ensure_tables():
     except Exception:
         pass  # Index already exists — safe to ignore
 
-    # ── v8.15: normalise member status values (strip whitespace, fix casing) ────
-    # Imported rows may have "Active ", "active", etc. which breaks exact-match
-    # queries like status = 'Active'. Safe to run every startup — only touches
-    # rows whose status doesn't already match a canonical value.
-    for dirty, clean in [('active', 'Active'), ('inactive', 'Inactive'), ('leaver', 'Leaver')]:
-        try:
+    # ── v8.15+: normalise member status values ───────────────────────────────
+    # Covers: wrong casing ("active"), whitespace padding ("Active "),
+    # empty string (""), and NULL — all become the correct canonical value.
+    # Safe to run every startup — only touches rows that actually need fixing.
+    try:
+        # Empty-string or NULL → default to 'Active'
+        db.execute(
+            "UPDATE members SET status = 'Active' WHERE status IS NULL OR TRIM(status) = ''"
+        )
+        # Fix casing / whitespace for known values
+        for dirty, clean in [('active', 'Active'), ('inactive', 'Inactive'), ('leaver', 'Leaver')]:
             db.execute(
                 "UPDATE members SET status = ? WHERE LOWER(TRIM(status)) = ? AND status != ?",
                 (clean, dirty, clean)
             )
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     db.commit()
     db.close()
@@ -2232,23 +2237,23 @@ def api_dashboard():
     scoped = _assigned_session()   # None for admin, session string for everyone else
 
     if scoped is None:
-        # Admin — global counts (join member_types so any slug works, not just 'member'/'staff')
+        # Admin — global counts
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN mt.registration_style != "staff"                       THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Active"  THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
+                SUM(CASE WHEN mt.registration_style != "staff"                                          THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "active"    THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "leaver"    THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver"   THEN 1 ELSE 0 END) AS staff_active
             FROM members m
-            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            JOIN member_types mt ON mt.slug = m.member_type
         ''').fetchone()
         # Per-session counts (dynamic)
         session_rows = db.execute('''
             SELECT m.session,
-                   SUM(CASE WHEN mt.registration_style != "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff
+                   SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS staff
             FROM members m
-            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            JOIN member_types mt ON mt.slug = m.member_type
             GROUP BY m.session
         ''').fetchall()
         pending = db.execute(
@@ -2268,21 +2273,21 @@ def api_dashboard():
         # Scoped user — counts restricted to their session only
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN mt.registration_style != "staff"                        THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Active"  THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
+                SUM(CASE WHEN mt.registration_style != "staff"                                          THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "active"    THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "leaver"    THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver"   THEN 1 ELSE 0 END) AS staff_active
             FROM members m
-            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            JOIN member_types mt ON mt.slug = m.member_type
             WHERE m.session = ?
         ''', (scoped,)).fetchone()
         # Per-session counts (scoped — only the user's session)
         session_rows = db.execute('''
             SELECT m.session,
-                   SUM(CASE WHEN mt.registration_style != "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff
+                   SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS staff
             FROM members m
-            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            JOIN member_types mt ON mt.slug = m.member_type
             WHERE m.session = ?
             GROUP BY m.session
         ''', (scoped,)).fetchall()
@@ -4845,7 +4850,6 @@ _IMPORT_CORE_FIELDS = [
     {'key': 'contact1_name',      'label': 'Contact 1 — Full Name',     'field_type': 'text',     'required': False},
     {'key': 'contact1_phone',     'label': 'Contact 1 — Phone',         'field_type': 'text',     'required': False},
     {'key': 'contact1_email',     'label': 'Contact 1 — Email',         'field_type': 'email',    'required': False},
-    {'key': 'email',              'label': 'Email (shorthand → Contact 1)', 'field_type': 'email', 'required': False},
     # ── Secondary contact ────────────────────────────────────────────────
     {'key': 'contact2_name',      'label': 'Contact 2 — Full Name',     'field_type': 'text',     'required': False},
     {'key': 'contact2_phone',     'label': 'Contact 2 — Phone',         'field_type': 'text',     'required': False},
@@ -5110,10 +5114,13 @@ def api_import_run():
                     if field_key in ('unattended_exit', 'gdpr_consent'):
                         core[field_key] = _bool_val(val)
                     elif field_key == 'status':
-                        # Normalise status to canonical casing; strip whitespace/CR
+                        # Normalise status to canonical casing; strip whitespace/CR.
+                        # If the cell is blank/whitespace after stripping, skip it so
+                        # core.get('status', 'Active') returns the safe default below.
                         _s = str(val).strip()
-                        _STATUS_MAP = {'active': 'Active', 'inactive': 'Inactive', 'leaver': 'Leaver'}
-                        core[field_key] = _STATUS_MAP.get(_s.lower(), _s)
+                        if _s:
+                            _STATUS_MAP = {'active': 'Active', 'inactive': 'Inactive', 'leaver': 'Leaver'}
+                            core[field_key] = _STATUS_MAP.get(_s.lower(), _s)
                     else:
                         core[field_key] = str(val).strip()
                 elif field_key in custom_fields:
