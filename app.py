@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.13'  # v8.13: postcode use_lookup toggle in Field Builder; dashboard + edit modal fixes
+APP_VERSION = 'v8.14'  # v8.14: ensure_tables() runs after DB restore so migrations always apply
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -4764,6 +4764,13 @@ def api_maintenance_restore():
             except Exception:
                 pass
             g.db = None
+
+        # ── Step 6: run migrations on the restored DB ─────────────────────
+        # ensure_tables() is normally called once at startup. After a restore
+        # the container does NOT restart, so we must run it here to apply any
+        # schema migrations (e.g. new columns) that the restored DB may lack.
+        with app.app_context():
+            ensure_tables()
 
     finally:
         try:
