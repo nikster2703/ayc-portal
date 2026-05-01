@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.12'  # v8.12: dashboard counts fixed for custom types; edit modal custom fields; field-config all
+APP_VERSION = 'v8.13'  # v8.13: postcode use_lookup toggle in Field Builder; dashboard + edit modal fixes
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -638,6 +638,8 @@ def ensure_tables():
         "ALTER TABLE member_type_fields ADD COLUMN show_on_export INTEGER NOT NULL DEFAULT 0",
         # v8.3: track how each attendance record was created ('web' | 'qr-self')
         "ALTER TABLE attendance ADD COLUMN source TEXT NOT NULL DEFAULT 'web'",
+        # v8.13: optional address-lookup toggle per postcode field
+        "ALTER TABLE field_definitions ADD COLUMN use_lookup INTEGER NOT NULL DEFAULT 1",
     ]
     for stmt in alter_stmts:
         try:
@@ -1927,7 +1929,7 @@ def api_field_config():
         rows = db.execute('''
             SELECT  fd.id, fd.key, fd.label, fd.field_type,
                     fd.column_name, fd.system_field,
-                    fd.placeholder, fd.help_text, fd.options,
+                    fd.placeholder, fd.help_text, fd.options, fd.use_lookup,
                     mtf.required,
                     mtf.show_on_registration, mtf.show_on_list,
                     mtf.show_on_card, mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
@@ -5925,15 +5927,16 @@ def api_admin_field_definitions_update(field_id):
     if options is not None:
         options = options.strip() or None
     active      = int(data.get('active', current['active']))
+    use_lookup  = int(data['use_lookup']) if 'use_lookup' in data else int(current['use_lookup'])
 
     if not label:
         return jsonify({'error': 'label is required'}), 400
 
     db.execute(
         '''UPDATE field_definitions
-           SET label=?, field_type=?, placeholder=?, help_text=?, options=?, active=?
+           SET label=?, field_type=?, placeholder=?, help_text=?, options=?, active=?, use_lookup=?
            WHERE id=?''',
-        (label, field_type, placeholder, help_text, options, active, field_id),
+        (label, field_type, placeholder, help_text, options, active, use_lookup, field_id),
     )
     db.commit()
     log_action('update_field_definition', 'field_definitions', field_id,

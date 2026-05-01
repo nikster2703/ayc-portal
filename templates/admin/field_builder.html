@@ -170,7 +170,7 @@
                 placeholder="Option A&#10;Option B&#10;Option C"></textarea>
     </div>
 
-    <div id="cp-placeholder-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+    <div id="cp-placeholder-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
       <div>
         <label class="form-label" style="font-size:11px">Placeholder</label>
         <input id="cp-placeholder" class="form-input" style="font-size:13px">
@@ -178,6 +178,18 @@
       <div>
         <label class="form-label" style="font-size:11px">Help Text</label>
         <input id="cp-help" class="form-input" style="font-size:13px">
+      </div>
+    </div>
+
+    <!-- Address-lookup toggle — only shown for postcode fields -->
+    <div id="cp-lookup-wrap" style="display:none;margin-bottom:12px;padding:10px 12px;
+         background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-size:13px;font-weight:600">
+        <input type="checkbox" id="cp-use-lookup" style="width:16px;height:16px;accent-color:var(--teal)">
+        Enable address lookup on registration form
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:24px">
+        Shows a "Find" button that auto-fills the address from a postcode lookup service.
       </div>
     </div>
 
@@ -488,6 +500,15 @@
 
     _updateCpVisibility(f.field_type);
 
+    // Address-lookup toggle — postcode fields only
+    const lookupWrap = document.getElementById('cp-lookup-wrap');
+    if (f.field_type === 'postcode') {
+      document.getElementById('cp-use-lookup').checked = (f.use_lookup !== 0);
+      lookupWrap.style.display = '';
+    } else {
+      lookupWrap.style.display = 'none';
+    }
+
     // Delete button: only for non-system fields with no assignments anywhere
     const canDelete = !f.system_field && (f.assigned_to === 0);
     const delBtn    = document.getElementById('cp-delete-btn');
@@ -524,15 +545,19 @@
 
     try {
       // Save edits to the definition
+      const cpPayload = {
+        label,
+        field_type:  type,
+        placeholder: document.getElementById('cp-placeholder').value.trim() || null,
+        help_text:   document.getElementById('cp-help').value.trim() || null,
+        options:     type === 'select' ? (document.getElementById('cp-options').value.trim() || null) : null,
+      };
+      if (type === 'postcode') {
+        cpPayload.use_lookup = document.getElementById('cp-use-lookup').checked ? 1 : 0;
+      }
       await apiFetch(`/api/admin/field-definitions/${fieldId}`, {
         method: 'PUT',
-        body:   JSON.stringify({
-          label,
-          field_type:  type,
-          placeholder: document.getElementById('cp-placeholder').value.trim() || null,
-          help_text:   document.getElementById('cp-help').value.trim() || null,
-          options:     type === 'select' ? (document.getElementById('cp-options').value.trim() || null) : null,
-        }),
+        body:   JSON.stringify(cpPayload),
       });
       // Add to this member type
       await apiFetch(`/api/admin/member-types/${TYPE_ID}/fields`, {

@@ -416,11 +416,15 @@ function buildSection(title, fields, includePostcodeLookup) {
     if (surnameF)   rows += renderField(surnameF);
     rows += `</div>`;
   }
+  // use_lookup defaults to 1; explicit 0 disables the lookup button and picker
+  const postcodeFld    = rest.find(f => f.key === 'postcode');
+  const lookupEnabled  = includePostcodeLookup && (!postcodeFld || postcodeFld.use_lookup !== 0);
+
   for (const f of rest) {
-    rows += (f.key === 'postcode') ? renderPostcodeField(f) : renderField(f);
+    rows += (f.key === 'postcode') ? renderPostcodeField(f, lookupEnabled) : renderField(f);
   }
 
-  const lookupHtml = includePostcodeLookup ? `
+  const lookupHtml = lookupEnabled ? `
     <div class="lookup-msg" id="lookup-msg" style="display:none"></div>
     <div class="field" id="address-picker-wrap" style="display:none">
       <label>Select your address</label>
@@ -616,19 +620,26 @@ function renderField(field) {
   </div>`;
 }
 
-function renderPostcodeField(field) {
+function renderPostcodeField(field, withLookup) {
   const id  = fieldId(field);
   const req = field.required
     ? '<span class="req">*</span>'
     : '<span class="opt-badge">Optional</span>';
   if (field.required) requiredFieldIds.push(id);
+  const inputEl = `<input type="text" id="${id}" placeholder="${esc(field.placeholder || 'e.g. TW15 3EL')}"
+             style="text-transform:uppercase" autocomplete="postal-code">`;
+  if (withLookup) {
+    return `<div class="field">
+      <label>${esc(field.label)} ${req}</label>
+      <div class="postcode-wrap">
+        ${inputEl}
+        <button type="button" class="find-btn" id="find-btn" onclick="lookupPostcode()">Find</button>
+      </div>
+    </div>`;
+  }
   return `<div class="field">
     <label>${esc(field.label)} ${req}</label>
-    <div class="postcode-wrap">
-      <input type="text" id="${id}" placeholder="${esc(field.placeholder || 'e.g. TW15 3EL')}"
-             style="text-transform:uppercase" autocomplete="postal-code">
-      <button type="button" class="find-btn" id="find-btn" onclick="lookupPostcode()">Find</button>
-    </div>
+    ${inputEl}
   </div>`;
 }
 
