@@ -528,7 +528,13 @@ function buildPreviewTable() {
   ).join('');
 
   // Stats
-  const emailMapped = Object.values(state.mapping).includes('email');
+  // True if core 'email' key OR any custom field with email field_type is mapped
+  const mappedKeys  = Object.values(state.mapping).filter(v => v && v !== '_skip');
+  const emailMapped = mappedKeys.includes('email') ||
+    mappedKeys.some(k => {
+      const fd = (state.fields || []).find(f => f.key === k);
+      return fd && fd.field_type === 'email';
+    });
   const stats = document.getElementById('preview-stats');
   stats.innerHTML = [
     stat('navy', `${state.totalRows.toLocaleString()} rows total`),

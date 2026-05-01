@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.11'  # v8.11: status + date_registered added as system fields in Field Builder
+APP_VERSION = 'v8.12'  # v8.12: dashboard counts fixed for custom types; edit modal custom fields; field-config all
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -1941,6 +1941,7 @@ def api_field_config():
         all_fields = [dict(r) for r in rows]
         result[mtype['slug']] = {
             'type':         dict(mtype),
+            'all':          all_fields,   # full assigned list — used by edit modal
             'list':         [f for f in all_fields if f['show_on_list']],
             'card':         [f for f in all_fields if f['show_on_card']],
             'detail':       [f for f in all_fields if f['show_on_detail']],
@@ -2006,7 +2007,7 @@ def api_member_update(member_id):
 
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
                    'ethnicity_religion', 'medical_sen', 'gp_contact', 'status',
-                   'session', 'comments']
+                   'session', 'comments', 'date_registered', 'staff_role']
     bool_fields = ['unattended_exit', 'gdpr_consent']
 
     updates, params = [], []
@@ -2031,6 +2032,25 @@ def api_member_update(member_id):
     params  += [session['user_id'], member_id]
 
     db.execute(f"UPDATE members SET {', '.join(updates)} WHERE id = ?", params)
+
+    # Custom field values — write to member_field_values
+    if 'custom_fields' in data:
+        for cf_key, cf_val in (data['custom_fields'] or {}).items():
+            cf_fd = db.execute(
+                'SELECT id FROM field_definitions WHERE key = ?', (cf_key,)
+            ).fetchone()
+            if not cf_fd:
+                continue
+            if cf_val is None or cf_val == '':
+                db.execute(
+                    'DELETE FROM member_field_values WHERE member_id = ? AND field_id = ?',
+                    (member_id, cf_fd['id'])
+                )
+            else:
+                db.execute(
+                    'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
+                    (member_id, cf_fd['id'], str(cf_val))
+                )
 
     # Contacts — replace wholesale if provided
     if 'contacts' in data:
@@ -2192,21 +2212,24 @@ def api_dashboard():
     scoped = _assigned_session()   # None for admin, session string for everyone else
 
     if scoped is None:
-        # Admin — global counts
+        # Admin — global counts (join member_types so any slug works, not just 'member'/'staff')
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN member_type = "member"                        THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN member_type = "member" AND status = "Active"  THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN member_type = "member" AND status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
-            FROM members
+                SUM(CASE WHEN mt.registration_style != "staff"                       THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Active"  THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
+            FROM members m
+            LEFT JOIN member_types mt ON mt.slug = m.member_type
         ''').fetchone()
         # Per-session counts (dynamic)
         session_rows = db.execute('''
-            SELECT session,
-                   SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff
-            FROM members GROUP BY session
+            SELECT m.session,
+                   SUM(CASE WHEN mt.registration_style != "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff
+            FROM members m
+            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            GROUP BY m.session
         ''').fetchall()
         pending = db.execute(
             'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
@@ -2225,18 +2248,23 @@ def api_dashboard():
         # Scoped user — counts restricted to their session only
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN member_type = "member"                        THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN member_type = "member" AND status = "Active"  THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN member_type = "member" AND status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
-            FROM members WHERE session = ?
+                SUM(CASE WHEN mt.registration_style != "staff"                        THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Active"  THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != "staff" AND m.status = "Leaver"  THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff_active
+            FROM members m
+            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            WHERE m.session = ?
         ''', (scoped,)).fetchone()
         # Per-session counts (scoped — only the user's session)
         session_rows = db.execute('''
-            SELECT session,
-                   SUM(CASE WHEN member_type = "member" AND status != "Leaver" THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN member_type = "staff"  AND status != "Leaver" THEN 1 ELSE 0 END) AS staff
-            FROM members WHERE session = ? GROUP BY session
+            SELECT m.session,
+                   SUM(CASE WHEN mt.registration_style != "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = "staff" AND m.status != "Leaver" THEN 1 ELSE 0 END) AS staff
+            FROM members m
+            LEFT JOIN member_types mt ON mt.slug = m.member_type
+            WHERE m.session = ?
+            GROUP BY m.session
         ''', (scoped,)).fetchall()
         pending = db.execute(
             'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'

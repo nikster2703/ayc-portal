@@ -66,6 +66,7 @@
   <div class="modal" style="max-width:580px">
     <h2>✏️ Edit Member</h2>
 
+    <!-- Member ID badge — always read-only -->
     <div style="margin-bottom:14px;padding:10px 12px;background:#f8fafc;
                 border:1.5px solid var(--border);border-radius:8px;
                 display:flex;align-items:center;gap:10px">
@@ -75,88 +76,59 @@
       <span style="font-size:11px;color:var(--muted);margin-left:auto">Read-only · assigned automatically</span>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <!-- Name — always present -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div class="form-group">
-        <label>First Name</label>
-        <input id="e-first_name" type="text">
+        <label class="form-label">First Name</label>
+        <input id="e-first_name" type="text" class="form-input">
       </div>
       <div class="form-group">
-        <label>Surname</label>
-        <input id="e-surname" type="text">
+        <label class="form-label">Surname</label>
+        <input id="e-surname" type="text" class="form-input">
       </div>
+    </div>
+
+    <!-- Status + Session — always present for management -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div class="form-group">
-        <label>Date of Birth</label>
-        <input id="e-date_of_birth" type="date">
-      </div>
-      <div class="form-group">
-        <label>Status</label>
-        <select id="e-status">
+        <label class="form-label">Status</label>
+        <select id="e-status" class="form-input">
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
           <option value="Leaver">Leaver</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Session</label>
-        <select id="e-session">
+        <label class="form-label">Session</label>
+        <select id="e-session" class="form-input">
           <option value="">— not set —</option>
           {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="form-group" style="align-self:end;padding-bottom:4px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0">
-          <input id="e-unattended_exit" type="checkbox" style="width:18px;height:18px">
-          Unattended Exit
-        </label>
-      </div>
     </div>
 
-    <div class="form-group">
-      <label>Address</label>
-      <input id="e-address" type="text">
-    </div>
-    <div class="form-group">
-      <label>Postcode</label>
-      <input id="e-postcode" type="text" style="max-width:160px">
-    </div>
+    <!-- Dynamic fields — rendered by JS from Field Builder config -->
+    <div id="edit-dynamic-fields"></div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group" style="grid-column:1/-1">
-        <label>Medical / SEN Notes</label>
-        <textarea id="e-medical_sen" rows="2"></textarea>
+    <!-- Contacts — shown only when type has contact fields -->
+    <div id="edit-contacts-section" style="display:none">
+      <div style="border-top:2px solid var(--border);margin:14px 0 16px;padding-top:14px">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 1</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label class="form-label">Name</label><input id="e-c1-name" type="text" class="form-input"></div>
+          <div class="form-group"><label class="form-label">Phone</label><input id="e-c1-phone" type="tel" class="form-input"></div>
+          <div class="form-group" style="grid-column:1/-1"><label class="form-label">Email</label><input id="e-c1-email" type="email" class="form-input"></div>
+        </div>
       </div>
-      <div class="form-group">
-        <label>GP Contact</label>
-        <input id="e-gp_contact" type="text">
+      <div style="border-top:2px solid var(--border);margin:0 0 16px;padding-top:14px">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label class="form-label">Name</label><input id="e-c2-name" type="text" class="form-input"></div>
+          <div class="form-group"><label class="form-label">Phone</label><input id="e-c2-phone" type="tel" class="form-input"></div>
+          <div class="form-group" style="grid-column:1/-1"><label class="form-label">Email</label><input id="e-c2-email" type="email" class="form-input"></div>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Ethnicity / Religion</label>
-        <input id="e-ethnicity_religion" type="text">
-      </div>
-    </div>
-
-    <div style="border-top:2px solid var(--border);margin:14px 0 16px;padding-top:14px">
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 1</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label>Name</label><input id="e-c1-name" type="text"></div>
-        <div class="form-group"><label>Phone</label><input id="e-c1-phone" type="tel"></div>
-        <div class="form-group" style="grid-column:1/-1"><label>Email</label><input id="e-c1-email" type="email"></div>
-      </div>
-    </div>
-
-    <div style="border-top:2px solid var(--border);margin:0 0 16px;padding-top:14px">
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label>Name</label><input id="e-c2-name" type="text"></div>
-        <div class="form-group"><label>Phone</label><input id="e-c2-phone" type="tel"></div>
-        <div class="form-group" style="grid-column:1/-1"><label>Email</label><input id="e-c2-email" type="email"></div>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label>Comments</label>
-      <textarea id="e-comments" rows="2"></textarea>
     </div>
 
     {% if 'members.tags' in user_permissions %}
@@ -730,31 +702,131 @@
   }
 
   /* ── Edit modal ────────────────────────────────────── */
+  // Keys always handled by the static top section of the edit modal
+  const EDIT_STATIC_KEYS = new Set([
+    'first_name', 'surname', 'status', 'session',
+    'contact1_name', 'contact1_phone', 'contact1_email',
+    'contact2_name', 'contact2_phone', 'contact2_email',
+  ]);
+
+  function _editFieldVal(field, member) {
+    if (field.system_field && field.column_name) return member[field.column_name] ?? '';
+    return (member.custom_fields || {})[field.key] ?? '';
+  }
+
+  function _renderEditInput(field, value) {
+    const id  = `ed-${field.key}`;
+    const col = field.column_name || '';
+    const v   = value ?? '';
+
+    let input;
+    switch (field.field_type) {
+      case 'boolean':
+        return `<div class="form-group" data-key="${field.key}" data-column="${col}" style="align-self:end;padding-bottom:4px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0;font-weight:700;font-size:13px">
+            <input type="checkbox" id="${id}" ${(v === 1 || v === '1' || v === true || v === 'true' || v === 'yes') ? 'checked' : ''}
+                   style="width:18px;height:18px;accent-color:var(--teal)">
+            ${esc(field.label)}
+          </label>
+        </div>`;
+      case 'select': {
+        const opts = (field.options || '').split('\n').filter(Boolean);
+        input = `<select id="${id}" class="form-input">
+          <option value="">— not set —</option>
+          ${opts.map(o => `<option value="${esc(o)}"${String(v) === String(o) ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+        </select>`;
+        break;
+      }
+      case 'textarea':
+        input = `<textarea id="${id}" class="form-input" rows="2">${esc(String(v))}</textarea>`;
+        break;
+      case 'date':
+        input = `<input id="${id}" type="date" class="form-input" value="${esc(String(v))}">`;
+        break;
+      case 'number':
+        input = `<input id="${id}" type="number" step="any" class="form-input" value="${esc(String(v))}">`;
+        break;
+      case 'email':
+        input = `<input id="${id}" type="email" class="form-input" value="${esc(String(v))}">`;
+        break;
+      case 'tel':
+      case 'phone':
+      case 'postcode':
+        input = `<input id="${id}" type="tel" class="form-input" value="${esc(String(v))}">`;
+        break;
+      default:
+        input = `<input id="${id}" type="text" class="form-input" value="${esc(String(v))}">`;
+    }
+    return `<div class="form-group" data-key="${field.key}" data-column="${col}">
+      <label class="form-label">${esc(field.label)}</label>
+      ${input}
+    </div>`;
+  }
+
+  function renderDynamicEditFields(member) {
+    const typeSlug = member.member_type || 'member';
+    const conf     = fieldConfig[typeSlug] || fieldConfig['member'] || {};
+    const allFlds  = (conf.all || []).filter(f =>
+      !EDIT_STATIC_KEYS.has(f.key) &&
+      f.field_type !== 'declaration' &&
+      f.field_type !== 'signature'
+    );
+
+    // Show contacts section only if the type has contact fields
+    const hasContacts = (conf.all || []).some(f => f.key.startsWith('contact'));
+    document.getElementById('edit-contacts-section').style.display = hasContacts ? '' : 'none';
+
+    // Build HTML — pair non-fullwidth fields into a 2-col grid
+    const FULL_WIDTH = new Set(['textarea', 'boolean']);
+    let html = '';
+    let pair = [];
+
+    function flushPair() {
+      if (!pair.length) return;
+      html += pair.length === 1
+        ? pair[0]
+        : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:0">${pair.join('')}</div>`;
+      pair = [];
+    }
+
+    for (const field of allFlds) {
+      const val     = _editFieldVal(field, member);
+      const fieldHtml = _renderEditInput(field, val);
+      if (FULL_WIDTH.has(field.field_type)) {
+        flushPair();
+        html += fieldHtml;
+      } else {
+        pair.push(fieldHtml);
+        if (pair.length === 2) flushPair();
+      }
+    }
+    flushPair();
+
+    document.getElementById('edit-dynamic-fields').innerHTML = html;
+  }
+
   function openEditModal(memberId) {
     const m = allMembers.find(x => x.id === memberId);
     if (!m) return;
     editingId = memberId;
 
-    document.getElementById('e-member_id').textContent  = m.member_id || '—';
-    document.getElementById('e-first_name').value       = m.first_name || '';
-    document.getElementById('e-surname').value          = m.surname || '';
-    document.getElementById('e-date_of_birth').value    = m.date_of_birth || '';
-    document.getElementById('e-status').value           = m.status || 'Active';
-    document.getElementById('e-session').value          = m.session || '';
-    document.getElementById('e-unattended_exit').checked = !!m.unattended_exit;
-    document.getElementById('e-address').value          = m.address || '';
-    document.getElementById('e-postcode').value         = m.postcode || '';
-    document.getElementById('e-medical_sen').value      = m.medical_sen || '';
-    document.getElementById('e-gp_contact').value       = m.gp_contact || '';
-    document.getElementById('e-ethnicity_religion').value = m.ethnicity_religion || '';
-    document.getElementById('e-comments').value         = m.comments || '';
+    // Static fields
+    document.getElementById('e-member_id').textContent = m.member_id || '—';
+    document.getElementById('e-first_name').value      = m.first_name || '';
+    document.getElementById('e-surname').value         = m.surname || '';
+    document.getElementById('e-status').value          = m.status || 'Active';
+    document.getElementById('e-session').value         = m.session || '';
 
+    // Contacts (always populated; section visibility controlled by renderDynamicEditFields)
     document.getElementById('e-c1-name').value  = m.contact1_name  || '';
     document.getElementById('e-c1-phone').value = m.contact1_phone || '';
     document.getElementById('e-c1-email').value = m.contact1_email || '';
     document.getElementById('e-c2-name').value  = m.contact2_name  || '';
     document.getElementById('e-c2-phone').value = m.contact2_phone || '';
     document.getElementById('e-c2-email').value = m.contact2_email || '';
+
+    // Dynamic fields from Field Builder
+    renderDynamicEditFields(m);
 
     document.getElementById('edit-modal').classList.add('open');
     {% if 'members.tags' in user_permissions %}
@@ -910,18 +982,10 @@
     btn.disabled = true;
 
     const payload = {
-      first_name:         document.getElementById('e-first_name').value.trim(),
-      surname:            document.getElementById('e-surname').value.trim(),
-      date_of_birth:      document.getElementById('e-date_of_birth').value,
-      status:             document.getElementById('e-status').value,
-      session:            document.getElementById('e-session').value,
-      unattended_exit:    document.getElementById('e-unattended_exit').checked,
-      address:            document.getElementById('e-address').value.trim(),
-      postcode:           document.getElementById('e-postcode').value.trim().toUpperCase(),
-      medical_sen:        document.getElementById('e-medical_sen').value.trim(),
-      gp_contact:         document.getElementById('e-gp_contact').value.trim(),
-      ethnicity_religion: document.getElementById('e-ethnicity_religion').value.trim(),
-      comments:           document.getElementById('e-comments').value.trim(),
+      first_name:    document.getElementById('e-first_name').value.trim(),
+      surname:       document.getElementById('e-surname').value.trim(),
+      status:        document.getElementById('e-status').value,
+      session:       document.getElementById('e-session').value,
       contacts: [
         {
           contact_order: 1,
@@ -936,7 +1000,22 @@
           contact_email: document.getElementById('e-c2-email').value.trim(),
         },
       ],
+      custom_fields: {},
     };
+
+    // Collect dynamic fields — core fields go into payload directly, custom into custom_fields
+    document.querySelectorAll('#edit-dynamic-fields .form-group[data-key]').forEach(wrap => {
+      const key    = wrap.dataset.key;
+      const column = wrap.dataset.column;
+      const input  = wrap.querySelector('input, select, textarea');
+      if (!input) return;
+      const val = input.type === 'checkbox' ? (input.checked ? 1 : 0) : input.value;
+      if (column) {
+        payload[column] = (input.type === 'text' || input.type === 'email' || input.type === 'tel') ? String(val).trim() : val;
+      } else {
+        payload.custom_fields[key] = val;
+      }
+    });
 
     try {
       await apiFetch(`/api/members/${editingId}`, {
