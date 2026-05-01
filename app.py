@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.14'  # v8.14: ensure_tables() runs after DB restore so migrations always apply
+APP_VERSION = 'v8.15'  # v8.15: replace all hardcoded member_type='member' slugs with registration_style join; strip+normalise status on import
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -1347,9 +1347,13 @@ def export_register_page():
     if not completion:
         return 'This register has not been completed yet.', 400
 
-    # ── Configurable export fields for the 'member' type ─────────────────────
+    # ── Configurable export fields — derive member type from the actual session ──
     member_mt = db.execute(
-        "SELECT id FROM member_types WHERE slug = 'member' AND active = 1"
+        '''SELECT mt.id FROM member_types mt
+           JOIN members m ON m.member_type = mt.slug
+           WHERE m.session = ? AND mt.registration_style != "staff" AND mt.active = 1
+           LIMIT 1''',
+        (session_type,)
     ).fetchone()
     export_fields = []
     if member_mt:
@@ -1368,12 +1372,13 @@ def export_register_page():
         SELECT  m.*,
                 a.signed_in_at, a.signed_out_at
         FROM    members m
+        JOIN    member_types mt ON mt.slug = m.member_type
         LEFT JOIN attendance a
                ON  a.member_id   = m.id
                AND a.session_date = ?
                AND a.session_type = ?
         WHERE   m.status     != 'Leaver'
-          AND   m.member_type = 'member'
+          AND   mt.registration_style != 'staff'
           AND   m.session     = ?
         ORDER   BY m.surname, m.first_name
     ''', (date, session_type, session_type)).fetchall()
@@ -1791,7 +1796,7 @@ def api_members():
 
     # Leaders cannot see staff/volunteer records — youth members only.
     if session.get('role') == 'leader':
-        conditions.append("m.member_type = 'member'")
+        conditions.append("m.member_type IN (SELECT slug FROM member_types WHERE registration_style != 'staff')")
 
     # flagged filter — join to member_flags; optionally restrict to a specific rule
     flag_join = ''
@@ -3328,12 +3333,13 @@ def api_attendance_get(session_type, date):
                 a.signed_in_at,
                 a.signed_out_at
         FROM    members m
+        JOIN    member_types mt ON mt.slug = m.member_type
         LEFT JOIN attendance a
                ON  a.member_id   = m.id
                AND a.session_date = ?
                AND a.session_type = ?
         WHERE   m.status      != "Leaver"
-          AND   m.member_type  = "member"
+          AND   mt.registration_style != "staff"
           AND   m.session      = ?
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()
@@ -3832,11 +3838,12 @@ def api_display(session_type):
                 a.signed_in_at
         FROM    attendance a
         JOIN    members m ON m.id = a.member_id
+        JOIN    member_types mt ON mt.slug = m.member_type
         WHERE   a.session_date  = ?
           AND   a.session_type  = ?
           AND   a.signed_in_at  IS NOT NULL
           AND   a.signed_out_at IS NULL
-          AND   m.member_type   = "member"
+          AND   mt.registration_style != "staff"
         ORDER   BY a.signed_in_at ASC
     ''', (today, session_type)).fetchall()
 
@@ -3845,11 +3852,12 @@ def api_display(session_type):
         SELECT  m.first_name, m.surname, m.staff_role
         FROM    attendance a
         JOIN    members m ON m.id = a.member_id
+        JOIN    member_types mt ON mt.slug = m.member_type
         WHERE   a.session_date  = ?
           AND   a.session_type  = ?
           AND   a.signed_in_at  IS NOT NULL
           AND   a.signed_out_at IS NULL
-          AND   m.member_type   = "staff"
+          AND   mt.registration_style = "staff"
         ORDER   BY a.signed_in_at ASC
     ''', (today, session_type)).fetchall()
 
@@ -5088,8 +5096,13 @@ def api_import_run():
                     # Bool conversion for flag columns
                     if field_key in ('unattended_exit', 'gdpr_consent'):
                         core[field_key] = _bool_val(val)
+                    elif field_key == 'status':
+                        # Normalise status to canonical casing; strip whitespace/CR
+                        _s = str(val).strip()
+                        _STATUS_MAP = {'active': 'Active', 'inactive': 'Inactive', 'leaver': 'Leaver'}
+                        core[field_key] = _STATUS_MAP.get(_s.lower(), _s)
                     else:
-                        core[field_key] = val
+                        core[field_key] = str(val).strip()
                 elif field_key in custom_fields:
                     custom_vals[field_key] = val
 
@@ -6163,7 +6176,8 @@ def _run_alert_rule(db, rule, today_str):
     scoped_sess = rule['applies_to_session']   # None → all sessions
 
     # ── Fetch eligible members ────────────────────────────────────────────────
-    member_cond = "m.status = 'Active' AND m.member_type = 'member'"
+    member_cond = ("m.status = 'Active' AND m.member_type IN "
+                   "(SELECT slug FROM member_types WHERE registration_style != 'staff')")
     params_base = []
     if scoped_sess:
         member_cond += ' AND m.session = ?'
