@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.15'  # v8.15: replace all hardcoded member_type='member' slugs with registration_style join; strip+normalise status on import
+APP_VERSION = 'v8.16'  # v8.16: normalise dirty status values in ensure_tables(); fix all hardcoded member_type slug references
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -664,6 +664,19 @@ def ensure_tables():
         ''')
     except Exception:
         pass  # Index already exists — safe to ignore
+
+    # ── v8.15: normalise member status values (strip whitespace, fix casing) ────
+    # Imported rows may have "Active ", "active", etc. which breaks exact-match
+    # queries like status = 'Active'. Safe to run every startup — only touches
+    # rows whose status doesn't already match a canonical value.
+    for dirty, clean in [('active', 'Active'), ('inactive', 'Inactive'), ('leaver', 'Leaver')]:
+        try:
+            db.execute(
+                "UPDATE members SET status = ? WHERE LOWER(TRIM(status)) = ? AND status != ?",
+                (clean, dirty, clean)
+            )
+        except Exception:
+            pass
 
     db.commit()
     db.close()
