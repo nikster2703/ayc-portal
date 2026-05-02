@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.18'  # v8.18: fix empty/null status stored from whitespace CSV cells; normalise on startup
+APP_VERSION = 'v8.19'  # v8.19: fix SQLite double-quote "active" resolving to mt.active column instead of string literal
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -2238,20 +2238,22 @@ def api_dashboard():
 
     if scoped is None:
         # Admin — global counts
+        # NOTE: use single-quoted string literals throughout — double-quoted "active"
+        # would be resolved as the mt.active column (INTEGER) by SQLite, not the string.
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN mt.registration_style != "staff"                                          THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "active"    THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "leaver"    THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver"   THEN 1 ELSE 0 END) AS staff_active
+                SUM(CASE WHEN mt.registration_style != 'staff'                                          THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'active'    THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'leaver'    THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver'   THEN 1 ELSE 0 END) AS staff_active
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
         ''').fetchone()
         # Per-session counts (dynamic)
         session_rows = db.execute('''
             SELECT m.session,
-                   SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS staff
+                   SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS staff
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
             GROUP BY m.session
@@ -2273,10 +2275,10 @@ def api_dashboard():
         # Scoped user — counts restricted to their session only
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN mt.registration_style != "staff"                                          THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "active"    THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) = "leaver"    THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver"   THEN 1 ELSE 0 END) AS staff_active
+                SUM(CASE WHEN mt.registration_style != 'staff'                                          THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'active'    THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'leaver'    THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver'   THEN 1 ELSE 0 END) AS staff_active
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
             WHERE m.session = ?
@@ -2284,8 +2286,8 @@ def api_dashboard():
         # Per-session counts (scoped — only the user's session)
         session_rows = db.execute('''
             SELECT m.session,
-                   SUM(CASE WHEN mt.registration_style != "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN mt.registration_style  = "staff" AND LOWER(TRIM(m.status)) != "leaver" THEN 1 ELSE 0 END) AS staff
+                   SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS staff
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
             WHERE m.session = ?
