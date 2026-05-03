@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.19'  # v8.19: fix SQLite double-quote "active" resolving to mt.active column instead of string literal
+APP_VERSION = 'v8.20'  # v8.20: fix alert rules delete button broken by double-quoted onclick attribute conflicting with JSON.stringify
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.

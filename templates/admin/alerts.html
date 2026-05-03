@@ -337,7 +337,7 @@
     const actions = CAN_MANAGE ? `
       <button class="btn btn-ghost btn-sm" onclick='openRuleModal(${JSON.stringify(r)})'>Edit</button>
       <button class="btn btn-ghost btn-sm" style="color:#dc2626" onclick="openDismissModal(${r.id})">${r.is_active ? 'Deactivate' : 'Re-activate'}</button>
-      <button class="btn btn-ghost btn-sm" style="color:#6b7280" title="Permanently delete this rule and all its flag history" onclick="openDeleteModal(${r.id}, ${JSON.stringify(r.name)}, ${r.active_flag_count || 0})">🗑</button>
+      <button class="btn btn-ghost btn-sm" style="color:#6b7280" title="Permanently delete this rule and all its flag history" onclick='openDeleteModal(${r.id}, ${JSON.stringify(r.name)}, ${r.active_flag_count || 0})'>🗑</button>
     ` : '';
 
     return `<div class="rule-card ${r.is_active ? '' : 'inactive'}">
