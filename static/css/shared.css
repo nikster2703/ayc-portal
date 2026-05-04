@@ -546,9 +546,25 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   .page-content  { padding: 18px 14px; }
 
   /* Nav becomes horizontally scrollable so every item stays reachable */
+  .nav-scroll-wrap {
+    position: relative;
+    overflow: hidden;               /* clips the fade pseudo-element */
+  }
+  /* Right-edge fade to hint that the nav is scrollable */
+  .nav-scroll-wrap::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 32px;
+    background: linear-gradient(to right, transparent, white);
+    pointer-events: none;
+    z-index: 1;
+  }
   .app-nav {
     padding: 0 8px;
     overflow-x: auto;
+    overflow-y: hidden;             /* prevent vertical drift on touch swipe */
+    touch-action: pan-x;            /* tell the browser this is a horizontal scroll */
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;          /* Firefox */
     flex-wrap: nowrap;
