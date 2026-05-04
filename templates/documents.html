@@ -244,7 +244,7 @@
     wrap.innerHTML = tabs.map(c => `
       <button class="tab-btn ${(c.id||c.name) === currentCat || (currentCat==='all' && c.id==='all') ? 'active' : ''}"
               data-cat="${c.id ?? c.name}"
-              onclick="switchCat(${JSON.stringify(String(c.id ?? c.name))})">
+              onclick='switchCat(${JSON.stringify(String(c.id ?? c.name))})'>
         ${c.icon ? c.icon + ' ' : ''}${esc(c.name)}
       </button>`).join('');
   }
@@ -573,7 +573,7 @@
              placeholder="${esc(f.placeholder||'')}">`;
     if (f.field_type === 'member_ref') {
       const memberOpts = allMembers.map(m =>
-        `<option value="${m.id}" ${String(val)===String(m.id)?'selected':''}>${esc(m.first_name+' '+m.last_name)}</option>`
+        `<option value="${m.id}" ${String(val)===String(m.id)?'selected':''}>${esc(m.first_name+' '+m.surname)}</option>`
       ).join('');
       return `<select id="${id}" class="form-input">
         <option value="">— Select member —</option>${memberOpts}</select>`;

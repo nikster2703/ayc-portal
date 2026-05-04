@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v9.2'   # v9.2: Document Repository Phase B — per-category metadata fields, FTS5 full-text search, advanced filter panel, admin field definitions UI
+APP_VERSION = 'v9.3'   # v9.3: Bug fixes — category tab onclick quote escaping, last_name→surname, date/number range filters, member datalist, redundant commits
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
