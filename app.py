@@ -4475,12 +4475,13 @@ def api_documents_upload():
 
     cur = db.execute(
         '''INSERT INTO documents
-           (title, filename, stored_filename, bucket, mime_type, file_size,
+           (title, filename, file_path, stored_filename, bucket, mime_type, file_size,
             category_id, description, retain_until, retention_notes, uploaded_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
-        (title, safe_name, stored_filename, bucket, mime, file_size,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (title, safe_name, '', stored_filename, bucket, mime, file_size,
          category_id, description or None, retain_until, retention_notes, session['user_id'])
     )
+    # file_path is kept as '' for v9.0+ rows — resolve_doc_path() uses stored_filename + bucket instead
     doc_id = cur.lastrowid
 
     # Insert role access restrictions (if any were specified)
