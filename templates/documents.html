@@ -303,7 +303,7 @@
                  onclick='openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
           ${CAN_DELETE
             ? `<button class="btn btn-danger btn-sm"
-                 onclick="deleteDoc(${d.id}, ${JSON.stringify(d.title)})">🗑</button>` : ''}
+                 onclick='deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
         </div>
       </div>`;
   }
