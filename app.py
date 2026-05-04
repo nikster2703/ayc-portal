@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.22'  # v8.22: fix postcode use_lookup flag missing from public field-config API — lookup button always showed on registration forms
+APP_VERSION = 'v9.0'   # v9.0: Document Repository overhaul — UUID filename obfuscation, bucket sharding provision, configurable categories, role-based access control, retention policy (GDPR)
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -612,6 +612,25 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_qst_token   ON quick_signin_tokens(token);
         CREATE INDEX IF NOT EXISTS idx_qst_session ON quick_signin_tokens(session_type, session_date);
+        -- v9.0: Document repository — configurable categories, secure storage, role-based access
+        CREATE TABLE IF NOT EXISTS document_categories (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            description TEXT,
+            icon        TEXT    DEFAULT '📄',
+            color       TEXT    DEFAULT '#64748b',
+            sort_order  INTEGER DEFAULT 0,
+            active      INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS document_role_access (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            role_id     INTEGER NOT NULL REFERENCES roles(id)     ON DELETE CASCADE,
+            UNIQUE(document_id, role_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_doc_role_access_doc  ON document_role_access(document_id);
+        CREATE INDEX IF NOT EXISTS idx_doc_role_access_role ON document_role_access(role_id);
     ''')
 
     # ── ALTER TABLE migrations (idempotent — each wrapped individually) ───────
@@ -640,6 +659,14 @@ def ensure_tables():
         "ALTER TABLE attendance ADD COLUMN source TEXT NOT NULL DEFAULT 'web'",
         # v8.13: optional address-lookup toggle per postcode field
         "ALTER TABLE field_definitions ADD COLUMN use_lookup INTEGER NOT NULL DEFAULT 1",
+        # v9.0: document repository — secure storage + retention policy
+        "ALTER TABLE documents ADD COLUMN stored_filename TEXT",
+        "ALTER TABLE documents ADD COLUMN bucket TEXT NOT NULL DEFAULT 'store'",
+        "ALTER TABLE documents ADD COLUMN category_id INTEGER REFERENCES document_categories(id)",
+        "ALTER TABLE documents ADD COLUMN description TEXT",
+        "ALTER TABLE documents ADD COLUMN retain_until TEXT",
+        "ALTER TABLE documents ADD COLUMN retention_notes TEXT",
+        "ALTER TABLE documents ADD COLUMN file_size INTEGER",
     ]
     for stmt in alter_stmts:
         try:
@@ -717,6 +744,27 @@ def ensure_tables():
             )
     tdb.commit()
     tdb.close()
+
+    # ── Seed default document categories (v9.0) ────────────────────────────────
+    catdb = _connect_db()
+    catdb.row_factory = sqlite3.Row
+    _default_categories = [
+        ('Policy',        'Organisational policies and procedures',  '📜', '#3b82f6', 0),
+        ('Form',          'Fillable forms and templates',            '📋', '#10b981', 1),
+        ('Template',      'Document templates for staff use',        '✉️', '#8b5cf6', 2),
+        ('Register',      'Session registers and attendance sheets', '📝', '#f59e0b', 3),
+        ('Safeguarding',  'Safeguarding records and incident notes', '🔒', '#ef4444', 4),
+        ('Finance',       'Financial records, invoices and budgets', '💰', '#06b6d4', 5),
+        ('General',       'General documents and miscellaneous',     '📄', '#64748b', 6),
+    ]
+    for name, desc, icon, color, sort_order in _default_categories:
+        if not catdb.execute('SELECT id FROM document_categories WHERE name = ?', (name,)).fetchone():
+            catdb.execute(
+                'INSERT INTO document_categories (name, description, icon, color, sort_order) VALUES (?,?,?,?,?)',
+                (name, desc, icon, color, sort_order),
+            )
+    catdb.commit()
+    catdb.close()
 
     # ── Seed permissions catalogue (v6.0) ──────────────────────────────────────
     pdb = _connect_db()
@@ -1552,6 +1600,11 @@ def staff_roles_page():
 def tags_page():
     return render_template('admin/tags.html', active_page='tags', **tpl_ctx())
 
+@app.route('/admin/document-categories')
+@permission_required('admin.settings')
+def document_categories_page():
+    return render_template('admin/document_categories.html', active_page='settings', **tpl_ctx())
+
 @app.route('/admin/member-types')
 @permission_required('admin.settings')
 def member_types_page():
@@ -1686,11 +1739,13 @@ def api_login():
         perms        = []
         role_name    = user['role']
         role_display = ROLE_DISPLAY_NAMES.get(role_name, role_name)
+        resolved_role_id = user['role_id']
         if user['role_id']:
             role_row = db.execute(
-                'SELECT name, permissions, display_name FROM roles WHERE id = ?', (user['role_id'],)
+                'SELECT id, name, permissions, display_name FROM roles WHERE id = ?', (user['role_id'],)
             ).fetchone()
             if role_row:
+                resolved_role_id = role_row['id']
                 role_name    = role_row['name']
                 role_display = role_row['display_name'] or ROLE_DISPLAY_NAMES.get(role_name, role_name)
                 try:
@@ -1700,9 +1755,10 @@ def api_login():
         else:
             # Fallback: look up by role name (covers users not yet migrated)
             role_row = db.execute(
-                'SELECT name, permissions, display_name FROM roles WHERE name = ?', (user['role'],)
+                'SELECT id, name, permissions, display_name FROM roles WHERE name = ?', (user['role'],)
             ).fetchone()
             if role_row:
+                resolved_role_id = role_row['id']
                 role_display = role_row['display_name'] or ROLE_DISPLAY_NAMES.get(role_name, role_name)
                 try:
                     perms = json.loads(role_row['permissions'])
@@ -1713,6 +1769,7 @@ def api_login():
         session['username']           = user['username']
         session['role']               = role_name          # slug — kept for _assigned_session() + templates
         session['role_display']       = role_display       # v7.1: human-readable label
+        session['role_id']            = resolved_role_id   # v9.0: used for document_role_access checks
         session['permissions']        = perms              # v6.0: full permission list
         session['session_assigned']   = user['session_assigned'] or ''
 
@@ -4225,35 +4282,148 @@ def api_calendar_upcoming():
 
 # ── BLUEPRINT: documents ──────────────────────────────────────────────────────
 
-CATEGORY_LABELS = ('policy', 'template', 'form', 'general', 'registers')
-# Numeric rank used to gate document access.
-# readonly=0, leader=1, editor=2, admin=3
-# When uploading a doc, set access_role to the minimum rank required.
-ROLE_RANK = {'readonly': 0, 'leader': 1, 'editor': 2, 'admin': 3}
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def user_can_access_doc(doc):
-    """Return True if the current session role meets the document's access_role."""
-    user_rank = ROLE_RANK.get(session.get('role', 'readonly'), 0)
-    req_rank  = ROLE_RANK.get(doc['access_role'] or 'readonly', 0)
-    return user_rank >= req_rank
 
+def resolve_doc_path(doc):
+    """Return the absolute filesystem path for a document's encrypted file.
+
+    Uses bucket + stored_filename (v9.0+).  If stored_filename is absent on a
+    legacy row it falls back to file_path so old data still works.
+    """
+    if doc['stored_filename']:
+        bucket_dir = os.path.join(UPLOAD_DIR, doc['bucket'] or 'store')
+        return os.path.join(bucket_dir, doc['stored_filename'])
+    # Legacy fallback — rows that pre-date the v9.0 migration
+    return os.path.join(UPLOAD_DIR, doc['file_path'])
+
+
+def user_can_access_doc(doc):
+    """Return True if the current user may access this document.
+
+    Access model (v9.0):
+    - No rows in document_role_access for this doc → visible to all
+      authenticated users who hold the documents.view permission.
+    - One or more rows → user's role_id must appear in that set.
+    - Admin role always has access regardless.
+    """
+    if session.get('role') == 'admin':
+        return True
+    db = get_db()
+    rows = db.execute(
+        'SELECT role_id FROM document_role_access WHERE document_id = ?', (doc['id'],)
+    ).fetchall()
+    if not rows:
+        return True  # Unrestricted — any authenticated user
+    allowed = {r['role_id'] for r in rows}
+    return session.get('role_id') in allowed
+
+
+def _user_can_access_from_group_concat(allowed_role_ids_str):
+    """Fast check used by the list endpoint (avoids N+1 queries).
+
+    allowed_role_ids_str is the result of GROUP_CONCAT(dra.role_id) — either
+    None (no restrictions) or a comma-separated string of integer role IDs.
+    """
+    if session.get('role') == 'admin':
+        return True
+    if not allowed_role_ids_str:
+        return True
+    allowed = {int(x) for x in allowed_role_ids_str.split(',')}
+    return session.get('role_id') in allowed
+
+
+# ── Document categories API ───────────────────────────────────────────────────
+
+@app.route('/api/documents/categories')
+@login_required
+def api_document_categories_list():
+    db   = get_db()
+    rows = db.execute(
+        'SELECT * FROM document_categories WHERE active = 1 ORDER BY sort_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/documents/categories', methods=['POST'])
+@permission_required('admin.settings')
+def api_document_categories_create():
+    data = request.get_json(force=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    db = get_db()
+    if db.execute('SELECT id FROM document_categories WHERE name = ?', (name,)).fetchone():
+        return jsonify({'error': 'A category with that name already exists'}), 409
+    max_order = db.execute('SELECT COALESCE(MAX(sort_order),0) FROM document_categories').fetchone()[0]
+    cur = db.execute(
+        'INSERT INTO document_categories (name, description, icon, color, sort_order) VALUES (?,?,?,?,?)',
+        (name, data.get('description', ''), data.get('icon', '📄'),
+         data.get('color', '#64748b'), max_order + 1)
+    )
+    db.commit()
+    log_action('create_document_category', 'document_categories', cur.lastrowid, {'name': name})
+    return jsonify({'success': True, 'id': cur.lastrowid})
+
+
+@app.route('/api/documents/categories/<int:cat_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_document_categories_update(cat_id):
+    db  = get_db()
+    cat = db.execute('SELECT * FROM document_categories WHERE id = ?', (cat_id,)).fetchone()
+    if not cat:
+        return jsonify({'error': 'Not found'}), 404
+    data = request.get_json(force=True) or {}
+    fields, vals = [], []
+    for col in ('name', 'description', 'icon', 'color', 'sort_order', 'active'):
+        if col in data:
+            fields.append(f'{col} = ?')
+            vals.append(data[col])
+    if not fields:
+        return jsonify({'error': 'Nothing to update'}), 400
+    vals.append(cat_id)
+    db.execute(f'UPDATE document_categories SET {", ".join(fields)} WHERE id = ?', vals)
+    db.commit()
+    log_action('update_document_category', 'document_categories', cat_id, data)
+    return jsonify({'success': True})
+
+
+@app.route('/api/documents/categories/<int:cat_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_document_categories_delete(cat_id):
+    db = get_db()
+    if not db.execute('SELECT id FROM document_categories WHERE id = ?', (cat_id,)).fetchone():
+        return jsonify({'error': 'Not found'}), 404
+    # Soft-deactivate so existing documents retain their category reference
+    db.execute('UPDATE document_categories SET active = 0 WHERE id = ?', (cat_id,))
+    db.commit()
+    log_action('deactivate_document_category', 'document_categories', cat_id, {})
+    return jsonify({'success': True})
+
+
+# ── Document list / upload / manage ──────────────────────────────────────────
 
 @app.route('/api/documents')
 @permission_required('documents.view')
 def api_documents_list():
     db   = get_db()
     rows = db.execute('''
-        SELECT d.*, u.username AS uploaded_by_name
+        SELECT d.*,
+               dc.name  AS category_name,
+               dc.icon  AS category_icon,
+               dc.color AS category_color,
+               u.username AS uploaded_by_name,
+               GROUP_CONCAT(dra.role_id) AS allowed_role_ids
         FROM   documents d
-        LEFT JOIN users u ON u.id = d.uploaded_by
+        LEFT JOIN document_categories dc  ON dc.id  = d.category_id
+        LEFT JOIN users u                 ON u.id   = d.uploaded_by
+        LEFT JOIN document_role_access dra ON dra.document_id = d.id
         WHERE  d.active = 1
-        ORDER  BY d.category, d.title
+        GROUP  BY d.id
+        ORDER  BY COALESCE(dc.sort_order, 999), d.title
     ''').fetchall()
-    # Filter by access_role
-    docs = [dict(r) for r in rows if user_can_access_doc(r)]
+    docs = [dict(r) for r in rows if _user_can_access_from_group_concat(r['allowed_role_ids'])]
     return jsonify(docs)
 
 
@@ -4268,30 +4438,118 @@ def api_documents_upload():
     if not allowed_file(f.filename):
         return jsonify({'error': 'File type not allowed'}), 400
 
-    title       = request.form.get('title', '').strip() or f.filename
-    category    = request.form.get('category', 'general')
-    access_role = request.form.get('access_role', 'readonly')
+    title       = request.form.get('title', '').strip() or secure_filename(f.filename)
+    description = request.form.get('description', '').strip()
+    category_id = request.form.get('category_id') or None
+    retain_until   = request.form.get('retain_until', '').strip() or None
+    retention_notes = request.form.get('retention_notes', '').strip() or None
 
-    if category    not in CATEGORY_LABELS:  category    = 'general'
-    if access_role not in ROLE_RANK:        access_role = 'readonly'
+    # Role restriction — JSON array of role IDs; empty = no restriction (public)
+    try:
+        role_ids = json.loads(request.form.get('role_ids', '[]'))
+        role_ids = [int(r) for r in role_ids if str(r).strip().isdigit()]
+    except (ValueError, TypeError):
+        role_ids = []
 
-    safe_name = secure_filename(f.filename)
-    # Prefix with timestamp to avoid collisions
-    stored_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-    encrypted_data = encrypt_file(f.read())
-    with open(os.path.join(UPLOAD_DIR, stored_name), 'wb') as fh:
+    # Validate category_id exists
+    db = get_db()
+    if category_id:
+        if not db.execute('SELECT id FROM document_categories WHERE id = ? AND active = 1',
+                          (category_id,)).fetchone():
+            category_id = None
+
+    # Generate UUID stored filename — no original name or extension on disk
+    stored_filename = _uuid_mod.uuid4().hex
+    bucket          = 'store'
+    bucket_dir      = os.path.join(UPLOAD_DIR, bucket)
+    os.makedirs(bucket_dir, exist_ok=True)
+
+    raw_bytes      = f.read()
+    file_size      = len(raw_bytes)
+    encrypted_data = encrypt_file(raw_bytes)
+    with open(os.path.join(bucket_dir, stored_filename), 'wb') as fh:
         fh.write(encrypted_data)
 
-    mime = f.mimetype or 'application/octet-stream'
-    db   = get_db()
-    cur  = db.execute(
-        'INSERT INTO documents (title, filename, file_path, mime_type, category, access_role, uploaded_by)'
-        ' VALUES (?,?,?,?,?,?,?)',
-        (title, safe_name, stored_name, mime, category, access_role, session['user_id'])
+    mime     = f.mimetype or 'application/octet-stream'
+    safe_name = secure_filename(f.filename)   # stored in DB for display/download only
+
+    cur = db.execute(
+        '''INSERT INTO documents
+           (title, filename, stored_filename, bucket, mime_type, file_size,
+            category_id, description, retain_until, retention_notes, uploaded_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+        (title, safe_name, stored_filename, bucket, mime, file_size,
+         category_id, description or None, retain_until, retention_notes, session['user_id'])
     )
+    doc_id = cur.lastrowid
+
+    # Insert role access restrictions (if any were specified)
+    for rid in role_ids:
+        try:
+            db.execute('INSERT OR IGNORE INTO document_role_access (document_id, role_id) VALUES (?,?)',
+                       (doc_id, rid))
+        except Exception:
+            pass
+
     db.commit()
-    log_action('upload_document', 'documents', cur.lastrowid, {'title': title, 'category': category})
+    log_action('upload_document', 'documents', doc_id,
+               {'title': title, 'category_id': category_id, 'restricted_to_roles': role_ids})
+    return jsonify({'success': True, 'id': doc_id})
+
+
+@app.route('/api/documents/<int:doc_id>', methods=['PUT'])
+@permission_required('documents.upload')
+def api_documents_update(doc_id):
+    """Edit document metadata (title, description, category, retention, role access)."""
+    db  = get_db()
+    doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
+    if not doc:
+        return jsonify({'error': 'Not found'}), 404
+    if not user_can_access_doc(doc):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data    = request.get_json(force=True) or {}
+    fields, vals = [], []
+    for col in ('title', 'description', 'category_id', 'retain_until', 'retention_notes'):
+        if col in data:
+            fields.append(f'{col} = ?')
+            vals.append(data[col] or None)
+    if fields:
+        vals.append(doc_id)
+        db.execute(f'UPDATE documents SET {", ".join(fields)} WHERE id = ?', vals)
+
+    # Update role access if provided
+    if 'role_ids' in data:
+        try:
+            role_ids = [int(r) for r in data['role_ids'] if str(r).strip().isdigit()]
+        except (ValueError, TypeError):
+            role_ids = []
+        db.execute('DELETE FROM document_role_access WHERE document_id = ?', (doc_id,))
+        for rid in role_ids:
+            db.execute('INSERT OR IGNORE INTO document_role_access (document_id, role_id) VALUES (?,?)',
+                       (doc_id, rid))
+        log_action('update_document_access', 'documents', doc_id,
+                   {'restricted_to_roles': role_ids})
+
+    db.commit()
+    log_action('update_document', 'documents', doc_id, {k: data[k] for k in data if k != 'role_ids'})
     return jsonify({'success': True})
+
+
+@app.route('/api/documents/<int:doc_id>/access')
+@permission_required('documents.upload')
+def api_documents_get_access(doc_id):
+    """Return the role IDs that may access this document (empty = unrestricted)."""
+    db  = get_db()
+    if not db.execute('SELECT id FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone():
+        return jsonify({'error': 'Not found'}), 404
+    rows = db.execute(
+        '''SELECT dra.role_id, r.name, r.display_name
+           FROM document_role_access dra
+           JOIN roles r ON r.id = dra.role_id
+           WHERE dra.document_id = ?''', (doc_id,)
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route('/api/documents/<int:doc_id>/download')
@@ -4304,7 +4562,7 @@ def api_documents_download(doc_id):
     if not user_can_access_doc(doc):
         return jsonify({'error': 'Forbidden'}), 403
     log_action('download_document', 'documents', doc_id, {'title': doc['title']})
-    with open(os.path.join(UPLOAD_DIR, doc['file_path']), 'rb') as fh:
+    with open(resolve_doc_path(doc), 'rb') as fh:
         decrypted = decrypt_file(fh.read())
     return app.response_class(
         decrypted,
@@ -4324,7 +4582,7 @@ def api_documents_view(doc_id):
     if not user_can_access_doc(doc):
         return jsonify({'error': 'Forbidden'}), 403
     log_action('view_document', 'documents', doc_id, {'title': doc['title']})
-    with open(os.path.join(UPLOAD_DIR, doc['file_path']), 'rb') as fh:
+    with open(resolve_doc_path(doc), 'rb') as fh:
         decrypted = decrypt_file(fh.read())
     return app.response_class(
         decrypted,
@@ -4340,15 +4598,17 @@ def api_documents_delete(doc_id):
     doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
     if not doc:
         return jsonify({'error': 'Not found'}), 404
-    db.execute('UPDATE documents SET active = 0 WHERE id = ?', (doc_id,))
-    db.commit()
-    # Remove the encrypted file from disk — no point keeping it once deleted from the repo
-    file_path = os.path.join(UPLOAD_DIR, doc['file_path'])
+    # Hard-delete from disk immediately (GDPR right to erasure)
     try:
+        file_path = resolve_doc_path(doc)
         if os.path.exists(file_path):
             os.remove(file_path)
     except OSError:
-        pass  # File already gone — not a reason to fail the request
+        pass  # File already gone — don't fail the request
+    # Soft-delete the DB row so audit log retains the record of what existed
+    db.execute('UPDATE documents SET active = 0 WHERE id = ?', (doc_id,))
+    db.execute('DELETE FROM document_role_access WHERE document_id = ?', (doc_id,))
+    db.commit()
     log_action('delete_document', 'documents', doc_id, {'title': doc['title']})
     return jsonify({'success': True})
 
@@ -4503,7 +4763,7 @@ def api_mailshots_send():
                 return jsonify({'error': f'Document ID {doc_id} not found in repository'}), 400
             if not user_can_access_doc(doc):
                 return jsonify({'error': f'Access denied to document: {doc["title"]}'}), 403
-            file_path = os.path.join(UPLOAD_DIR, doc['file_path'])
+            file_path = resolve_doc_path(doc)
             if not os.path.exists(file_path):
                 return jsonify({'error': f'File not found on server for: {doc["title"]}'}), 500
             with open(file_path, 'rb') as f:

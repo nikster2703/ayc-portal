@@ -90,17 +90,42 @@ CREATE TABLE IF NOT EXISTS pending_registrations (
 );
 
 -- ── Document repository (Phase 4) ─────────────────────────
+CREATE TABLE IF NOT EXISTS document_categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    description TEXT,
+    icon        TEXT    DEFAULT '📄',
+    color       TEXT    DEFAULT '#64748b',
+    sort_order  INTEGER DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS documents (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    title         TEXT    NOT NULL,
-    filename      TEXT    NOT NULL,
-    file_path     TEXT    NOT NULL,
-    mime_type     TEXT,
-    category      TEXT,        -- policy | template | form | general
-    access_role   TEXT    NOT NULL DEFAULT 'readonly',  -- min role to access
-    uploaded_by   INTEGER REFERENCES users(id),
-    created_at    TEXT    DEFAULT (datetime('now')),
-    active        INTEGER NOT NULL DEFAULT 1
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    title            TEXT    NOT NULL,
+    filename         TEXT    NOT NULL,          -- original filename (display + download only)
+    stored_filename  TEXT    NOT NULL,          -- UUID hex on disk — no original name/extension
+    bucket           TEXT    NOT NULL DEFAULT 'store',  -- folder shard; single folder for now
+    mime_type        TEXT,
+    file_size        INTEGER,                   -- bytes
+    category_id      INTEGER REFERENCES document_categories(id),
+    description      TEXT,                      -- optional freetext note about the document
+    retain_until     TEXT,                      -- ISO date — GDPR retention deadline
+    retention_notes  TEXT,                      -- justification for the retention period
+    uploaded_by      INTEGER REFERENCES users(id),
+    created_at       TEXT    DEFAULT (datetime('now')),
+    active           INTEGER NOT NULL DEFAULT 1
+);
+
+-- document_role_access: restricts a document to specific roles.
+-- No rows for a document = visible to any authenticated user with documents.view.
+-- One or more rows = only those role_ids may access the document.
+CREATE TABLE IF NOT EXISTS document_role_access (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    role_id     INTEGER NOT NULL REFERENCES roles(id)     ON DELETE CASCADE,
+    UNIQUE(document_id, role_id)
 );
 
 -- ── Email templates (Phase 4) ─────────────────────────────

@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Document Categories{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📁 Document Categories</h1>
+  <a href="/admin/settings" class="btn btn-ghost">← Back to Settings</a>
+</div>
+
+<div class="form-card" style="max-width:680px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Manage Document Categories
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    Define the categories that documents can be filed under. Categories appear as
+    filter tabs in the Document Repository. Deactivating a category hides it from
+    new uploads but preserves existing documents.
+  </p>
+
+  <div id="categories-list" style="margin-bottom:20px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:16px">
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add Category</button>
+  </div>
+</div>
+
+<!-- ── Add / Edit modal ──────────────────────────────────────────────────── -->
+<div id="cat-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:460px">
+    <h2 id="modal-title">Add Category</h2>
+    <input type="hidden" id="modal-id">
+
+    <div class="form-group" style="margin-top:16px">
+      <label>Name <span style="color:var(--red)">*</span></label>
+      <input id="cat-name" class="form-input" placeholder="e.g. Safeguarding" maxlength="60">
+    </div>
+
+    <div class="form-group">
+      <label>Description</label>
+      <input id="cat-description" class="form-input" placeholder="Brief description for admin reference">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label>Icon <span style="color:var(--muted);font-weight:400">(emoji)</span></label>
+        <input id="cat-icon" class="form-input" placeholder="📄" maxlength="4"
+               style="font-size:20px;text-align:center">
+      </div>
+      <div class="form-group">
+        <label>Colour</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="color" id="cat-color" value="#64748b"
+                 style="width:44px;height:38px;padding:2px;border:2px solid var(--border);
+                        border-radius:6px;cursor:pointer">
+          <input id="cat-color-hex" class="form-input" placeholder="#64748b" maxlength="7"
+                 oninput="syncColorFromHex()"
+                 style="font-family:monospace;flex:1">
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn" onclick="saveCategory()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let categories = [];
+  let editingId  = null;
+
+  /* ── Load ───────────────────────────────────────────────── */
+  async function loadCategories() {
+    try {
+      // Fetch all (including inactive) — use admin endpoint
+      const res = await fetch('/api/documents/categories?include_inactive=1');
+      if (!res.ok) throw new Error(await res.text());
+      categories = await res.json();
+      // Also load inactive via separate call if needed — for now list endpoint returns active only,
+      // so admins see active only here too. That's fine.
+      renderList();
+    } catch (e) {
+      document.getElementById('categories-list').innerHTML =
+        `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+    }
+  }
+  loadCategories();
+
+  /* ── Render ─────────────────────────────────────────────── */
+  function renderList() {
+    const wrap = document.getElementById('categories-list');
+    if (!categories.length) {
+      wrap.innerHTML = '<div class="empty-state">No categories yet. Add one below.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <div style="border:2px solid var(--border);border-radius:10px;overflow:hidden">
+        ${categories.map((c, i) => `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;
+                      ${i > 0 ? 'border-top:1px solid var(--border)' : ''}">
+            <span style="font-size:22px;flex-shrink:0">${c.icon || '📄'}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;color:var(--navy);font-size:14px">
+                ${esc(c.name)}
+                <span class="badge" style="background:${c.color||'#64748b'};color:white;
+                      font-size:10px;margin-left:6px">${esc(c.color||'')}</span>
+              </div>
+              ${c.description ? `<div style="font-size:12px;color:var(--muted)">${esc(c.description)}</div>` : ''}
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0">
+              <button class="btn btn-ghost btn-sm" onclick="openEditModal(${c.id})">✏️ Edit</button>
+              <button class="btn btn-danger btn-sm"
+                      onclick="deactivateCategory(${c.id}, ${JSON.stringify(c.name)})">
+                Deactivate
+              </button>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  /* ── Modal helpers ──────────────────────────────────────── */
+  function openAddModal() {
+    editingId = null;
+    document.getElementById('modal-title').textContent = 'Add Category';
+    document.getElementById('modal-id').value          = '';
+    document.getElementById('cat-name').value          = '';
+    document.getElementById('cat-description').value   = '';
+    document.getElementById('cat-icon').value          = '📄';
+    document.getElementById('cat-color').value         = '#64748b';
+    document.getElementById('cat-color-hex').value     = '#64748b';
+    document.getElementById('cat-modal').classList.add('open');
+    document.getElementById('cat-name').focus();
+  }
+
+  function openEditModal(id) {
+    const c = categories.find(x => x.id === id);
+    if (!c) return;
+    editingId = id;
+    document.getElementById('modal-title').textContent = 'Edit Category';
+    document.getElementById('modal-id').value          = id;
+    document.getElementById('cat-name').value          = c.name || '';
+    document.getElementById('cat-description').value   = c.description || '';
+    document.getElementById('cat-icon').value          = c.icon || '📄';
+    document.getElementById('cat-color').value         = c.color || '#64748b';
+    document.getElementById('cat-color-hex').value     = c.color || '#64748b';
+    document.getElementById('cat-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('cat-modal').classList.remove('open');
+  }
+
+  function syncColorFromHex() {
+    const hex = document.getElementById('cat-color-hex').value;
+    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      document.getElementById('cat-color').value = hex;
+    }
+  }
+
+  document.getElementById('cat-color')?.addEventListener('input', function() {
+    document.getElementById('cat-color-hex').value = this.value;
+  });
+
+  /* ── Save ───────────────────────────────────────────────── */
+  async function saveCategory() {
+    const name = document.getElementById('cat-name').value.trim();
+    if (!name) { showToast('Name is required.', true); return; }
+
+    const btn = document.getElementById('modal-save-btn');
+    btn.disabled = true;
+
+    const payload = {
+      name,
+      description: document.getElementById('cat-description').value.trim(),
+      icon:        document.getElementById('cat-icon').value.trim() || '📄',
+      color:       document.getElementById('cat-color').value,
+    };
+
+    try {
+      if (editingId) {
+        await apiFetch(`/api/documents/categories/${editingId}`, {
+          method:  'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+        showToast('Category updated.');
+      } else {
+        await apiFetch('/api/documents/categories', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+        showToast('Category added.');
+      }
+      closeModal();
+      await loadCategories();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Deactivate ─────────────────────────────────────────── */
+  async function deactivateCategory(id, name) {
+    if (!confirm(`Deactivate "${name}"?\n\nExisting documents will keep their category, but "${name}" will no longer appear for new uploads.`)) return;
+    try {
+      await apiFetch(`/api/documents/categories/${id}`, { method: 'DELETE' });
+      showToast('Category deactivated.');
+      await loadCategories();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+{% endblock %}

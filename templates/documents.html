@@ -10,26 +10,33 @@
 </div>
 
 {% if 'documents.upload' not in user_permissions %}
-<!-- Users without upload permission: public documents banner + flat grid (no category tabs) -->
 <div style="background:#f0f9ff;border:2px solid #bae6fd;border-radius:12px;
             padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
   <span style="font-size:22px;flex-shrink:0">📢</span>
   <div>
-    <div style="font-weight:800;font-size:14px;color:#0369a1">Public Documents</div>
+    <div style="font-weight:800;font-size:14px;color:#0369a1">Shared Documents</div>
     <div style="font-size:13px;color:#0284c7;margin-top:2px">
-      These documents have been shared with all staff. Contact an editor or admin if you need access to additional materials.
+      Documents shared with you are shown below. Contact an editor or admin if you need access to additional materials.
     </div>
   </div>
 </div>
+{% endif %}
 
-{% else %}
-<!-- Leaders and above: full category filter tabs -->
-<div style="display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap">
-  <button class="tab-btn active" data-cat="all"      onclick="switchCat('all')">All</button>
-  <button class="tab-btn"        data-cat="policy"   onclick="switchCat('policy')">📜 Policies</button>
-  <button class="tab-btn"        data-cat="form"     onclick="switchCat('form')">📋 Forms</button>
-  <button class="tab-btn"        data-cat="template" onclick="switchCat('template')">✉️ Templates</button>
-  <button class="tab-btn"        data-cat="general"  onclick="switchCat('general')">📄 General</button>
+<!-- ── Toolbar ──────────────────────────────────────────────── -->
+<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
+  <input type="text" id="search-input" placeholder="🔍 Search documents…"
+         oninput="renderDocs()"
+         style="flex:1;min-width:200px;max-width:320px;padding:8px 12px;
+                border:2px solid var(--border);border-radius:8px;font-size:14px">
+  <div id="cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+</div>
+
+<!-- ── Retention banner (editors/admins only) ──────────────── -->
+{% if 'documents.upload' in user_permissions %}
+<div id="retention-banner" style="display:none;background:#fff7ed;border:2px solid #fed7aa;
+     border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:#9a3412">
+  ⚠️ <strong id="retention-count"></strong> document(s) have passed their retention date and may need review or deletion.
+  <a href="#" onclick="switchCat('__expiring__');return false" style="color:#9a3412;text-decoration:underline;margin-left:6px">View them →</a>
 </div>
 {% endif %}
 
@@ -40,8 +47,9 @@
 <!-- ── Upload Modal ─────────────────────────────────────────── -->
 {% if 'documents.upload' in user_permissions %}
 <div class="modal-overlay" id="upload-modal">
-  <div class="modal" style="max-width:460px">
+  <div class="modal" style="max-width:520px">
     <h2>⬆️ Upload Document</h2>
+
     <div class="form-group" style="margin-top:16px">
       <label>File <span style="color:var(--red)">*</span></label>
       <input type="file" id="upload-file"
@@ -50,34 +58,97 @@
              style="border:2px dashed var(--border);border-radius:8px;padding:10px;
                     width:100%;cursor:pointer;background:var(--cream)">
     </div>
+
     <div class="form-group">
-      <label>Title</label>
-      <input type="text" id="upload-title" placeholder="e.g. Safeguarding Policy 2024">
+      <label>Title <span style="color:var(--red)">*</span></label>
+      <input type="text" id="upload-title" placeholder="e.g. Safeguarding Policy 2025">
     </div>
+
+    <div class="form-group">
+      <label>Description <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <input type="text" id="upload-description" placeholder="Brief note about this document">
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label>Category</label>
         <select id="upload-category">
-          <option value="general">General</option>
-          <option value="policy">Policy</option>
-          <option value="form">Form</option>
-          <option value="template">Template</option>
-          <option value="registers">Registers</option>
+          <option value="">— Select —</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Visible to</label>
-        <select id="upload-access">
-          <option value="readonly">All staff (Read Only+)</option>
-          <option value="leader">User+</option>
-          <option value="editor">Editor+</option>
-          <option value="admin">Admin only</option>
-        </select>
+        <label>Retain until <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <input type="date" id="upload-retain-until">
       </div>
     </div>
+
+    <div class="form-group">
+      <label>Retention notes <span style="color:var(--muted);font-weight:400">(GDPR justification)</span></label>
+      <input type="text" id="upload-retention-notes"
+             placeholder="e.g. Required for 6 years per financial records policy">
+    </div>
+
+    <div class="form-group">
+      <label>Restrict access to specific roles
+        <span style="color:var(--muted);font-weight:400"> — leave blank to share with everyone</span>
+      </label>
+      <div id="upload-roles-list"
+           style="border:2px solid var(--border);border-radius:8px;padding:10px;
+                  max-height:140px;overflow-y:auto;background:var(--cream)">
+        <div style="color:var(--muted);font-size:13px">Loading roles…</div>
+      </div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeUploadModal()">Cancel</button>
       <button class="btn btn-primary" id="upload-save-btn" onclick="uploadDocument()">Upload</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Modal ────────────────────────────────────────────── -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal" style="max-width:520px">
+    <h2>✏️ Edit Document</h2>
+    <input type="hidden" id="edit-doc-id">
+
+    <div class="form-group" style="margin-top:16px">
+      <label>Title <span style="color:var(--red)">*</span></label>
+      <input type="text" id="edit-title">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input type="text" id="edit-description">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="edit-category">
+          <option value="">— None —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Retain until</label>
+        <input type="date" id="edit-retain-until">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Retention notes</label>
+      <input type="text" id="edit-retention-notes">
+    </div>
+    <div class="form-group">
+      <label>Restrict access to specific roles
+        <span style="color:var(--muted);font-weight:400"> — leave blank to share with everyone</span>
+      </label>
+      <div id="edit-roles-list"
+           style="border:2px solid var(--border);border-radius:8px;padding:10px;
+                  max-height:140px;overflow-y:auto;background:var(--cream)">
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary" id="edit-save-btn" onclick="saveEdit()">Save changes</button>
     </div>
   </div>
 </div>
@@ -86,108 +157,212 @@
 
 {% block scripts %}
 <script>
-  const USER_PERMS  = new Set({{ user_permissions | tojson }});
-  const CAN_MANAGE  = USER_PERMS.has('documents.upload');
-  const IS_READONLY = !USER_PERMS.has('documents.upload');
-  let allDocs    = [];
-  let currentCat = 'all';
+  const USER_PERMS = new Set({{ user_permissions | tojson }});
+  const CAN_UPLOAD = USER_PERMS.has('documents.upload');
+  const CAN_DELETE = USER_PERMS.has('documents.delete');
 
-  const CAT_ICONS = { policy:'📜', form:'📋', template:'✉️', general:'📄' };
   const EXT_ICONS = {
     pdf:'🔴', docx:'🔵', doc:'🔵', xlsx:'🟢', xls:'🟢',
     jpg:'🟡', jpeg:'🟡', png:'🟡',
   };
 
-  /* ── Load ───────────────────────────────────────── */
-  async function loadDocs() {
+  let allDocs       = [];
+  let allCategories = [];
+  let allRoles      = [];
+  let currentCat    = 'all';
+
+  /* ── Bootstrap ──────────────────────────────────────────── */
+  async function init() {
     try {
-      allDocs = await apiFetch('/api/documents');
+      [allDocs, allCategories] = await Promise.all([
+        apiFetch('/api/documents'),
+        apiFetch('/api/documents/categories'),
+      ]);
+      if (CAN_UPLOAD) {
+        allRoles = await apiFetch('/api/admin/roles').catch(() => []);
+      }
+      buildCatTabs();
+      populateCategoryDropdowns();
       renderDocs();
+      checkRetentionBanner();
     } catch (e) {
       document.getElementById('docs-container').innerHTML =
         `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
     }
   }
-  loadDocs();
+  init();
+
+  /* ── Category tabs ──────────────────────────────────────── */
+  function buildCatTabs() {
+    const wrap = document.getElementById('cat-tabs');
+    const tabs = [{ id: 'all', name: 'All', icon: '' }, ...allCategories];
+    if (CAN_UPLOAD) tabs.push({ id: '__expiring__', name: 'Expiring', icon: '⚠️' });
+    wrap.innerHTML = tabs.map(c => `
+      <button class="tab-btn ${c.id === 'all' ? 'active' : ''}"
+              data-cat="${c.id ?? c.name}"
+              onclick="switchCat(${JSON.stringify(c.id ?? c.name)})">
+        ${c.icon ? c.icon + ' ' : ''}${esc(c.name)}
+      </button>`).join('');
+  }
 
   function switchCat(cat) {
     currentCat = cat;
     document.querySelectorAll('.tab-btn[data-cat]').forEach(b =>
-      b.classList.toggle('active', b.dataset.cat === cat));
+      b.classList.toggle('active', b.dataset.cat === String(cat)));
     renderDocs();
   }
 
-  /* ── Render ─────────────────────────────────────── */
+  /* ── Render ─────────────────────────────────────────────── */
   function renderDocs() {
-    const filtered = currentCat === 'all'
-      ? allDocs
-      : allDocs.filter(d => d.category === currentCat);
+    const q     = (document.getElementById('search-input')?.value || '').toLowerCase();
+    const today = new Date().toISOString().slice(0,10);
+
+    let filtered = allDocs.filter(d => {
+      if (currentCat === 'all')          return true;
+      if (currentCat === '__expiring__') return d.retain_until && d.retain_until <= today;
+      return d.category_id === currentCat || d.category_name === currentCat;
+    });
+
+    if (q) {
+      filtered = filtered.filter(d =>
+        (d.title         || '').toLowerCase().includes(q) ||
+        (d.description   || '').toLowerCase().includes(q) ||
+        (d.category_name || '').toLowerCase().includes(q)
+      );
+    }
 
     const container = document.getElementById('docs-container');
     if (!filtered.length) {
-      container.innerHTML = `<div class="empty-state">No documents in this category yet.</div>`;
+      container.innerHTML = `<div class="empty-state">No documents found.</div>`;
       return;
     }
 
     // Group by category
     const groups = {};
+    const order  = {};
     filtered.forEach(d => {
-      if (!groups[d.category]) groups[d.category] = [];
-      groups[d.category].push(d);
+      const key = d.category_name || 'Uncategorised';
+      if (!groups[key]) { groups[key] = []; order[key] = d.category_id || 999; }
+      groups[key].push(d);
     });
 
-    container.innerHTML = Object.entries(groups).map(([cat, docs]) => `
-      <div style="margin-bottom:28px">
-        <div class="dash-section-title">${CAT_ICONS[cat] || '📄'} ${cap(cat)}</div>
-        <div class="doc-grid">
-          ${docs.map(docCard).join('')}
-        </div>
-      </div>
-    `).join('');
+    container.innerHTML = Object.entries(groups)
+      .sort(([a],[b]) => (order[a]||999) - (order[b]||999) || a.localeCompare(b))
+      .map(([cat, docs]) => {
+        const catObj = allCategories.find(c => c.name === cat) || {};
+        return `
+          <div style="margin-bottom:28px">
+            <div class="dash-section-title">
+              ${catObj.icon || '📄'} ${esc(cat)}
+            </div>
+            <div class="doc-grid">${docs.map(docCard).join('')}</div>
+          </div>`;
+      }).join('');
   }
 
   function docCard(d) {
-    const ext     = (d.filename || '').split('.').pop().toLowerCase();
-    const icon    = EXT_ICONS[ext] || '📄';
-    const upDate  = d.created_at
-      ? new Date(d.created_at + 'Z').toLocaleDateString('en-GB')
-      : '—';
-    const accessLabel = { readonly:'All staff', leader:'User+', editor:'Editor+', admin:'Admin only' };
+    const ext      = (d.filename || '').split('.').pop().toLowerCase();
+    const icon     = EXT_ICONS[ext] || '📄';
+    const upDate   = d.created_at
+      ? new Date(d.created_at + 'Z').toLocaleDateString('en-GB') : '—';
+    const today    = new Date().toISOString().slice(0,10);
+    const expired  = d.retain_until && d.retain_until <= today;
+    const expiring = d.retain_until && !expired &&
+      d.retain_until <= new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
+    const isRestricted = d.allowed_role_ids && String(d.allowed_role_ids).trim() !== '';
+    const lockBadge    = isRestricted
+      ? `<span title="Restricted to specific roles" style="font-size:11px">🔒</span>` : '';
+    const retentionBadge = expired
+      ? `<span class="badge" style="background:#fef2f2;color:#991b1b;font-size:11px">⚠️ Retention expired</span>`
+      : expiring
+      ? `<span class="badge" style="background:#fff7ed;color:#c2410c;font-size:11px">⏳ Expires ${fmtDate(d.retain_until)}</span>`
+      : '';
 
     return `
       <div class="doc-card">
         <div class="doc-icon">${icon}</div>
         <div class="doc-info">
-          <div class="doc-title">${esc(d.title)}</div>
+          <div class="doc-title">${esc(d.title)} ${lockBadge}</div>
+          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(d.description)}</div>` : ''}
           <div class="doc-meta">
-            <span class="badge badge-ro" style="font-size:11px">${cap(d.category)}</span>
+            ${d.category_name
+              ? `<span class="badge badge-ro" style="font-size:11px;background:${d.category_color||'#e2e8f0'};color:#1e293b">${d.category_icon||'📄'} ${esc(d.category_name)}</span>`
+              : ''}
             <span style="color:var(--muted);font-size:12px">${upDate}</span>
-            <span style="color:var(--muted);font-size:12px">👁 ${accessLabel[d.access_role] || d.access_role}</span>
-          </div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">
-            ${esc(d.uploaded_by_name || '—')}
+            <span style="color:var(--muted);font-size:12px">${esc(d.uploaded_by_name || '—')}</span>
+            ${retentionBadge}
           </div>
         </div>
         <div class="doc-actions">
           <a href="/api/documents/${d.id}/view"
-             class="btn btn-ghost btn-sm" target="_blank" rel="noopener">👁 View</a>
+             class="btn btn-ghost btn-sm" target="_blank" rel="noopener">👁</a>
           <a href="/api/documents/${d.id}/download"
              class="btn btn-ghost btn-sm" download>⬇️</a>
-          ${CAN_MANAGE
+          ${CAN_UPLOAD
+            ? `<button class="btn btn-ghost btn-sm"
+                 onclick='openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
+          ${CAN_DELETE
             ? `<button class="btn btn-danger btn-sm"
-                 data-id="${d.id}" data-title="${esc(d.title)}"
-                 onclick="deleteDoc(this.dataset.id, this.dataset.title)">🗑</button>`
-            : ''}
+                 onclick="deleteDoc(${d.id}, ${JSON.stringify(d.title)})">🗑</button>` : ''}
         </div>
       </div>`;
   }
 
-  /* ── Upload ─────────────────────────────────────── */
+  /* ── Retention banner ───────────────────────────────────── */
+  function checkRetentionBanner() {
+    if (!CAN_UPLOAD) return;
+    const today   = new Date().toISOString().slice(0,10);
+    const expired = allDocs.filter(d => d.retain_until && d.retain_until <= today);
+    const banner  = document.getElementById('retention-banner');
+    if (expired.length && banner) {
+      document.getElementById('retention-count').textContent = expired.length;
+      banner.style.display = 'block';
+    } else if (banner) {
+      banner.style.display = 'none';
+    }
+  }
+
+  /* ── Category dropdowns ─────────────────────────────────── */
+  function populateCategoryDropdowns() {
+    const opts = allCategories.map(c =>
+      `<option value="${c.id}">${c.icon || '📄'} ${esc(c.name)}</option>`).join('');
+    const uploadSel = document.getElementById('upload-category');
+    const editSel   = document.getElementById('edit-category');
+    if (uploadSel) uploadSel.innerHTML = '<option value="">— Select category —</option>' + opts;
+    if (editSel)   editSel.innerHTML   = '<option value="">— None —</option>' + opts;
+  }
+
+  /* ── Role checkboxes helper ─────────────────────────────── */
+  function buildRoleCheckboxes(containerId, selectedIds = []) {
+    const wrap = document.getElementById(containerId);
+    if (!wrap) return;
+    if (!allRoles.length) {
+      wrap.innerHTML = '<div style="color:var(--muted);font-size:13px">No roles available</div>';
+      return;
+    }
+    wrap.innerHTML = allRoles.map(r => `
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:14px">
+        <input type="checkbox" value="${r.id}"
+               ${selectedIds.includes(r.id) ? 'checked' : ''}
+               style="accent-color:var(--teal)">
+        ${esc(r.display_name || r.name)}
+      </label>`).join('');
+  }
+
+  function getCheckedRoleIds(containerId) {
+    return [...document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)]
+      .map(cb => parseInt(cb.value));
+  }
+
+  /* ── Upload ─────────────────────────────────────────────── */
   function openUploadModal() {
-    document.getElementById('upload-file').value     = '';
-    document.getElementById('upload-title').value    = '';
-    document.getElementById('upload-category').value = 'general';
-    document.getElementById('upload-access').value   = 'readonly';
+    ['upload-file','upload-title','upload-description','upload-retain-until',
+     'upload-retention-notes'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    document.getElementById('upload-category').value = '';
+    buildRoleCheckboxes('upload-roles-list');
     document.getElementById('upload-modal').classList.add('open');
   }
 
@@ -199,7 +374,6 @@
     const name  = input.files[0]?.name || '';
     const title = document.getElementById('upload-title');
     if (!title.value && name) {
-      // Auto-fill title from filename (strip extension)
       title.value = name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
     }
   }
@@ -207,24 +381,29 @@
   async function uploadDocument() {
     const fileInput = document.getElementById('upload-file');
     if (!fileInput.files.length) { showToast('Please select a file.', true); return; }
+    const title = document.getElementById('upload-title').value.trim();
+    if (!title) { showToast('Please enter a title.', true); return; }
 
     const btn = document.getElementById('upload-save-btn');
     btn.disabled = true;
 
     const fd = new FormData();
-    fd.append('file',        fileInput.files[0]);
-    fd.append('title',       document.getElementById('upload-title').value.trim());
-    fd.append('category',    document.getElementById('upload-category').value);
-    fd.append('access_role', document.getElementById('upload-access').value);
+    fd.append('file',            fileInput.files[0]);
+    fd.append('title',           title);
+    fd.append('description',     document.getElementById('upload-description').value.trim());
+    fd.append('category_id',     document.getElementById('upload-category').value);
+    fd.append('retain_until',    document.getElementById('upload-retain-until').value);
+    fd.append('retention_notes', document.getElementById('upload-retention-notes').value.trim());
+    fd.append('role_ids',        JSON.stringify(getCheckedRoleIds('upload-roles-list')));
 
     try {
-      await apiFetch('/api/documents', {
-        method: 'POST',
-        body:   fd,   // FormData — apiFetch auto-skips Content-Type header
-      });
+      await apiFetch('/api/documents', { method: 'POST', body: fd });
       showToast('Document uploaded.');
       closeUploadModal();
-      loadDocs();
+      allDocs = await apiFetch('/api/documents');
+      buildCatTabs();
+      renderDocs();
+      checkRetentionBanner();
     } catch (e) {
       showToast(e.message, true);
     } finally {
@@ -232,29 +411,81 @@
     }
   }
 
-  /* ── Delete ─────────────────────────────────────── */
+  /* ── Edit ───────────────────────────────────────────────── */
+  function openEditModal(doc) {
+    document.getElementById('edit-doc-id').value          = doc.id;
+    document.getElementById('edit-title').value           = doc.title || '';
+    document.getElementById('edit-description').value     = doc.description || '';
+    document.getElementById('edit-category').value        = doc.category_id || '';
+    document.getElementById('edit-retain-until').value    = doc.retain_until || '';
+    document.getElementById('edit-retention-notes').value = doc.retention_notes || '';
+    apiFetch(`/api/documents/${doc.id}/access`)
+      .then(rows => buildRoleCheckboxes('edit-roles-list', rows.map(r => r.role_id)))
+      .catch(()  => buildRoleCheckboxes('edit-roles-list'));
+    document.getElementById('edit-modal').classList.add('open');
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+  }
+
+  async function saveEdit() {
+    const id  = parseInt(document.getElementById('edit-doc-id').value);
+    const btn = document.getElementById('edit-save-btn');
+    btn.disabled = true;
+    try {
+      await apiFetch(`/api/documents/${id}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          title:           document.getElementById('edit-title').value.trim(),
+          description:     document.getElementById('edit-description').value.trim() || null,
+          category_id:     document.getElementById('edit-category').value || null,
+          retain_until:    document.getElementById('edit-retain-until').value || null,
+          retention_notes: document.getElementById('edit-retention-notes').value.trim() || null,
+          role_ids:        getCheckedRoleIds('edit-roles-list'),
+        }),
+      });
+      showToast('Document updated.');
+      closeEditModal();
+      allDocs = await apiFetch('/api/documents');
+      buildCatTabs();
+      renderDocs();
+      checkRetentionBanner();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Delete ─────────────────────────────────────────────── */
   async function deleteDoc(id, title) {
-    if (!confirm(`Remove "${title}" from the repository?`)) return;
+    if (!confirm(`Permanently delete "${title}"?\n\nThis cannot be undone — the file will be removed from the server immediately.`)) return;
     try {
       await apiFetch(`/api/documents/${id}`, { method: 'DELETE' });
-      showToast('Document removed.');
-      loadDocs();
+      showToast('Document deleted.');
+      allDocs = allDocs.filter(d => d.id !== id);
+      buildCatTabs();
+      renderDocs();
+      checkRetentionBanner();
     } catch (e) {
       showToast(e.message, true);
     }
   }
 
-  function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
-
-  document.getElementById('upload-modal')?.addEventListener('click', function(e) {
-    if (e.target === this) closeUploadModal();
+  /* ── Modal close on backdrop click ─────────────────────── */
+  ['upload-modal','edit-modal'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('open');
+    });
   });
 </script>
 
 <style>
   .doc-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 12px;
   }
   .doc-card {
@@ -268,11 +499,11 @@
     transition: border-color .18s;
   }
   .doc-card:hover { border-color: var(--teal); }
-  .doc-icon  { font-size: 30px; flex-shrink: 0; line-height: 1; margin-top: 2px; }
-  .doc-info  { flex: 1; min-width: 0; }
-  .doc-title { font-size: 15px; font-weight: 800; color: var(--navy);
-               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .doc-meta  { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
-  .doc-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .doc-icon   { font-size: 28px; flex-shrink: 0; line-height: 1; margin-top: 3px; }
+  .doc-info   { flex: 1; min-width: 0; }
+  .doc-title  { font-size: 14px; font-weight: 800; color: var(--navy);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-meta   { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+  .doc-actions { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
 </style>
 {% endblock %}
