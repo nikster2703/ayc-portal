@@ -55,8 +55,8 @@
             <span class="type-desc">Date older than / before today</span>
           </label>
           <label class="type-opt" data-type="empty_field">
-            <input type="radio" name="rule_type" value="empty_field"> 🕳 Empty Field
-            <span class="type-desc">Required field has no value</span>
+            <input type="radio" name="rule_type" value="empty_field"> 🔍 Field Value
+            <span class="type-desc">Flag if a field is empty or filled</span>
           </label>
           <label class="type-opt" data-type="numeric">
             <input type="radio" name="rule_type" value="numeric"> 🔢 Numeric
@@ -103,15 +103,26 @@
         </div>
       </div>
 
-      <!-- Empty field options -->
+      <!-- Empty / filled field options -->
       <div id="opts-empty_field" class="rule-opts" style="display:none">
-        <label class="form-label">Target Field (must be filled in)</label>
-        <select id="f-field-empty" class="form-input">
-          <option value="">— select a field —</option>
-          {% for f in field_definitions %}
-          <option value="{{ f.key }}">{{ f.label }}</option>
-          {% endfor %}
-        </select>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="form-label">Condition</label>
+            <select id="f-condition-empty" class="form-input">
+              <option value="is_empty">Field is empty (no value set)</option>
+              <option value="is_filled">Field is filled (has a value)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Target Field</label>
+            <select id="f-field-empty" class="form-input">
+              <option value="">— select a field —</option>
+              {% for f in field_definitions %}
+              <option value="{{ f.key }}">{{ f.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
       </div>
 
       <!-- Numeric options -->
@@ -277,7 +288,7 @@
   const CAN_MANAGE    = {{ ('alerts.manage' in user_permissions) | tojson }};
   const COLOURS = ['#ef4444','#f59e0b','#3b6fde','#8b5cf6','#22a06b'];
   const COLOUR_NAMES = { '#ef4444':'Red','#f59e0b':'Amber','#3b6fde':'Blue','#8b5cf6':'Purple','#22a06b':'Green' };
-  const TYPE_LABELS = { attendance:'Attendance', date_field:'Date Field', empty_field:'Empty Field', numeric:'Numeric' };
+  const TYPE_LABELS = { attendance:'Attendance', date_field:'Date Field', empty_field:'Field Value', numeric:'Numeric' };
 
   let selectedColour = '#ef4444';
   let editingRuleId  = null;
@@ -324,6 +335,7 @@
     const metaParts = [];
     metaParts.push(TYPE_LABELS[r.rule_type] || r.rule_type);
     if (r.rule_type === 'attendance') metaParts.push(`${r.threshold_value} consecutive misses`);
+    if (r.rule_type === 'empty_field') metaParts.push(r.condition === 'is_filled' ? 'is filled' : 'is empty');
     if (r.target_field) {
       const fd = FIELD_DEFS.find(f => f.key === r.target_field);
       metaParts.push(fd ? fd.label : r.target_field);
@@ -388,7 +400,8 @@
         document.getElementById('f-threshold-date').value = rule.threshold_value || 365;
         toggleDateThreshold();
       } else if (rule.rule_type === 'empty_field') {
-        document.getElementById('f-field-empty').value = rule.target_field || '';
+        document.getElementById('f-condition-empty').value = rule.condition || 'is_empty';
+        document.getElementById('f-field-empty').value     = rule.target_field || '';
       } else if (rule.rule_type === 'numeric') {
         document.getElementById('f-field-num').value     = rule.target_field || '';
         document.getElementById('f-condition-num').value = rule.condition || 'above';
@@ -511,7 +524,8 @@
       payload.threshold_unit  = 'days';
       if (!payload.target_field) { showToast('Select a target field.', true); return; }
     } else if (type === 'empty_field') {
-      payload.target_field    = document.getElementById('f-field-empty').value;
+      payload.target_field = document.getElementById('f-field-empty').value;
+      payload.condition    = document.getElementById('f-condition-empty').value;
       if (!payload.target_field) { showToast('Select a target field.', true); return; }
     } else if (type === 'numeric') {
       payload.target_field    = document.getElementById('f-field-num').value;

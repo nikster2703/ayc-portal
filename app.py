@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.20'  # v8.20: fix alert rules delete button broken by double-quoted onclick attribute conflicting with JSON.stringify
+APP_VERSION = 'v8.21'  # v8.21: extend field-value alert rule to support is_filled condition alongside existing is_empty
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -6293,7 +6293,8 @@ def _run_alert_rule(db, rule, today_str):
 
     # ── Empty field rule ───────────────────────────────────────────────────────
     elif rule_type == 'empty_field':
-        target = rule['target_field']
+        target    = rule['target_field']
+        condition = rule['condition'] or 'is_empty'   # is_empty | is_filled (default: backward compat)
         fd = db.execute(
             'SELECT id, column_name, system_field FROM field_definitions WHERE key = ?',
             (target,)
@@ -6316,8 +6317,12 @@ def _run_alert_rule(db, rule, today_str):
                 ).fetchone()
                 val = (row['value'] or '').strip() if row else ''
 
-            if not val:
-                should_flag.add(m['id'])
+            if condition == 'is_filled':
+                if val:
+                    should_flag.add(m['id'])
+            else:  # is_empty (default, preserves existing behaviour)
+                if not val:
+                    should_flag.add(m['id'])
 
     # ── Numeric rule ───────────────────────────────────────────────────────────
     elif rule_type == 'numeric':
