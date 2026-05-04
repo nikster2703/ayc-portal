@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v9.0'   # v9.0: Document Repository overhaul — UUID filename obfuscation, bucket sharding provision, configurable categories, role-based access control, retention policy (GDPR)
+APP_VERSION = 'v9.2'   # v9.2: Document Repository Phase B — per-category metadata fields, FTS5 full-text search, advanced filter panel, admin field definitions UI
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -631,7 +631,50 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_doc_role_access_doc  ON document_role_access(document_id);
         CREATE INDEX IF NOT EXISTS idx_doc_role_access_role ON document_role_access(role_id);
+        -- v9.2: per-category metadata fields + FTS5 search
+        CREATE TABLE IF NOT EXISTS document_field_definitions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL REFERENCES document_categories(id) ON DELETE CASCADE,
+            label       TEXT    NOT NULL,
+            field_type  TEXT    NOT NULL DEFAULT 'text',
+            help_text   TEXT,
+            placeholder TEXT,
+            required    INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            active      INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_doc_field_defs_cat ON document_field_definitions(category_id);
+        CREATE TABLE IF NOT EXISTS document_metadata (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL REFERENCES documents(id)                  ON DELETE CASCADE,
+            field_id    INTEGER NOT NULL REFERENCES document_field_definitions(id) ON DELETE CASCADE,
+            value       TEXT,
+            updated_at  TEXT    DEFAULT (datetime('now')),
+            UNIQUE(document_id, field_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_doc_metadata_doc   ON document_metadata(document_id);
+        CREATE INDEX IF NOT EXISTS idx_doc_metadata_field ON document_metadata(field_id);
     ''')
+
+    # FTS5 must be created separately — not all SQLite builds support it;
+    # we catch the error and fall back to LIKE-based search gracefully.
+    _fts_db = _connect_db()
+    try:
+        _fts_db.execute('''
+            CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                doc_id   UNINDEXED,
+                content,
+                tokenize = 'porter unicode61'
+            )
+        ''')
+        _fts_db.commit()
+    except Exception:
+        pass  # FTS5 unavailable — search falls back to LIKE queries
+    finally:
+        _fts_db.close()
+
+    _dummy = None  # separator — executescript block above already closed
 
     # ── ALTER TABLE migrations (idempotent — each wrapped individually) ───────
     alter_stmts = [
@@ -1604,6 +1647,16 @@ def tags_page():
 @permission_required('admin.settings')
 def document_categories_page():
     return render_template('admin/document_categories.html', active_page='settings', **tpl_ctx())
+
+@app.route('/admin/document-fields/<int:cat_id>')
+@permission_required('admin.settings')
+def document_fields_page(cat_id):
+    db  = get_db()
+    cat = db.execute('SELECT * FROM document_categories WHERE id = ?', (cat_id,)).fetchone()
+    if not cat:
+        return redirect(url_for('document_categories_page'))
+    return render_template('admin/document_fields.html',
+                           cat_id=cat_id, active_page='settings', **tpl_ctx())
 
 @app.route('/admin/member-types')
 @permission_required('admin.settings')
@@ -4286,6 +4339,80 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# ── FTS5 maintenance ──────────────────────────────────────────────────────────
+
+_FTS5_AVAILABLE = None  # lazily detected on first call
+
+def _fts5_available(db):
+    """Return True if the documents_fts virtual table exists and is queryable."""
+    global _FTS5_AVAILABLE
+    if _FTS5_AVAILABLE is None:
+        try:
+            db.execute("SELECT doc_id FROM documents_fts LIMIT 1")
+            _FTS5_AVAILABLE = True
+        except Exception:
+            _FTS5_AVAILABLE = False
+    return _FTS5_AVAILABLE
+
+
+def _rebuild_doc_fts(db, doc_id):
+    """Rebuild the FTS5 index entry for a single document.
+
+    Concatenates: title, description, category name, and all active metadata
+    field labels + values (including resolved member names for member_ref fields).
+    Call after any upload, metadata update, or soft-delete.
+    """
+    if not _fts5_available(db):
+        return
+
+    doc = db.execute('SELECT * FROM documents WHERE id = ?', (doc_id,)).fetchone()
+
+    # Remove stale entry first
+    db.execute('DELETE FROM documents_fts WHERE doc_id = ?', (doc_id,))
+
+    if not doc or not doc['active']:
+        return  # Deleted — just remove from index
+
+    parts = [doc['title'] or '', doc['description'] or '']
+
+    # Category name
+    if doc['category_id']:
+        cat = db.execute(
+            'SELECT name FROM document_categories WHERE id = ?', (doc['category_id'],)
+        ).fetchone()
+        if cat:
+            parts.append(cat['name'])
+
+    # Metadata values — include label + value so both are searchable
+    meta_rows = db.execute(
+        '''SELECT df.label, df.field_type, dm.value
+           FROM document_metadata dm
+           JOIN document_field_definitions df ON df.id = dm.field_id
+           WHERE dm.document_id = ? AND dm.value IS NOT NULL AND dm.value != ''
+           ORDER BY df.sort_order''',
+        (doc_id,)
+    ).fetchall()
+
+    for row in meta_rows:
+        parts.append(row['label'])
+        if row['field_type'] == 'member_ref':
+            # Resolve member name for searchability
+            m = db.execute(
+                "SELECT first_name, last_name FROM members WHERE id = ?", (row['value'],)
+            ).fetchone()
+            if m:
+                parts.append(f"{m['first_name']} {m['last_name']}")
+        else:
+            parts.append(row['value'])
+
+    content = ' '.join(filter(None, (p.strip() for p in parts)))
+    if content:
+        db.execute(
+            'INSERT INTO documents_fts (doc_id, content) VALUES (?, ?)',
+            (doc_id, content)
+        )
+
+
 def resolve_doc_path(doc):
     """Return the absolute filesystem path for a document's encrypted file.
 
@@ -4339,9 +4466,12 @@ def _user_can_access_from_group_concat(allowed_role_ids_str):
 @app.route('/api/documents/categories')
 @login_required
 def api_document_categories_list():
-    db   = get_db()
-    rows = db.execute(
-        'SELECT * FROM document_categories WHERE active = 1 ORDER BY sort_order, name'
+    db               = get_db()
+    include_inactive = request.args.get('include_inactive') == '1' and \
+                       'admin.settings' in (session.get('permissions') or [])
+    where = '' if include_inactive else 'WHERE active = 1'
+    rows  = db.execute(
+        f'SELECT * FROM document_categories {where} ORDER BY sort_order, name'
     ).fetchall()
     return jsonify([dict(r) for r in rows])
 
@@ -4402,13 +4532,196 @@ def api_document_categories_delete(cat_id):
     return jsonify({'success': True})
 
 
+# ── Document field definitions API ───────────────────────────────────────────
+
+@app.route('/api/documents/field-definitions')
+@login_required
+def api_doc_field_definitions_list():
+    """Return field definitions, optionally filtered by category_id.
+    Pass include_inactive=1 (admin only) to include deactivated fields."""
+    db              = get_db()
+    category_id     = request.args.get('category_id')
+    include_inactive = request.args.get('include_inactive') == '1' and \
+                       'admin.settings' in (session.get('permissions') or [])
+    active_clause   = '' if include_inactive else 'AND df.active = 1'
+
+    if category_id:
+        rows = db.execute(
+            f'''SELECT df.*, dc.name AS category_name
+               FROM document_field_definitions df
+               JOIN document_categories dc ON dc.id = df.category_id
+               WHERE df.category_id = ? {active_clause}
+               ORDER BY df.sort_order, df.label''',
+            (category_id,)
+        ).fetchall()
+    else:
+        rows = db.execute(
+            f'''SELECT df.*, dc.name AS category_name
+               FROM document_field_definitions df
+               JOIN document_categories dc ON dc.id = df.category_id
+               WHERE 1=1 {active_clause}
+               ORDER BY dc.sort_order, df.sort_order, df.label'''
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/documents/field-definitions', methods=['POST'])
+@permission_required('admin.settings')
+def api_doc_field_definitions_create():
+    data        = request.get_json(force=True) or {}
+    category_id = data.get('category_id')
+    label       = (data.get('label') or '').strip()
+    field_type  = data.get('field_type', 'text')
+
+    if not category_id:
+        return jsonify({'error': 'category_id is required'}), 400
+    if not label:
+        return jsonify({'error': 'label is required'}), 400
+    if field_type not in ('text', 'date', 'number', 'boolean', 'member_ref'):
+        return jsonify({'error': 'Invalid field_type'}), 400
+
+    db = get_db()
+    if not db.execute('SELECT id FROM document_categories WHERE id = ? AND active = 1',
+                      (category_id,)).fetchone():
+        return jsonify({'error': 'Category not found'}), 404
+
+    max_order = db.execute(
+        'SELECT COALESCE(MAX(sort_order),0) FROM document_field_definitions WHERE category_id = ?',
+        (category_id,)
+    ).fetchone()[0]
+
+    cur = db.execute(
+        '''INSERT INTO document_field_definitions
+           (category_id, label, field_type, help_text, placeholder, required, sort_order)
+           VALUES (?,?,?,?,?,?,?)''',
+        (category_id, label, field_type,
+         data.get('help_text', '') or None,
+         data.get('placeholder', '') or None,
+         1 if data.get('required') else 0,
+         max_order + 1)
+    )
+    db.commit()
+    log_action('create_doc_field', 'document_field_definitions', cur.lastrowid,
+               {'label': label, 'category_id': category_id, 'field_type': field_type})
+    return jsonify({'success': True, 'id': cur.lastrowid})
+
+
+@app.route('/api/documents/field-definitions/<int:field_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_doc_field_definitions_update(field_id):
+    db    = get_db()
+    field = db.execute('SELECT * FROM document_field_definitions WHERE id = ?', (field_id,)).fetchone()
+    if not field:
+        return jsonify({'error': 'Not found'}), 404
+    data   = request.get_json(force=True) or {}
+    fields, vals = [], []
+    for col in ('label', 'field_type', 'help_text', 'placeholder', 'required', 'sort_order', 'active'):
+        if col in data:
+            fields.append(f'{col} = ?')
+            vals.append(data[col])
+    if not fields:
+        return jsonify({'error': 'Nothing to update'}), 400
+    vals.append(field_id)
+    db.execute(f'UPDATE document_field_definitions SET {", ".join(fields)} WHERE id = ?', vals)
+    db.commit()
+    log_action('update_doc_field', 'document_field_definitions', field_id, data)
+    return jsonify({'success': True})
+
+
+@app.route('/api/documents/field-definitions/<int:field_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_doc_field_definitions_delete(field_id):
+    db = get_db()
+    if not db.execute('SELECT id FROM document_field_definitions WHERE id = ?', (field_id,)).fetchone():
+        return jsonify({'error': 'Not found'}), 404
+    db.execute('UPDATE document_field_definitions SET active = 0 WHERE id = ?', (field_id,))
+    db.commit()
+    log_action('deactivate_doc_field', 'document_field_definitions', field_id, {})
+    return jsonify({'success': True})
+
+
 # ── Document list / upload / manage ──────────────────────────────────────────
 
 @app.route('/api/documents')
 @permission_required('documents.view')
 def api_documents_list():
-    db   = get_db()
-    rows = db.execute('''
+    db = get_db()
+
+    # ── Collect filter params ─────────────────────────────────────────────────
+    q             = (request.args.get('q') or '').strip()
+    category_id   = request.args.get('category_id') or None
+    date_from     = request.args.get('date_from') or None
+    date_to       = request.args.get('date_to') or None
+    retain_before = request.args.get('retain_before') or None
+    retain_after  = request.args.get('retain_after') or None
+
+    # Metadata field filters: field_<field_id>_op + field_<field_id>_value
+    meta_filters = []
+    for key, val in request.args.items():
+        if key.startswith('field_') and key.endswith('_value') and val.strip():
+            try:
+                fid = int(key.split('_')[1])
+                op  = request.args.get(f'field_{fid}_op', 'contains')
+                meta_filters.append((fid, op, val.strip()))
+            except (IndexError, ValueError):
+                pass
+
+    # ── FTS5 full-text search → restrict to matching doc_ids ─────────────────
+    fts_ids = None
+    if q:
+        if _fts5_available(db):
+            try:
+                # Escape FTS5 special chars in query, wrap each token with *
+                safe_q = ' '.join(
+                    f'"{t}"*' for t in q.replace('"', '').split() if t
+                )
+                fts_rows = db.execute(
+                    'SELECT doc_id FROM documents_fts WHERE documents_fts MATCH ? ORDER BY rank',
+                    (safe_q,)
+                ).fetchall()
+                fts_ids = {r['doc_id'] for r in fts_rows}
+            except Exception:
+                fts_ids = None  # FTS query error — fall through to LIKE
+
+    # ── Build base SQL with filters ───────────────────────────────────────────
+    where_clauses = ['d.active = 1']
+    params        = []
+
+    if fts_ids is not None:
+        if not fts_ids:
+            return jsonify([])   # FTS matched nothing
+        placeholders = ','.join('?' * len(fts_ids))
+        where_clauses.append(f'd.id IN ({placeholders})')
+        params.extend(fts_ids)
+    elif q:
+        # FTS unavailable — LIKE fallback across title + description
+        like = f'%{q}%'
+        where_clauses.append('(d.title LIKE ? OR d.description LIKE ?)')
+        params.extend([like, like])
+
+    if category_id:
+        where_clauses.append('d.category_id = ?')
+        params.append(category_id)
+
+    if date_from:
+        where_clauses.append("date(d.created_at) >= date(?)")
+        params.append(date_from)
+
+    if date_to:
+        where_clauses.append("date(d.created_at) <= date(?)")
+        params.append(date_to)
+
+    if retain_before:
+        where_clauses.append("d.retain_until IS NOT NULL AND d.retain_until <= ?")
+        params.append(retain_before)
+
+    if retain_after:
+        where_clauses.append("d.retain_until IS NOT NULL AND d.retain_until >= ?")
+        params.append(retain_after)
+
+    where_sql = ' AND '.join(where_clauses)
+
+    rows = db.execute(f'''
         SELECT d.*,
                dc.name  AS category_name,
                dc.icon  AS category_icon,
@@ -4416,14 +4729,80 @@ def api_documents_list():
                u.username AS uploaded_by_name,
                GROUP_CONCAT(dra.role_id) AS allowed_role_ids
         FROM   documents d
-        LEFT JOIN document_categories dc  ON dc.id  = d.category_id
-        LEFT JOIN users u                 ON u.id   = d.uploaded_by
+        LEFT JOIN document_categories dc   ON dc.id  = d.category_id
+        LEFT JOIN users u                  ON u.id   = d.uploaded_by
         LEFT JOIN document_role_access dra ON dra.document_id = d.id
-        WHERE  d.active = 1
+        WHERE  {where_sql}
         GROUP  BY d.id
         ORDER  BY COALESCE(dc.sort_order, 999), d.title
-    ''').fetchall()
+    ''', params).fetchall()
+
     docs = [dict(r) for r in rows if _user_can_access_from_group_concat(r['allowed_role_ids'])]
+
+    # ── Apply metadata field filters (post-fetch) ─────────────────────────────
+    if meta_filters and docs:
+        doc_ids = [d['id'] for d in docs]
+        meta_rows = db.execute(
+            f'''SELECT dm.document_id, dm.field_id, dm.value
+                FROM document_metadata dm
+                WHERE dm.document_id IN ({",".join("?" * len(doc_ids))})''',
+            doc_ids
+        ).fetchall()
+        meta_by_doc = {}
+        for mr in meta_rows:
+            meta_by_doc.setdefault(mr['document_id'], {})[mr['field_id']] = mr['value']
+
+        def passes_meta_filters(doc):
+            vals = meta_by_doc.get(doc['id'], {})
+            for fid, op, fval in meta_filters:
+                actual = vals.get(fid) or ''
+                if op == 'contains'   and fval.lower() not in actual.lower():  return False
+                if op == 'equals'     and actual.lower() != fval.lower():       return False
+                if op == 'before'     and not (actual and actual <= fval):       return False
+                if op == 'after'      and not (actual and actual >= fval):       return False
+                if op == 'gte'        and not (actual and float(actual or 0) >= float(fval)): return False
+                if op == 'lte'        and not (actual and float(actual or 0) <= float(fval)): return False
+            return True
+
+        docs = [d for d in docs if passes_meta_filters(d)]
+
+    # ── Attach metadata summaries for card display ────────────────────────────
+    if docs:
+        doc_ids = [d['id'] for d in docs]
+        meta_rows = db.execute(
+            f'''SELECT dm.document_id, df.label, df.field_type, df.sort_order, dm.value
+                FROM document_metadata dm
+                JOIN document_field_definitions df ON df.id = dm.field_id
+                WHERE dm.document_id IN ({",".join("?" * len(doc_ids))})
+                  AND dm.value IS NOT NULL AND dm.value != ''
+                  AND df.active = 1
+                ORDER BY dm.document_id, df.sort_order''',
+            doc_ids
+        ).fetchall()
+
+        # Resolve member names
+        member_ids = {r['value'] for r in meta_rows if r['field_type'] == 'member_ref' and r['value']}
+        member_names = {}
+        if member_ids:
+            mrows = db.execute(
+                f'SELECT id, first_name, last_name FROM members WHERE id IN ({",".join("?" * len(member_ids))})',
+                list(member_ids)
+            ).fetchall()
+            member_names = {str(m['id']): f"{m['first_name']} {m['last_name']}" for m in mrows}
+
+        meta_by_doc = {}
+        for mr in meta_rows:
+            display = member_names.get(mr['value'], mr['value']) if mr['field_type'] == 'member_ref' else mr['value']
+            meta_by_doc.setdefault(mr['document_id'], []).append({
+                'label':      mr['label'],
+                'field_type': mr['field_type'],
+                'value':      mr['value'],
+                'display':    display,
+            })
+
+        for doc in docs:
+            doc['metadata'] = meta_by_doc.get(doc['id'], [])
+
     return jsonify(docs)
 
 
@@ -4493,6 +4872,8 @@ def api_documents_upload():
             pass
 
     db.commit()
+    _rebuild_doc_fts(db, doc_id)
+    db.commit()
     log_action('upload_document', 'documents', doc_id,
                {'title': title, 'category_id': category_id, 'restricted_to_roles': role_ids})
     return jsonify({'success': True, 'id': doc_id})
@@ -4533,6 +4914,8 @@ def api_documents_update(doc_id):
                    {'restricted_to_roles': role_ids})
 
     db.commit()
+    _rebuild_doc_fts(db, doc_id)
+    db.commit()
     log_action('update_document', 'documents', doc_id, {k: data[k] for k in data if k != 'role_ids'})
     return jsonify({'success': True})
 
@@ -4551,6 +4934,89 @@ def api_documents_get_access(doc_id):
            WHERE dra.document_id = ?''', (doc_id,)
     ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/documents/<int:doc_id>/metadata')
+@login_required
+def api_documents_get_metadata(doc_id):
+    """Return all metadata values for a document, with field definitions."""
+    db  = get_db()
+    doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
+    if not doc:
+        return jsonify({'error': 'Not found'}), 404
+    if not user_can_access_doc(doc):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    rows = db.execute(
+        '''SELECT df.id AS field_id, df.label, df.field_type, df.help_text,
+                  df.placeholder, df.required, df.sort_order,
+                  dm.value
+           FROM document_field_definitions df
+           LEFT JOIN document_metadata dm
+                  ON dm.field_id = df.id AND dm.document_id = ?
+           WHERE df.category_id = ? AND df.active = 1
+           ORDER BY df.sort_order, df.label''',
+        (doc_id, doc['category_id'])
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        item = dict(row)
+        # Resolve member name for display
+        if row['field_type'] == 'member_ref' and row['value']:
+            m = db.execute(
+                "SELECT id, first_name, last_name FROM members WHERE id = ?", (row['value'],)
+            ).fetchone()
+            item['member'] = {'id': m['id'], 'name': f"{m['first_name']} {m['last_name']}"} if m else None
+        result.append(item)
+
+    return jsonify(result)
+
+
+@app.route('/api/documents/<int:doc_id>/metadata', methods=['PUT'])
+@permission_required('documents.upload')
+def api_documents_put_metadata(doc_id):
+    """Upsert metadata values for a document. Rebuilds FTS index afterwards."""
+    db  = get_db()
+    doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
+    if not doc:
+        return jsonify({'error': 'Not found'}), 404
+    if not user_can_access_doc(doc):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # Payload: list of {field_id, value}
+    items = request.get_json(force=True) or []
+    if not isinstance(items, list):
+        return jsonify({'error': 'Expected a JSON array'}), 400
+
+    for item in items:
+        field_id = item.get('field_id')
+        value    = item.get('value')
+        if field_id is None:
+            continue
+        # Verify field belongs to this document's category
+        field = db.execute(
+            'SELECT * FROM document_field_definitions WHERE id = ? AND active = 1', (field_id,)
+        ).fetchone()
+        if not field or field['category_id'] != doc['category_id']:
+            continue
+        if value is None or str(value).strip() == '':
+            db.execute('DELETE FROM document_metadata WHERE document_id = ? AND field_id = ?',
+                       (doc_id, field_id))
+        else:
+            db.execute(
+                '''INSERT INTO document_metadata (document_id, field_id, value, updated_at)
+                   VALUES (?,?,?,datetime('now'))
+                   ON CONFLICT(document_id, field_id) DO UPDATE SET value=excluded.value,
+                   updated_at=excluded.updated_at''',
+                (doc_id, field_id, str(value).strip())
+            )
+
+    db.commit()
+    _rebuild_doc_fts(db, doc_id)
+    db.commit()
+    log_action('update_doc_metadata', 'documents', doc_id, {})
+    return jsonify({'success': True})
 
 
 @app.route('/api/documents/<int:doc_id>/download')
@@ -4609,6 +5075,8 @@ def api_documents_delete(doc_id):
     # Soft-delete the DB row so audit log retains the record of what existed
     db.execute('UPDATE documents SET active = 0 WHERE id = ?', (doc_id,))
     db.execute('DELETE FROM document_role_access WHERE document_id = ?', (doc_id,))
+    db.commit()
+    _rebuild_doc_fts(db, doc_id)   # removes from FTS index (active=0 triggers early return)
     db.commit()
     log_action('delete_document', 'documents', doc_id, {'title': doc['title']})
     return jsonify({'success': True})

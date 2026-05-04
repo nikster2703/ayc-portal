@@ -128,6 +128,43 @@ CREATE TABLE IF NOT EXISTS document_role_access (
     UNIQUE(document_id, role_id)
 );
 
+-- document_field_definitions: admin-configurable metadata fields per category.
+-- field_type: text | date | number | boolean | member_ref
+CREATE TABLE IF NOT EXISTS document_field_definitions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL REFERENCES document_categories(id) ON DELETE CASCADE,
+    label       TEXT    NOT NULL,
+    field_type  TEXT    NOT NULL DEFAULT 'text',
+    help_text   TEXT,
+    placeholder TEXT,
+    required    INTEGER NOT NULL DEFAULT 0,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_doc_field_defs_cat ON document_field_definitions(category_id);
+
+-- document_metadata: EAV values per document, keyed by field_id.
+CREATE TABLE IF NOT EXISTS document_metadata (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id)                    ON DELETE CASCADE,
+    field_id    INTEGER NOT NULL REFERENCES document_field_definitions(id)   ON DELETE CASCADE,
+    value       TEXT,
+    updated_at  TEXT    DEFAULT (datetime('now')),
+    UNIQUE(document_id, field_id)
+);
+CREATE INDEX IF NOT EXISTS idx_doc_metadata_doc   ON document_metadata(document_id);
+CREATE INDEX IF NOT EXISTS idx_doc_metadata_field ON document_metadata(field_id);
+
+-- documents_fts: FTS5 full-text search index.
+-- Maintained in app code on every upload, update, and delete.
+-- Indexes title + description + category name + metadata field labels and values.
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    doc_id   UNINDEXED,
+    content,
+    tokenize = 'porter unicode61'
+);
+
 -- ── Email templates (Phase 4) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS email_templates (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

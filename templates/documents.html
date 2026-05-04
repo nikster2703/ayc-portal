@@ -22,23 +22,64 @@
 </div>
 {% endif %}
 
-<!-- ── Toolbar ──────────────────────────────────────────────── -->
-<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
-  <input type="text" id="search-input" placeholder="🔍 Search documents…"
-         oninput="renderDocs()"
-         style="flex:1;min-width:200px;max-width:320px;padding:8px 12px;
-                border:2px solid var(--border);border-radius:8px;font-size:14px">
-  <div id="cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-</div>
-
 <!-- ── Retention banner (editors/admins only) ──────────────── -->
 {% if 'documents.upload' in user_permissions %}
 <div id="retention-banner" style="display:none;background:#fff7ed;border:2px solid #fed7aa;
-     border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:#9a3412">
-  ⚠️ <strong id="retention-count"></strong> document(s) have passed their retention date and may need review or deletion.
-  <a href="#" onclick="switchCat('__expiring__');return false" style="color:#9a3412;text-decoration:underline;margin-left:6px">View them →</a>
+     border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#9a3412">
+  ⚠️ <strong id="retention-count"></strong> document(s) have passed their retention date.
+  <a href="#" onclick="applyFilter({retain_before: new Date().toISOString().slice(0,10)});return false"
+     style="color:#9a3412;text-decoration:underline;margin-left:6px">View them →</a>
 </div>
 {% endif %}
+
+<!-- ── Toolbar ─────────────────────────────────────────────── -->
+<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+  <div style="display:flex;flex:1;min-width:220px;max-width:380px;
+              border:2px solid var(--border);border-radius:8px;overflow:hidden;background:white">
+    <input type="text" id="search-q" placeholder="🔍 Search documents…"
+           style="flex:1;border:none;padding:8px 12px;font-size:14px;outline:none"
+           onkeydown="if(event.key==='Enter')runSearch()">
+    <button onclick="runSearch()" style="background:var(--teal);color:white;border:none;
+            padding:0 14px;cursor:pointer;font-size:13px;font-weight:700">Search</button>
+  </div>
+  <button class="btn btn-ghost btn-sm" onclick="toggleFilters()" id="filter-toggle-btn">
+    ⚙️ Filters <span id="filter-count-badge" style="display:none;background:var(--teal);
+    color:white;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px"></span>
+  </button>
+  <button class="btn btn-ghost btn-sm" id="clear-filters-btn" style="display:none"
+          onclick="clearAllFilters()">✕ Clear filters</button>
+  <div id="cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto"></div>
+</div>
+
+<!-- ── Advanced filter panel ───────────────────────────────── -->
+<div id="filter-panel" style="display:none;background:white;border:2px solid var(--border);
+     border-radius:12px;padding:16px 20px;margin-bottom:16px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">
+    <div class="form-group" style="margin:0">
+      <label style="font-size:12px">Uploaded from</label>
+      <input type="date" id="f-date-from" class="form-input" style="font-size:13px">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label style="font-size:12px">Uploaded to</label>
+      <input type="date" id="f-date-to" class="form-input" style="font-size:13px">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label style="font-size:12px">Retain until — before</label>
+      <input type="date" id="f-retain-before" class="form-input" style="font-size:13px">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label style="font-size:12px">Retain until — after</label>
+      <input type="date" id="f-retain-after" class="form-input" style="font-size:13px">
+    </div>
+  </div>
+  <!-- Category-specific metadata filters rendered here -->
+  <div id="meta-filter-fields" style="margin-top:14px;display:grid;
+       grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px"></div>
+  <div style="margin-top:16px;display:flex;gap:8px">
+    <button class="btn btn-primary btn-sm" onclick="runSearch()">Apply filters</button>
+    <button class="btn btn-ghost btn-sm" onclick="clearAllFilters()">Clear</button>
+  </div>
+</div>
 
 <div id="docs-container">
   <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
@@ -47,7 +88,7 @@
 <!-- ── Upload Modal ─────────────────────────────────────────── -->
 {% if 'documents.upload' in user_permissions %}
 <div class="modal-overlay" id="upload-modal">
-  <div class="modal" style="max-width:520px">
+  <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
     <h2>⬆️ Upload Document</h2>
 
     <div class="form-group" style="margin-top:16px">
@@ -58,47 +99,43 @@
              style="border:2px dashed var(--border);border-radius:8px;padding:10px;
                     width:100%;cursor:pointer;background:var(--cream)">
     </div>
-
     <div class="form-group">
       <label>Title <span style="color:var(--red)">*</span></label>
       <input type="text" id="upload-title" placeholder="e.g. Safeguarding Policy 2025">
     </div>
-
     <div class="form-group">
       <label>Description <span style="color:var(--muted);font-weight:400">(optional)</span></label>
       <input type="text" id="upload-description" placeholder="Brief note about this document">
     </div>
-
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label>Category</label>
-        <select id="upload-category">
+        <select id="upload-category" onchange="loadUploadMetaFields()">
           <option value="">— Select —</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Retain until <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <label>Retain until</label>
         <input type="date" id="upload-retain-until">
       </div>
     </div>
-
     <div class="form-group">
       <label>Retention notes <span style="color:var(--muted);font-weight:400">(GDPR justification)</span></label>
       <input type="text" id="upload-retention-notes"
              placeholder="e.g. Required for 6 years per financial records policy">
     </div>
-
+    <!-- Dynamic metadata fields for selected category -->
+    <div id="upload-meta-fields"></div>
     <div class="form-group">
       <label>Restrict access to specific roles
         <span style="color:var(--muted);font-weight:400"> — leave blank to share with everyone</span>
       </label>
       <div id="upload-roles-list"
            style="border:2px solid var(--border);border-radius:8px;padding:10px;
-                  max-height:140px;overflow-y:auto;background:var(--cream)">
+                  max-height:130px;overflow-y:auto;background:var(--cream)">
         <div style="color:var(--muted);font-size:13px">Loading roles…</div>
       </div>
     </div>
-
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeUploadModal()">Cancel</button>
       <button class="btn btn-primary" id="upload-save-btn" onclick="uploadDocument()">Upload</button>
@@ -108,10 +145,10 @@
 
 <!-- ── Edit Modal ────────────────────────────────────────────── -->
 <div class="modal-overlay" id="edit-modal">
-  <div class="modal" style="max-width:520px">
+  <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
     <h2>✏️ Edit Document</h2>
     <input type="hidden" id="edit-doc-id">
-
+    <input type="hidden" id="edit-doc-category-id">
     <div class="form-group" style="margin-top:16px">
       <label>Title <span style="color:var(--red)">*</span></label>
       <input type="text" id="edit-title">
@@ -123,7 +160,7 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label>Category</label>
-        <select id="edit-category">
+        <select id="edit-category" onchange="loadEditMetaFields()">
           <option value="">— None —</option>
         </select>
       </div>
@@ -136,16 +173,16 @@
       <label>Retention notes</label>
       <input type="text" id="edit-retention-notes">
     </div>
+    <div id="edit-meta-fields"></div>
     <div class="form-group">
       <label>Restrict access to specific roles
         <span style="color:var(--muted);font-weight:400"> — leave blank to share with everyone</span>
       </label>
       <div id="edit-roles-list"
            style="border:2px solid var(--border);border-radius:8px;padding:10px;
-                  max-height:140px;overflow-y:auto;background:var(--cream)">
+                  max-height:130px;overflow-y:auto;background:var(--cream)">
       </div>
     </div>
-
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
       <button class="btn btn-primary" id="edit-save-btn" onclick="saveEdit()">Save changes</button>
@@ -166,10 +203,14 @@
     jpg:'🟡', jpeg:'🟡', png:'🟡',
   };
 
-  let allDocs       = [];
-  let allCategories = [];
-  let allRoles      = [];
-  let currentCat    = 'all';
+  let allDocs           = [];   // current result set (may be filtered server-side)
+  let allCategories     = [];
+  let allRoles          = [];
+  let allMembers        = [];   // for member_ref pickers
+  let currentCat        = 'all';
+  let activeFilters     = {};   // track what's applied for badge/clear
+  let filtersVisible    = false;
+  let metaFilterDefs    = [];   // field defs for current category (filter panel)
 
   /* ── Bootstrap ──────────────────────────────────────────── */
   async function init() {
@@ -179,7 +220,10 @@
         apiFetch('/api/documents/categories'),
       ]);
       if (CAN_UPLOAD) {
-        allRoles = await apiFetch('/api/admin/roles').catch(() => []);
+        [allRoles, allMembers] = await Promise.all([
+          apiFetch('/api/admin/roles').catch(() => []),
+          apiFetch('/api/members?status=active').catch(() => []),
+        ]);
       }
       buildCatTabs();
       populateCategoryDropdowns();
@@ -196,11 +240,10 @@
   function buildCatTabs() {
     const wrap = document.getElementById('cat-tabs');
     const tabs = [{ id: 'all', name: 'All', icon: '' }, ...allCategories];
-    if (CAN_UPLOAD) tabs.push({ id: '__expiring__', name: 'Expiring', icon: '⚠️' });
     wrap.innerHTML = tabs.map(c => `
-      <button class="tab-btn ${c.id === 'all' ? 'active' : ''}"
+      <button class="tab-btn ${(c.id||c.name) === currentCat || (currentCat==='all' && c.id==='all') ? 'active' : ''}"
               data-cat="${c.id ?? c.name}"
-              onclick="switchCat(${JSON.stringify(c.id ?? c.name)})">
+              onclick="switchCat(${JSON.stringify(String(c.id ?? c.name))})">
         ${c.icon ? c.icon + ' ' : ''}${esc(c.name)}
       </button>`).join('');
   }
@@ -208,102 +251,229 @@
   function switchCat(cat) {
     currentCat = cat;
     document.querySelectorAll('.tab-btn[data-cat]').forEach(b =>
-      b.classList.toggle('active', b.dataset.cat === String(cat)));
-    renderDocs();
+      b.classList.toggle('active', b.dataset.cat === cat));
+    // Update meta filter fields for this category
+    const catId = cat === 'all' ? null : (allCategories.find(c => String(c.id) === cat || c.name === cat)?.id ?? null);
+    updateMetaFilterFields(catId);
+    runSearch();
+  }
+
+  /* ── Filter panel ───────────────────────────────────────── */
+  function toggleFilters() {
+    filtersVisible = !filtersVisible;
+    document.getElementById('filter-panel').style.display = filtersVisible ? 'block' : 'none';
+    document.getElementById('filter-toggle-btn').style.background = filtersVisible ? 'var(--teal)' : '';
+    document.getElementById('filter-toggle-btn').style.color = filtersVisible ? 'white' : '';
+  }
+
+  function updateMetaFilterFields(catId) {
+    const wrap = document.getElementById('meta-filter-fields');
+    wrap.innerHTML = '';
+    metaFilterDefs = [];
+    if (!catId) return;
+    apiFetch(`/api/documents/field-definitions?category_id=${catId}`).then(fields => {
+      metaFilterDefs = fields;
+      wrap.innerHTML = fields.map(f => `
+        <div class="form-group" style="margin:0">
+          <label style="font-size:12px">${esc(f.label)}</label>
+          ${metaFilterInput(f)}
+        </div>`).join('');
+    }).catch(() => {});
+  }
+
+  function metaFilterInput(f) {
+    const id = `mf-${f.id}`;
+    if (f.field_type === 'boolean') return `
+      <select id="${id}" class="form-input" style="font-size:13px">
+        <option value="">Any</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>`;
+    if (f.field_type === 'date') return `
+      <div style="display:flex;gap:4px">
+        <input type="date" id="${id}_from" class="form-input" style="font-size:12px" placeholder="From">
+        <input type="date" id="${id}_to"   class="form-input" style="font-size:12px" placeholder="To">
+      </div>`;
+    if (f.field_type === 'number') return `
+      <div style="display:flex;gap:4px;align-items:center">
+        <input type="number" id="${id}_min" class="form-input" style="font-size:12px;width:80px" placeholder="Min">
+        <span style="font-size:12px;color:var(--muted)">–</span>
+        <input type="number" id="${id}_max" class="form-input" style="font-size:12px;width:80px" placeholder="Max">
+      </div>`;
+    if (f.field_type === 'member_ref') return `
+      <input type="text" id="${id}" class="form-input" style="font-size:13px"
+             placeholder="Member name…" list="member-datalist">`;
+    return `<input type="text" id="${id}" class="form-input" style="font-size:13px"
+            placeholder="${esc(f.placeholder || 'Contains…')}">`;
+  }
+
+  function collectMetaFilterParams() {
+    const params = {};
+    metaFilterDefs.forEach(f => {
+      const id = `mf-${f.id}`;
+      if (f.field_type === 'date') {
+        const from = document.getElementById(id + '_from')?.value;
+        const to   = document.getElementById(id + '_to')?.value;
+        if (from) { params[`field_${f.id}_value`] = from; params[`field_${f.id}_op`] = 'after'; }
+        if (to)   { params[`field_${f.id}_value`] = to;   params[`field_${f.id}_op`] = 'before'; }
+      } else if (f.field_type === 'number') {
+        const min = document.getElementById(id + '_min')?.value;
+        const max = document.getElementById(id + '_max')?.value;
+        if (min) { params[`field_${f.id}_value`] = min; params[`field_${f.id}_op`] = 'gte'; }
+        if (max) { params[`field_${f.id}_value`] = max; params[`field_${f.id}_op`] = 'lte'; }
+      } else {
+        const val = document.getElementById(id)?.value?.trim();
+        if (val) {
+          params[`field_${f.id}_value`] = val;
+          params[`field_${f.id}_op`] = f.field_type === 'boolean' ? 'equals' : 'contains';
+        }
+      }
+    });
+    return params;
+  }
+
+  function applyFilter(extra) {
+    activeFilters = { ...activeFilters, ...extra };
+    runSearch();
+  }
+
+  function clearAllFilters() {
+    activeFilters = {};
+    ['f-date-from','f-date-to','f-retain-before','f-retain-after'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    document.querySelectorAll('[id^="mf-"]').forEach(el => el.value = '');
+    document.getElementById('search-q').value = '';
+    runSearch();
+  }
+
+  /* ── Search (server-side) ───────────────────────────────── */
+  async function runSearch() {
+    const params = new URLSearchParams();
+    const q = document.getElementById('search-q').value.trim();
+    if (q) params.set('q', q);
+
+    // Category tab
+    if (currentCat !== 'all') {
+      const catObj = allCategories.find(c => String(c.id) === currentCat || c.name === currentCat);
+      if (catObj) params.set('category_id', catObj.id);
+    }
+
+    // Date filters
+    const dateFrom     = document.getElementById('f-date-from')?.value;
+    const dateTo       = document.getElementById('f-date-to')?.value;
+    const retainBefore = document.getElementById('f-retain-before')?.value;
+    const retainAfter  = document.getElementById('f-retain-after')?.value;
+    if (dateFrom)     params.set('date_from',     dateFrom);
+    if (dateTo)       params.set('date_to',       dateTo);
+    if (retainBefore) params.set('retain_before', retainBefore);
+    if (retainAfter)  params.set('retain_after',  retainAfter);
+
+    // Pushed filters (e.g. from retention banner link)
+    Object.entries(activeFilters).forEach(([k,v]) => params.set(k, v));
+
+    // Metadata field filters
+    Object.entries(collectMetaFilterParams()).forEach(([k,v]) => params.set(k,v));
+
+    // Track active filter count for badge
+    const filterCount = [...params.keys()].filter(k => k !== 'category_id' && k !== 'q').length;
+    const badge = document.getElementById('filter-count-badge');
+    const clearBtn = document.getElementById('clear-filters-btn');
+    if (filterCount > 0 || q) {
+      badge.textContent = filterCount + (q ? 1 : 0);
+      badge.style.display = 'inline';
+      clearBtn.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+      clearBtn.style.display = 'none';
+    }
+
+    document.getElementById('docs-container').innerHTML =
+      '<div class="loading-state"><div class="spinner"></div><p>Searching…</p></div>';
+
+    try {
+      allDocs = await apiFetch(`/api/documents?${params.toString()}`);
+      renderDocs();
+      checkRetentionBanner();
+    } catch(e) {
+      document.getElementById('docs-container').innerHTML =
+        `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+    }
   }
 
   /* ── Render ─────────────────────────────────────────────── */
   function renderDocs() {
-    const q     = (document.getElementById('search-input')?.value || '').toLowerCase();
-    const today = new Date().toISOString().slice(0,10);
-
-    let filtered = allDocs.filter(d => {
-      if (currentCat === 'all')          return true;
-      if (currentCat === '__expiring__') return d.retain_until && d.retain_until <= today;
-      return d.category_id === currentCat || d.category_name === currentCat;
-    });
-
-    if (q) {
-      filtered = filtered.filter(d =>
-        (d.title         || '').toLowerCase().includes(q) ||
-        (d.description   || '').toLowerCase().includes(q) ||
-        (d.category_name || '').toLowerCase().includes(q)
-      );
-    }
-
     const container = document.getElementById('docs-container');
-    if (!filtered.length) {
+    if (!allDocs.length) {
       container.innerHTML = `<div class="empty-state">No documents found.</div>`;
       return;
     }
-
     // Group by category
     const groups = {};
     const order  = {};
-    filtered.forEach(d => {
+    allDocs.forEach(d => {
       const key = d.category_name || 'Uncategorised';
-      if (!groups[key]) { groups[key] = []; order[key] = d.category_id || 999; }
+      if (!groups[key]) { groups[key] = []; order[key] = d.category_id || 9999; }
       groups[key].push(d);
     });
-
     container.innerHTML = Object.entries(groups)
-      .sort(([a],[b]) => (order[a]||999) - (order[b]||999) || a.localeCompare(b))
+      .sort(([a],[b]) => (order[a]||9999) - (order[b]||9999) || a.localeCompare(b))
       .map(([cat, docs]) => {
         const catObj = allCategories.find(c => c.name === cat) || {};
-        return `
-          <div style="margin-bottom:28px">
-            <div class="dash-section-title">
-              ${catObj.icon || '📄'} ${esc(cat)}
-            </div>
-            <div class="doc-grid">${docs.map(docCard).join('')}</div>
-          </div>`;
+        return `<div style="margin-bottom:28px">
+          <div class="dash-section-title">${catObj.icon||'📄'} ${esc(cat)}</div>
+          <div class="doc-grid">${docs.map(docCard).join('')}</div>
+        </div>`;
       }).join('');
   }
 
   function docCard(d) {
-    const ext      = (d.filename || '').split('.').pop().toLowerCase();
+    const ext      = (d.filename||'').split('.').pop().toLowerCase();
     const icon     = EXT_ICONS[ext] || '📄';
     const upDate   = d.created_at
-      ? new Date(d.created_at + 'Z').toLocaleDateString('en-GB') : '—';
+      ? new Date(d.created_at+'Z').toLocaleDateString('en-GB') : '—';
     const today    = new Date().toISOString().slice(0,10);
     const expired  = d.retain_until && d.retain_until <= today;
     const expiring = d.retain_until && !expired &&
-      d.retain_until <= new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
-    const isRestricted = d.allowed_role_ids && String(d.allowed_role_ids).trim() !== '';
-    const lockBadge    = isRestricted
-      ? `<span title="Restricted to specific roles" style="font-size:11px">🔒</span>` : '';
-    const retentionBadge = expired
-      ? `<span class="badge" style="background:#fef2f2;color:#991b1b;font-size:11px">⚠️ Retention expired</span>`
+      d.retain_until <= new Date(Date.now()+30*864e5).toISOString().slice(0,10);
+    const locked   = d.allowed_role_ids && String(d.allowed_role_ids).trim();
+
+    const retBadge = expired
+      ? `<span class="badge" style="background:#fef2f2;color:#991b1b;font-size:11px">⚠️ Expired</span>`
       : expiring
-      ? `<span class="badge" style="background:#fff7ed;color:#c2410c;font-size:11px">⏳ Expires ${fmtDate(d.retain_until)}</span>`
+      ? `<span class="badge" style="background:#fff7ed;color:#c2410c;font-size:11px">⏳ ${fmtDate(d.retain_until)}</span>`
       : '';
+
+    const metaHtml = (d.metadata||[]).slice(0,3).map(m =>
+      `<span style="font-size:11px;color:var(--muted)">${esc(m.label)}: <strong>${esc(m.display||m.value)}</strong></span>`
+    ).join(' · ');
 
     return `
       <div class="doc-card">
         <div class="doc-icon">${icon}</div>
         <div class="doc-info">
-          <div class="doc-title">${esc(d.title)} ${lockBadge}</div>
-          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(d.description)}</div>` : ''}
+          <div class="doc-title">${esc(d.title)} ${locked ? '<span title="Restricted">🔒</span>' : ''}</div>
+          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${esc(d.description)}</div>` : ''}
           <div class="doc-meta">
             ${d.category_name
               ? `<span class="badge badge-ro" style="font-size:11px;background:${d.category_color||'#e2e8f0'};color:#1e293b">${d.category_icon||'📄'} ${esc(d.category_name)}</span>`
               : ''}
             <span style="color:var(--muted);font-size:12px">${upDate}</span>
-            <span style="color:var(--muted);font-size:12px">${esc(d.uploaded_by_name || '—')}</span>
-            ${retentionBadge}
+            <span style="color:var(--muted);font-size:12px">${esc(d.uploaded_by_name||'—')}</span>
+            ${retBadge}
           </div>
+          ${metaHtml ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">${metaHtml}</div>` : ''}
         </div>
         <div class="doc-actions">
           <a href="/api/documents/${d.id}/view"
              class="btn btn-ghost btn-sm" target="_blank" rel="noopener">👁</a>
           <a href="/api/documents/${d.id}/download"
              class="btn btn-ghost btn-sm" download>⬇️</a>
-          ${CAN_UPLOAD
-            ? `<button class="btn btn-ghost btn-sm"
-                 onclick='openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
-          ${CAN_DELETE
-            ? `<button class="btn btn-danger btn-sm"
-                 onclick='deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
+          ${CAN_UPLOAD ? `<button class="btn btn-ghost btn-sm"
+            onclick='openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
+          ${CAN_DELETE ? `<button class="btn btn-danger btn-sm"
+            onclick='deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
         </div>
       </div>`;
   }
@@ -314,26 +484,26 @@
     const today   = new Date().toISOString().slice(0,10);
     const expired = allDocs.filter(d => d.retain_until && d.retain_until <= today);
     const banner  = document.getElementById('retention-banner');
-    if (expired.length && banner) {
+    if (!banner) return;
+    if (expired.length) {
       document.getElementById('retention-count').textContent = expired.length;
       banner.style.display = 'block';
-    } else if (banner) {
+    } else {
       banner.style.display = 'none';
     }
   }
 
-  /* ── Category dropdowns ─────────────────────────────────── */
+  /* ── Dropdowns ──────────────────────────────────────────── */
   function populateCategoryDropdowns() {
     const opts = allCategories.map(c =>
-      `<option value="${c.id}">${c.icon || '📄'} ${esc(c.name)}</option>`).join('');
-    const uploadSel = document.getElementById('upload-category');
-    const editSel   = document.getElementById('edit-category');
-    if (uploadSel) uploadSel.innerHTML = '<option value="">— Select category —</option>' + opts;
-    if (editSel)   editSel.innerHTML   = '<option value="">— None —</option>' + opts;
+      `<option value="${c.id}">${c.icon||'📄'} ${esc(c.name)}</option>`).join('');
+    const up = document.getElementById('upload-category');
+    const ed = document.getElementById('edit-category');
+    if (up) up.innerHTML   = '<option value="">— Select category —</option>' + opts;
+    if (ed) ed.innerHTML   = '<option value="">— None —</option>' + opts;
   }
 
-  /* ── Role checkboxes helper ─────────────────────────────── */
-  function buildRoleCheckboxes(containerId, selectedIds = []) {
+  function buildRoleCheckboxes(containerId, selectedIds=[]) {
     const wrap = document.getElementById(containerId);
     if (!wrap) return;
     if (!allRoles.length) {
@@ -341,11 +511,10 @@
       return;
     }
     wrap.innerHTML = allRoles.map(r => `
-      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:14px">
-        <input type="checkbox" value="${r.id}"
-               ${selectedIds.includes(r.id) ? 'checked' : ''}
+      <label style="display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px">
+        <input type="checkbox" value="${r.id}" ${selectedIds.includes(r.id)?'checked':''}
                style="accent-color:var(--teal)">
-        ${esc(r.display_name || r.name)}
+        ${esc(r.display_name||r.name)}
       </label>`).join('');
   }
 
@@ -354,14 +523,91 @@
       .map(cb => parseInt(cb.value));
   }
 
+  /* ── Dynamic metadata fields ────────────────────────────── */
+  async function loadMetaFields(catId, containerId, existingValues={}) {
+    const wrap = document.getElementById(containerId);
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    if (!catId) return;
+    try {
+      const fields = await apiFetch(`/api/documents/field-definitions?category_id=${catId}`);
+      if (!fields.length) return;
+      wrap.innerHTML = `<hr style="margin:14px 0;border-color:var(--border)">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);
+             text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+          Additional Fields
+        </div>` +
+        fields.map(f => `
+          <div class="form-group" data-field-id="${f.id}">
+            <label>${esc(f.label)}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}
+              ${f.help_text ? `<span style="color:var(--muted);font-weight:400;font-size:11px"> — ${esc(f.help_text)}</span>` : ''}
+            </label>
+            ${metaFieldInput(f, existingValues[f.id] ?? '')}
+          </div>`).join('');
+    } catch(e) { /* silent */ }
+  }
+
+  function metaFieldInput(f, val='') {
+    const id = `meta-${f.id}`;
+    if (f.field_type === 'boolean') return `
+      <select id="${id}" class="form-input">
+        <option value="">— Select —</option>
+        <option value="true"  ${val==='true'?'selected':''}>Yes</option>
+        <option value="false" ${val==='false'?'selected':''}>No</option>
+      </select>`;
+    if (f.field_type === 'date') return `
+      <input type="date" id="${id}" class="form-input" value="${esc(val)}">`;
+    if (f.field_type === 'number') return `
+      <input type="number" id="${id}" class="form-input" value="${esc(val)}"
+             placeholder="${esc(f.placeholder||'')}">`;
+    if (f.field_type === 'member_ref') {
+      const memberOpts = allMembers.map(m =>
+        `<option value="${m.id}" ${String(val)===String(m.id)?'selected':''}>${esc(m.first_name+' '+m.last_name)}</option>`
+      ).join('');
+      return `<select id="${id}" class="form-input">
+        <option value="">— Select member —</option>${memberOpts}</select>`;
+    }
+    return `<input type="text" id="${id}" class="form-input" value="${esc(val)}"
+            placeholder="${esc(f.placeholder||'')}">`;
+  }
+
+  function collectMetaValues(containerId) {
+    const results = [];
+    document.querySelectorAll(`#${containerId} [data-field-id]`).forEach(row => {
+      const fid = parseInt(row.dataset.fieldId);
+      const inp = row.querySelector(`[id^="meta-${fid}"]`);
+      if (inp) results.push({ field_id: fid, value: inp.value.trim() || null });
+    });
+    return results;
+  }
+
+  function loadUploadMetaFields() {
+    const catId = document.getElementById('upload-category').value;
+    loadMetaFields(catId, 'upload-meta-fields');
+  }
+
+  async function loadEditMetaFields() {
+    const catId = document.getElementById('edit-category').value;
+    const docId = document.getElementById('edit-doc-id').value;
+    if (!catId || !docId) { document.getElementById('edit-meta-fields').innerHTML=''; return; }
+    // Fetch existing values for this doc
+    const existing = {};
+    try {
+      const rows = await apiFetch(`/api/documents/${docId}/metadata`);
+      rows.forEach(r => { if (r.value != null) existing[r.field_id] = r.value; });
+    } catch(e) {}
+    loadMetaFields(catId, 'edit-meta-fields', existing);
+  }
+
   /* ── Upload ─────────────────────────────────────────────── */
   function openUploadModal() {
-    ['upload-file','upload-title','upload-description','upload-retain-until',
-     'upload-retention-notes'].forEach(id => {
+    ['upload-file','upload-title','upload-description',
+     'upload-retain-until','upload-retention-notes'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
     document.getElementById('upload-category').value = '';
+    document.getElementById('upload-meta-fields').innerHTML = '';
     buildRoleCheckboxes('upload-roles-list');
     document.getElementById('upload-modal').classList.add('open');
   }
@@ -373,9 +619,8 @@
   function onFileSelected(input) {
     const name  = input.files[0]?.name || '';
     const title = document.getElementById('upload-title');
-    if (!title.value && name) {
+    if (!title.value && name)
       title.value = name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-    }
   }
 
   async function uploadDocument() {
@@ -397,14 +642,20 @@
     fd.append('role_ids',        JSON.stringify(getCheckedRoleIds('upload-roles-list')));
 
     try {
-      await apiFetch('/api/documents', { method: 'POST', body: fd });
+      const res = await apiFetch('/api/documents', { method:'POST', body:fd });
+      const docId = res.id;
+      // Save metadata fields if any
+      const metaItems = collectMetaValues('upload-meta-fields');
+      if (metaItems.length && docId) {
+        await apiFetch(`/api/documents/${docId}/metadata`, {
+          method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(metaItems),
+        }).catch(() => {});
+      }
       showToast('Document uploaded.');
       closeUploadModal();
-      allDocs = await apiFetch('/api/documents');
-      buildCatTabs();
-      renderDocs();
-      checkRetentionBanner();
-    } catch (e) {
+      await runSearch();
+    } catch(e) {
       showToast(e.message, true);
     } finally {
       btn.disabled = false;
@@ -412,16 +663,29 @@
   }
 
   /* ── Edit ───────────────────────────────────────────────── */
-  function openEditModal(doc) {
+  async function openEditModal(doc) {
     document.getElementById('edit-doc-id').value          = doc.id;
+    document.getElementById('edit-doc-category-id').value = doc.category_id || '';
     document.getElementById('edit-title').value           = doc.title || '';
     document.getElementById('edit-description').value     = doc.description || '';
     document.getElementById('edit-category').value        = doc.category_id || '';
     document.getElementById('edit-retain-until').value    = doc.retain_until || '';
     document.getElementById('edit-retention-notes').value = doc.retention_notes || '';
+    // Load role access
     apiFetch(`/api/documents/${doc.id}/access`)
       .then(rows => buildRoleCheckboxes('edit-roles-list', rows.map(r => r.role_id)))
       .catch(()  => buildRoleCheckboxes('edit-roles-list'));
+    // Load metadata fields with existing values
+    if (doc.category_id) {
+      const existing = {};
+      try {
+        const rows = await apiFetch(`/api/documents/${doc.id}/metadata`);
+        rows.forEach(r => { if (r.value != null) existing[r.field_id] = r.value; });
+      } catch(e) {}
+      loadMetaFields(doc.category_id, 'edit-meta-fields', existing);
+    } else {
+      document.getElementById('edit-meta-fields').innerHTML = '';
+    }
     document.getElementById('edit-modal').classList.add('open');
   }
 
@@ -435,9 +699,8 @@
     btn.disabled = true;
     try {
       await apiFetch(`/api/documents/${id}`, {
-        method:  'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
           title:           document.getElementById('edit-title').value.trim(),
           description:     document.getElementById('edit-description').value.trim() || null,
           category_id:     document.getElementById('edit-category').value || null,
@@ -446,13 +709,18 @@
           role_ids:        getCheckedRoleIds('edit-roles-list'),
         }),
       });
+      // Save metadata
+      const metaItems = collectMetaValues('edit-meta-fields');
+      if (metaItems.length) {
+        await apiFetch(`/api/documents/${id}/metadata`, {
+          method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(metaItems),
+        }).catch(() => {});
+      }
       showToast('Document updated.');
       closeEditModal();
-      allDocs = await apiFetch('/api/documents');
-      buildCatTabs();
-      renderDocs();
-      checkRetentionBanner();
-    } catch (e) {
+      await runSearch();
+    } catch(e) {
       showToast(e.message, true);
     } finally {
       btn.disabled = false;
@@ -461,26 +729,28 @@
 
   /* ── Delete ─────────────────────────────────────────────── */
   async function deleteDoc(id, title) {
-    if (!confirm(`Permanently delete "${title}"?\n\nThis cannot be undone — the file will be removed from the server immediately.`)) return;
+    if (!confirm(`Permanently delete "${title}"?\n\nThis cannot be undone.`)) return;
     try {
-      await apiFetch(`/api/documents/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/documents/${id}`, { method:'DELETE' });
       showToast('Document deleted.');
-      allDocs = allDocs.filter(d => d.id !== id);
-      buildCatTabs();
-      renderDocs();
-      checkRetentionBanner();
-    } catch (e) {
+      await runSearch();
+    } catch(e) {
       showToast(e.message, true);
     }
   }
 
-  /* ── Modal close on backdrop click ─────────────────────── */
+  /* ── Modal backdrop close ───────────────────────────────── */
   ['upload-modal','edit-modal'].forEach(id => {
     document.getElementById(id)?.addEventListener('click', function(e) {
       if (e.target === this) this.classList.remove('open');
     });
   });
 </script>
+
+<!-- Member datalist for member_ref filter -->
+<datalist id="member-datalist">
+  {% raw %}{% endraw %}
+</datalist>
 
 <style>
   .doc-grid {
@@ -499,11 +769,11 @@
     transition: border-color .18s;
   }
   .doc-card:hover { border-color: var(--teal); }
-  .doc-icon   { font-size: 28px; flex-shrink: 0; line-height: 1; margin-top: 3px; }
-  .doc-info   { flex: 1; min-width: 0; }
-  .doc-title  { font-size: 14px; font-weight: 800; color: var(--navy);
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .doc-meta   { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
-  .doc-actions { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+  .doc-icon    { font-size: 28px; flex-shrink:0; line-height:1; margin-top:3px; }
+  .doc-info    { flex:1; min-width:0; }
+  .doc-title   { font-size:14px; font-weight:800; color:var(--navy);
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doc-meta    { display:flex; align-items:center; gap:6px; margin-top:5px; flex-wrap:wrap; }
+  .doc-actions { display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
 </style>
 {% endblock %}

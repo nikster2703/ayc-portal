@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Document Fields{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🗂 Document Field Definitions</h1>
+  <a href="/admin/document-categories" class="btn btn-ghost">← Back to Categories</a>
+</div>
+
+<div class="form-card" style="max-width:720px">
+
+  <!-- Category header pill -->
+  <div id="cat-header" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+    <span id="cat-icon" style="font-size:26px">📄</span>
+    <div>
+      <div id="cat-name" style="font-size:18px;font-weight:900;color:var(--navy)">Loading…</div>
+      <div id="cat-desc" style="font-size:13px;color:var(--muted)"></div>
+    </div>
+  </div>
+
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px;border-top:1px solid var(--border);padding-top:14px">
+    Define the metadata fields that appear when uploading or editing a document in this
+    category. Fields are shown in order — use the arrows to reorder. Deactivating a field
+    hides it from new uploads but preserves any data already saved against existing documents.
+  </p>
+
+  <div id="fields-list" style="margin-bottom:20px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:16px">
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add Field</button>
+  </div>
+</div>
+
+<!-- ── Add / Edit modal ──────────────────────────────────────────────────── -->
+<div id="field-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:500px">
+    <h2 id="modal-title">Add Field</h2>
+    <input type="hidden" id="modal-id">
+
+    <div class="form-group" style="margin-top:16px">
+      <label>Label <span style="color:var(--red)">*</span></label>
+      <input id="f-label" class="form-input" placeholder="e.g. Review Date" maxlength="80">
+    </div>
+
+    <div class="form-group">
+      <label>Field Type <span style="color:var(--red)">*</span></label>
+      <select id="f-type" class="form-input" onchange="onTypeChange()">
+        <option value="text">Text</option>
+        <option value="date">Date</option>
+        <option value="number">Number</option>
+        <option value="boolean">Yes / No</option>
+        <option value="member_ref">Member (link to member record)</option>
+      </select>
+    </div>
+
+    <div id="f-placeholder-group" class="form-group">
+      <label>Placeholder <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <input id="f-placeholder" class="form-input" placeholder="e.g. Select a date…" maxlength="120">
+    </div>
+
+    <div class="form-group">
+      <label>Help Text <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <input id="f-help" class="form-input" placeholder="Short guidance shown below the field" maxlength="200">
+    </div>
+
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="f-required" style="width:16px;height:16px;accent-color:var(--teal)">
+        Required field
+      </label>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">
+        If checked, uploaders must fill in this field before saving.
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn" onclick="saveField()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Category ID injected by Flask template
+  const CAT_ID = {{ cat_id | tojson }};
+
+  let fields    = [];
+  let editingId = null;
+
+  const TYPE_LABELS = {
+    text:       'Text',
+    date:       'Date',
+    number:     'Number',
+    boolean:    'Yes / No',
+    member_ref: 'Member',
+  };
+
+  /* ── Bootstrap: load category info + fields ─────────────────────────── */
+  async function init() {
+    try {
+      const [catRes, fieldsRes] = await Promise.all([
+        fetch('/api/documents/categories?include_inactive=1'),
+        fetch(`/api/documents/field-definitions?category_id=${CAT_ID}&include_inactive=1`),
+      ]);
+      if (!catRes.ok)    throw new Error(await catRes.text());
+      if (!fieldsRes.ok) throw new Error(await fieldsRes.text());
+
+      const cats = await catRes.json();
+      const cat  = cats.find(c => c.id === CAT_ID);
+      if (cat) {
+        document.getElementById('cat-icon').textContent = cat.icon || '📄';
+        document.getElementById('cat-name').textContent = cat.name;
+        document.getElementById('cat-desc').textContent = cat.description || '';
+        document.getElementById('cat-icon').style.color = cat.color || '#64748b';
+      }
+
+      fields = await fieldsRes.json();
+      renderList();
+    } catch (e) {
+      document.getElementById('fields-list').innerHTML =
+        `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+    }
+  }
+  init();
+
+  /* ── Render ──────────────────────────────────────────────────────────── */
+  function renderList() {
+    const wrap = document.getElementById('fields-list');
+    if (!fields.length) {
+      wrap.innerHTML = `
+        <div class="empty-state" style="text-align:center;padding:28px 0;color:var(--muted)">
+          No fields defined yet for this category.<br>
+          <span style="font-size:13px">Add a field below to start collecting metadata on uploads.</span>
+        </div>`;
+      return;
+    }
+
+    // Sort by sort_order ascending
+    const sorted = [...fields].sort((a, b) => a.sort_order - b.sort_order);
+
+    wrap.innerHTML = `
+      <div style="border:2px solid var(--border);border-radius:10px;overflow:hidden">
+        ${sorted.map((f, i) => {
+          const isFirst = i === 0;
+          const isLast  = i === sorted.length - 1;
+          const inactive = !f.active;
+          return `
+          <div data-field-id="${f.id}" style="
+               display:flex;align-items:flex-start;gap:12px;padding:12px 16px;
+               ${i > 0 ? 'border-top:1px solid var(--border)' : ''}
+               ${inactive ? 'opacity:.5;background:#f8f8f8' : ''}">
+
+            <!-- Reorder arrows -->
+            <div style="display:flex;flex-direction:column;gap:2px;padding-top:2px;flex-shrink:0">
+              <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px"
+                      ${isFirst ? 'disabled' : ''}
+                      onclick="moveField(${f.id}, -1)" title="Move up">▲</button>
+              <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px"
+                      ${isLast ? 'disabled' : ''}
+                      onclick="moveField(${f.id}, 1)" title="Move down">▼</button>
+            </div>
+
+            <!-- Field info -->
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;color:var(--navy);font-size:14px;display:flex;align-items:center;gap:8px">
+                ${esc(f.label)}
+                <span class="badge" style="background:var(--teal);color:white;font-size:10px">
+                  ${esc(TYPE_LABELS[f.field_type] || f.field_type)}
+                </span>
+                ${f.required ? `<span class="badge" style="background:#dc2626;color:white;font-size:10px">Required</span>` : ''}
+                ${inactive   ? `<span class="badge" style="background:#94a3b8;color:white;font-size:10px">Inactive</span>` : ''}
+              </div>
+              ${f.help_text ? `<div style="font-size:12px;color:var(--muted);margin-top:3px">${esc(f.help_text)}</div>` : ''}
+              ${f.placeholder && f.field_type !== 'boolean' && f.field_type !== 'member_ref'
+                ? `<div style="font-size:12px;color:var(--muted);font-style:italic">Placeholder: "${esc(f.placeholder)}"</div>`
+                : ''}
+            </div>
+
+            <!-- Actions -->
+            <div style="display:flex;gap:6px;flex-shrink:0">
+              ${!inactive ? `
+              <button class="btn btn-ghost btn-sm" onclick="openEditModal(${f.id})">✏️ Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deactivateField(${f.id}, ${JSON.stringify(f.label)})">
+                Deactivate
+              </button>` : `
+              <button class="btn btn-ghost btn-sm" onclick="reactivateField(${f.id})">
+                ↩ Restore
+              </button>`}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  /* ── Reorder ─────────────────────────────────────────────────────────── */
+  async function moveField(fieldId, direction) {
+    const sorted = [...fields].sort((a, b) => a.sort_order - b.sort_order);
+    const idx    = sorted.findIndex(f => f.id === fieldId);
+    if (idx < 0) return;
+    const swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+
+    const a = sorted[idx];
+    const b = sorted[swapIdx];
+
+    // Swap sort_order values
+    const tmpOrder = a.sort_order;
+    a.sort_order   = b.sort_order;
+    b.sort_order   = tmpOrder;
+
+    // If sort_order values are the same, force a difference
+    if (a.sort_order === b.sort_order) {
+      a.sort_order = swapIdx;
+      b.sort_order = idx;
+    }
+
+    try {
+      await Promise.all([
+        apiFetch(`/api/documents/field-definitions/${a.id}`, {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ sort_order: a.sort_order }),
+        }),
+        apiFetch(`/api/documents/field-definitions/${b.id}`, {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ sort_order: b.sort_order }),
+        }),
+      ]);
+      // Update local state
+      fields = fields.map(f => {
+        if (f.id === a.id) return { ...f, sort_order: a.sort_order };
+        if (f.id === b.id) return { ...f, sort_order: b.sort_order };
+        return f;
+      });
+      renderList();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Type change handler ─────────────────────────────────────────────── */
+  function onTypeChange() {
+    const type = document.getElementById('f-type').value;
+    // Hide placeholder for boolean/member_ref — not applicable
+    const showPlaceholder = type !== 'boolean' && type !== 'member_ref';
+    document.getElementById('f-placeholder-group').style.display = showPlaceholder ? '' : 'none';
+  }
+
+  /* ── Modal: Add ─────────────────────────────────────────────────────── */
+  function openAddModal() {
+    editingId = null;
+    document.getElementById('modal-title').textContent    = 'Add Field';
+    document.getElementById('modal-id').value             = '';
+    document.getElementById('f-label').value              = '';
+    document.getElementById('f-type').value               = 'text';
+    document.getElementById('f-placeholder').value        = '';
+    document.getElementById('f-help').value               = '';
+    document.getElementById('f-required').checked         = false;
+    onTypeChange();
+    document.getElementById('field-modal').classList.add('open');
+    document.getElementById('f-label').focus();
+  }
+
+  /* ── Modal: Edit ─────────────────────────────────────────────────────── */
+  function openEditModal(id) {
+    const f = fields.find(x => x.id === id);
+    if (!f) return;
+    editingId = id;
+    document.getElementById('modal-title').textContent    = 'Edit Field';
+    document.getElementById('modal-id').value             = id;
+    document.getElementById('f-label').value              = f.label || '';
+    document.getElementById('f-type').value               = f.field_type || 'text';
+    document.getElementById('f-placeholder').value        = f.placeholder || '';
+    document.getElementById('f-help').value               = f.help_text || '';
+    document.getElementById('f-required').checked         = !!f.required;
+    onTypeChange();
+    document.getElementById('field-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('field-modal').classList.remove('open');
+  }
+
+  /* ── Save ───────────────────────────────────────────────────────────── */
+  async function saveField() {
+    const label = document.getElementById('f-label').value.trim();
+    if (!label) { showToast('Label is required.', true); return; }
+
+    const btn = document.getElementById('modal-save-btn');
+    btn.disabled = true;
+
+    const type = document.getElementById('f-type').value;
+    const payload = {
+      label,
+      field_type:  type,
+      placeholder: (type !== 'boolean' && type !== 'member_ref')
+                     ? document.getElementById('f-placeholder').value.trim()
+                     : '',
+      help_text:   document.getElementById('f-help').value.trim(),
+      required:    document.getElementById('f-required').checked ? 1 : 0,
+      category_id: CAT_ID,
+    };
+
+    try {
+      if (editingId) {
+        await apiFetch(`/api/documents/field-definitions/${editingId}`, {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body:   JSON.stringify(payload),
+        });
+        // Update local state
+        fields = fields.map(f => f.id === editingId ? { ...f, ...payload } : f);
+        showToast('Field updated.');
+      } else {
+        const res = await apiFetch('/api/documents/field-definitions', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body:   JSON.stringify(payload),
+        });
+        // Append with a sort_order beyond current max
+        const maxOrder = fields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0);
+        fields.push({ ...payload, id: res.id, active: 1, sort_order: maxOrder + 1 });
+        showToast('Field added.');
+      }
+      closeModal();
+      renderList();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Deactivate / Restore ───────────────────────────────────────────── */
+  async function deactivateField(id, label) {
+    if (!confirm(`Deactivate "${label}"?\n\nExisting document metadata will be preserved, but this field will no longer appear on new uploads or edits.`)) return;
+    try {
+      await apiFetch(`/api/documents/field-definitions/${id}`, { method: 'DELETE' });
+      fields = fields.map(f => f.id === id ? { ...f, active: 0 } : f);
+      showToast('Field deactivated.');
+      renderList();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function reactivateField(id) {
+    try {
+      await apiFetch(`/api/documents/field-definitions/${id}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body:   JSON.stringify({ active: 1 }),
+      });
+      fields = fields.map(f => f.id === id ? { ...f, active: 1 } : f);
+      showToast('Field restored.');
+      renderList();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Utility ─────────────────────────────────────────────────────────── */
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* Enter key in modal label → save */
+  document.getElementById('f-label').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveField();
+  });
+</script>
+{% endblock %}

@@ -115,6 +115,7 @@
               ${c.description ? `<div style="font-size:12px;color:var(--muted)">${esc(c.description)}</div>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0">
+              <a href="/admin/document-fields/${c.id}" class="btn btn-ghost btn-sm" title="Manage metadata fields for this category">🗂 Fields</a>
               <button class="btn btn-ghost btn-sm" onclick="openEditModal(${c.id})">✏️ Edit</button>
               <button class="btn btn-danger btn-sm"
                       onclick="deactivateCategory(${c.id}, ${JSON.stringify(c.name)})">
