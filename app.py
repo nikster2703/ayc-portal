@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v8.21'  # v8.21: extend field-value alert rule to support is_filled condition alongside existing is_empty
+APP_VERSION = 'v8.22'  # v8.22: fix postcode use_lookup flag missing from public field-config API — lookup button always showed on registration forms
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -1993,7 +1993,7 @@ def api_public_field_config(slug):
     rows = db.execute('''
         SELECT  fd.id, fd.key, fd.label, fd.field_type,
                 fd.column_name, fd.system_field,
-                fd.placeholder, fd.help_text, fd.options,
+                fd.placeholder, fd.help_text, fd.options, fd.use_lookup,
                 mtf.required, mtf.sort_order
         FROM    member_type_fields mtf
         JOIN    field_definitions fd ON fd.id = mtf.field_id
