@@ -4398,10 +4398,10 @@ def _rebuild_doc_fts(db, doc_id):
         if row['field_type'] == 'member_ref':
             # Resolve member name for searchability
             m = db.execute(
-                "SELECT first_name, last_name FROM members WHERE id = ?", (row['value'],)
+                "SELECT first_name, surname FROM members WHERE id = ?", (row['value'],)
             ).fetchone()
             if m:
-                parts.append(f"{m['first_name']} {m['last_name']}")
+                parts.append(f"{m['first_name']} {m['surname']}")
         else:
             parts.append(row['value'])
 
@@ -4655,16 +4655,31 @@ def api_documents_list():
     retain_before = request.args.get('retain_before') or None
     retain_after  = request.args.get('retain_after') or None
 
-    # Metadata field filters: field_<field_id>_op + field_<field_id>_value
+    # Metadata field filters: field_<fid>_value+op (text/bool/member),
+    # field_<fid>_from / _to (date bounds), field_<fid>_min / _max (number bounds)
     meta_filters = []
     for key, val in request.args.items():
-        if key.startswith('field_') and key.endswith('_value') and val.strip():
-            try:
+        if not key.startswith('field_') or not val.strip():
+            continue
+        try:
+            if key.endswith('_value'):
                 fid = int(key.split('_')[1])
                 op  = request.args.get(f'field_{fid}_op', 'contains')
                 meta_filters.append((fid, op, val.strip()))
-            except (IndexError, ValueError):
-                pass
+            elif key.endswith('_from'):
+                fid = int(key.split('_')[1])
+                meta_filters.append((fid, 'after', val.strip()))
+            elif key.endswith('_to'):
+                fid = int(key.split('_')[1])
+                meta_filters.append((fid, 'before', val.strip()))
+            elif key.endswith('_min'):
+                fid = int(key.split('_')[1])
+                meta_filters.append((fid, 'gte', val.strip()))
+            elif key.endswith('_max'):
+                fid = int(key.split('_')[1])
+                meta_filters.append((fid, 'lte', val.strip()))
+        except (IndexError, ValueError):
+            pass
 
     # ── FTS5 full-text search → restrict to matching doc_ids ─────────────────
     fts_ids = None
@@ -4785,10 +4800,10 @@ def api_documents_list():
         member_names = {}
         if member_ids:
             mrows = db.execute(
-                f'SELECT id, first_name, last_name FROM members WHERE id IN ({",".join("?" * len(member_ids))})',
+                f'SELECT id, first_name, surname FROM members WHERE id IN ({",".join("?" * len(member_ids))})',
                 list(member_ids)
             ).fetchall()
-            member_names = {str(m['id']): f"{m['first_name']} {m['last_name']}" for m in mrows}
+            member_names = {str(m['id']): f"{m['first_name']} {m['surname']}" for m in mrows}
 
         meta_by_doc = {}
         for mr in meta_rows:
@@ -4873,7 +4888,6 @@ def api_documents_upload():
 
     db.commit()
     _rebuild_doc_fts(db, doc_id)
-    db.commit()
     log_action('upload_document', 'documents', doc_id,
                {'title': title, 'category_id': category_id, 'restricted_to_roles': role_ids})
     return jsonify({'success': True, 'id': doc_id})
@@ -4915,7 +4929,6 @@ def api_documents_update(doc_id):
 
     db.commit()
     _rebuild_doc_fts(db, doc_id)
-    db.commit()
     log_action('update_document', 'documents', doc_id, {k: data[k] for k in data if k != 'role_ids'})
     return jsonify({'success': True})
 
@@ -4965,9 +4978,9 @@ def api_documents_get_metadata(doc_id):
         # Resolve member name for display
         if row['field_type'] == 'member_ref' and row['value']:
             m = db.execute(
-                "SELECT id, first_name, last_name FROM members WHERE id = ?", (row['value'],)
+                "SELECT id, first_name, surname FROM members WHERE id = ?", (row['value'],)
             ).fetchone()
-            item['member'] = {'id': m['id'], 'name': f"{m['first_name']} {m['last_name']}"} if m else None
+            item['member'] = {'id': m['id'], 'name': f"{m['first_name']} {m['surname']}"} if m else None
         result.append(item)
 
     return jsonify(result)
@@ -5014,7 +5027,6 @@ def api_documents_put_metadata(doc_id):
 
     db.commit()
     _rebuild_doc_fts(db, doc_id)
-    db.commit()
     log_action('update_doc_metadata', 'documents', doc_id, {})
     return jsonify({'success': True})
 
@@ -5077,7 +5089,6 @@ def api_documents_delete(doc_id):
     db.execute('DELETE FROM document_role_access WHERE document_id = ?', (doc_id,))
     db.commit()
     _rebuild_doc_fts(db, doc_id)   # removes from FTS index (active=0 triggers early return)
-    db.commit()
     log_action('delete_document', 'documents', doc_id, {'title': doc['title']})
     return jsonify({'success': True})
 

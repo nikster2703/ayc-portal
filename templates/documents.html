@@ -224,6 +224,7 @@
           apiFetch('/api/admin/roles').catch(() => []),
           apiFetch('/api/members?status=active').catch(() => []),
         ]);
+        populateMemberDatalist();
       }
       buildCatTabs();
       populateCategoryDropdowns();
@@ -314,13 +315,15 @@
       if (f.field_type === 'date') {
         const from = document.getElementById(id + '_from')?.value;
         const to   = document.getElementById(id + '_to')?.value;
-        if (from) { params[`field_${f.id}_value`] = from; params[`field_${f.id}_op`] = 'after'; }
-        if (to)   { params[`field_${f.id}_value`] = to;   params[`field_${f.id}_op`] = 'before'; }
+        // Use separate _from/_to params so both bounds can be sent simultaneously
+        if (from) params[`field_${f.id}_from`] = from;
+        if (to)   params[`field_${f.id}_to`]   = to;
       } else if (f.field_type === 'number') {
         const min = document.getElementById(id + '_min')?.value;
         const max = document.getElementById(id + '_max')?.value;
-        if (min) { params[`field_${f.id}_value`] = min; params[`field_${f.id}_op`] = 'gte'; }
-        if (max) { params[`field_${f.id}_value`] = max; params[`field_${f.id}_op`] = 'lte'; }
+        // Use separate _min/_max params so both bounds can be sent simultaneously
+        if (min) params[`field_${f.id}_min`] = min;
+        if (max) params[`field_${f.id}_max`] = max;
       } else {
         const val = document.getElementById(id)?.value?.trim();
         if (val) {
@@ -501,6 +504,14 @@
     const ed = document.getElementById('edit-category');
     if (up) up.innerHTML   = '<option value="">— Select category —</option>' + opts;
     if (ed) ed.innerHTML   = '<option value="">— None —</option>' + opts;
+  }
+
+  function populateMemberDatalist() {
+    const dl = document.getElementById('member-datalist');
+    if (!dl || !allMembers.length) return;
+    dl.innerHTML = allMembers
+      .map(m => `<option value="${esc((m.first_name||'') + ' ' + (m.surname||''))}">`)
+      .join('');
   }
 
   function buildRoleCheckboxes(containerId, selectedIds=[]) {
@@ -747,10 +758,8 @@
   });
 </script>
 
-<!-- Member datalist for member_ref filter -->
-<datalist id="member-datalist">
-  {% raw %}{% endraw %}
-</datalist>
+<!-- Member datalist for member_ref filter — populated by populateMemberDatalist() -->
+<datalist id="member-datalist"></datalist>
 
 <style>
   .doc-grid {
