@@ -87,7 +87,10 @@
 </div>
 
 <!-- ── Clear data ────────────────────────────────────────────────── -->
-<div class="form-card" style="max-width:520px;border-color:#fecaca">
+<div class="form-card" style="max-width:520px;border-color:#fecaca;margin-bottom:20px">
+  <h2 style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
+    🗑️ Clear Historical Records
+  </h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.6">
     Permanently delete historical records to give the portal a clean slate.
     Each action is <strong style="color:#991b1b">irreversible</strong> and is logged to the audit trail.
@@ -101,6 +104,69 @@
 
   <div id="maintenance-rows" style="display:flex;flex-direction:column;gap:10px">
     <div class="loading-state"><div class="spinner"></div><p>Loading counts…</p></div>
+  </div>
+</div>
+
+<!-- ── Danger zone: clear all members ────────────────────────────── -->
+<div class="form-card" style="max-width:520px;border-color:#7f1d1d;background:#fff5f5;margin-bottom:20px">
+  <h2 style="font-size:16px;font-weight:700;color:#7f1d1d;margin-bottom:4px">
+    ☠️ Danger Zone
+  </h2>
+  <p style="font-size:13px;color:#991b1b;margin-bottom:16px;line-height:1.6">
+    These actions are <strong>catastrophic and irreversible</strong>. They should only ever
+    be used to completely reset the portal between seasons or before a fresh import.
+    A backup is strongly recommended first.
+  </p>
+
+  <div style="background:white;border:2px solid #fca5a5;border-radius:10px;padding:14px 16px">
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="flex:1">
+        <div style="font-weight:800;font-size:14px;color:#7f1d1d">Clear All Members</div>
+        <div style="font-size:12px;color:#991b1b;margin-top:3px;line-height:1.6">
+          Permanently deletes <strong id="member-count-label">all members</strong>,
+          their contacts, alert flags, attendance records, and DofE participant data.
+          Portal users, documents and settings are not affected.
+        </div>
+      </div>
+      <button class="btn btn-danger btn-sm" id="btn-clear-members"
+              onclick="openClearMembersModal()" style="flex-shrink:0;white-space:nowrap">
+        Clear Members…
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Clear Members confirmation modal ─────────────────────────── -->
+<div id="clear-members-modal" style="display:none;position:fixed;inset:0;z-index:1000;
+     background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px 28px 22px;
+              max-width:440px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,0.22);
+              border:3px solid #dc2626">
+    <div style="font-size:22px;font-weight:800;color:#7f1d1d;margin-bottom:10px">
+      ☠️ Clear All Members?
+    </div>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+      This will <strong style="color:#7f1d1d">permanently delete</strong> every member record in the database, along with all associated contacts, alert flags, attendance history, and DofE data.
+    </p>
+    <div id="clear-members-summary" style="background:#fff5f5;border:1.5px solid #fca5a5;
+         border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px;
+         display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">
+    </div>
+    <p style="font-size:13px;font-weight:700;color:#7f1d1d;margin-bottom:8px">
+      This action cannot be undone. Type <code>DELETE ALL MEMBERS</code> to confirm:
+    </p>
+    <input type="text" id="clear-members-phrase" class="form-input"
+           placeholder="DELETE ALL MEMBERS"
+           oninput="document.getElementById('btn-confirm-clear-members').disabled =
+                    this.value !== 'DELETE ALL MEMBERS'"
+           style="font-size:13px;margin-bottom:14px;font-family:monospace;letter-spacing:.03em">
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="closeClearMembersModal()">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="btn-confirm-clear-members"
+              onclick="doClearMembers()" disabled>
+        Delete All Members
+      </button>
+    </div>
   </div>
 </div>
 
@@ -185,31 +251,6 @@
     },
   ];
 
-  async function loadMaintenanceCounts() {
-    const container = document.getElementById('maintenance-rows');
-    try {
-      const counts = await apiFetch('/api/admin/maintenance/counts');
-      container.innerHTML = MAINTENANCE_ITEMS.map(item => `
-        <div class="maint-row" id="maint-${item.key}">
-          <div class="maint-info">
-            <div class="maint-label">${item.label}</div>
-            <div class="maint-desc">${item.desc}</div>
-          </div>
-          <div class="maint-count" id="count-${item.key}">
-            ${counts[item.key].toLocaleString()} record${counts[item.key] !== 1 ? 's' : ''}
-          </div>
-          <button class="btn btn-danger btn-sm maint-btn"
-                  id="btn-${item.key}"
-                  onclick="clearData('${item.key}', '${item.url}', '${item.confirm}')"
-                  ${counts[item.key] === 0 ? 'disabled' : ''}>
-            Clear
-          </button>
-        </div>`).join('');
-    } catch (e) {
-      container.innerHTML = `<div style="color:var(--red);font-size:13px">Could not load counts.</div>`;
-    }
-  }
-
   async function clearData(key, url, confirmMsg) {
     if (!confirm(`⚠️ ${confirmMsg}\n\nThis cannot be undone.`)) return;
     const btn     = document.getElementById(`btn-${key}`);
@@ -228,7 +269,99 @@
     }
   }
 
+  async function loadMaintenanceCounts() {
+    const container = document.getElementById('maintenance-rows');
+    try {
+      const counts = await apiFetch('/api/admin/maintenance/counts');
+
+      // Populate the standard maintenance rows
+      container.innerHTML = MAINTENANCE_ITEMS.map(item => `
+        <div class="maint-row" id="maint-${item.key}">
+          <div class="maint-info">
+            <div class="maint-label">${item.label}</div>
+            <div class="maint-desc">${item.desc}</div>
+          </div>
+          <div class="maint-count" id="count-${item.key}">
+            ${counts[item.key].toLocaleString()} record${counts[item.key] !== 1 ? 's' : ''}
+          </div>
+          <button class="btn btn-danger btn-sm maint-btn"
+                  id="btn-${item.key}"
+                  onclick="clearData('${item.key}', '${item.url}', '${item.confirm}')"
+                  ${counts[item.key] === 0 ? 'disabled' : ''}>
+            Clear
+          </button>
+        </div>`).join('');
+
+      // Update the danger-zone member count label
+      const n = counts.members || 0;
+      const c = counts.member_contacts || 0;
+      const d = counts.dofe || 0;
+      const lbl = document.getElementById('member-count-label');
+      if (lbl) lbl.innerHTML =
+        `<strong>${n.toLocaleString()} member${n !== 1 ? 's' : ''}</strong>` +
+        (c ? `, ${c.toLocaleString()} contact record${c !== 1 ? 's' : ''}` : '') +
+        (d ? `, ${d.toLocaleString()} DofE record${d !== 1 ? 's' : ''}` : '');
+
+      // Pre-populate the clear-members summary modal
+      const sum = document.getElementById('clear-members-summary');
+      if (sum) sum.innerHTML = [
+        `<div style="color:#7f1d1d"><strong>${n.toLocaleString()}</strong> members</div>`,
+        `<div style="color:#991b1b"><strong>${c.toLocaleString()}</strong> contacts</div>`,
+        `<div style="color:#991b1b"><strong>${counts.attendance?.toLocaleString()??0}</strong> attendance rows</div>`,
+        `<div style="color:#991b1b"><strong>${d.toLocaleString()}</strong> DofE rows</div>`,
+      ].join('');
+
+      if (n === 0) {
+        document.getElementById('btn-clear-members').disabled = true;
+      }
+
+    } catch (e) {
+      container.innerHTML = `<div style="color:var(--red);font-size:13px">Could not load counts.</div>`;
+    }
+  }
+
   loadMaintenanceCounts();
+
+  // ── Clear All Members ─────────────────────────────────────────────────────
+
+  function openClearMembersModal() {
+    document.getElementById('clear-members-phrase').value = '';
+    document.getElementById('btn-confirm-clear-members').disabled = true;
+    document.getElementById('clear-members-modal').style.display = 'flex';
+  }
+
+  function closeClearMembersModal() {
+    document.getElementById('clear-members-modal').style.display = 'none';
+  }
+
+  document.getElementById('clear-members-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeClearMembersModal();
+  });
+
+  async function doClearMembers() {
+    const btn = document.getElementById('btn-confirm-clear-members');
+    btn.disabled    = true;
+    btn.textContent = 'Deleting…';
+    try {
+      const res = await apiFetch('/api/admin/maintenance/members', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ confirm: 'DELETE ALL MEMBERS' }),
+      });
+      closeClearMembersModal();
+      showToast(
+        `✅ Cleared ${res.members_deleted.toLocaleString()} members, ` +
+        `${res.attendance_deleted.toLocaleString()} attendance rows, ` +
+        `${res.dofe_deleted.toLocaleString()} DofE rows.`
+      );
+      // Refresh counts
+      loadMaintenanceCounts();
+    } catch (e) {
+      showToast(e.message, true);
+      btn.disabled    = false;
+      btn.textContent = 'Delete All Members';
+    }
+  }
 
   // ── Backup ────────────────────────────────────────────────────────────────
 

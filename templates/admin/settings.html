@@ -166,15 +166,27 @@
 {% endif %}
 
 <!-- ── System ────────────────────────────────────────────────────────── -->
-{% if 'admin.maintenance' in user_permissions %}
+{% if 'admin.maintenance' in user_permissions or 'audit.view' in user_permissions %}
 <div class="settings-group">
   <div class="settings-group-title">System</div>
   <div class="settings-grid">
+
+    {% if 'audit.view' in user_permissions %}
+    <a href="/admin/audit" class="settings-card">
+      <div class="settings-card__icon">🔍</div>
+      <div class="settings-card__title">Audit Log</div>
+      <div class="settings-card__desc">View the full system activity log — every login, edit, approval, and admin action. Filter by user, action, or date range, and download as CSV.</div>
+    </a>
+    {% endif %}
+
+    {% if 'admin.maintenance' in user_permissions %}
     <a href="/admin/settings/maintenance" class="settings-card danger">
       <div class="settings-card__icon">🧹</div>
       <div class="settings-card__title">Data Maintenance</div>
-      <div class="settings-card__desc">Permanently clear historical records — audit log, attendance, mailshot history, and registrations.</div>
+      <div class="settings-card__desc">Clear historical records, import members, back up or restore the database. Includes a Danger Zone for purging all member data between seasons.</div>
     </a>
+    {% endif %}
+
   </div>
 </div>
 {% endif %}

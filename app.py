@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v9.4'   # v9.4: Hard delete for doc field definitions; unified condition query builder replacing old meta/date filters
+APP_VERSION = 'v9.5'   # v9.5: Clear-all-members (danger zone); audit log viewer with date/user filters + CSV export
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -2473,18 +2473,111 @@ def api_dashboard():
 @app.route('/api/admin/audit')
 @permission_required('audit.view')
 def api_audit_log():
-    """Return recent audit log entries."""
-    limit  = min(int(request.args.get('limit', 200)), 500)
-    offset = int(request.args.get('offset', 0))
+    """Return audit log entries with optional filters."""
+    limit     = min(int(request.args.get('limit', 500)), 2000)
+    offset    = int(request.args.get('offset', 0))
+    action    = request.args.get('action', '').strip()
+    user_id   = request.args.get('user_id', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+
     db     = get_db()
-    rows   = db.execute('''
+    wheres = ['1=1']
+    params: list = []
+
+    if action:
+        wheres.append('a.action = ?')
+        params.append(action)
+    if user_id:
+        wheres.append('a.user_id = ?')
+        params.append(int(user_id))
+    if date_from:
+        wheres.append("date(a.timestamp) >= date(?)")
+        params.append(date_from)
+    if date_to:
+        wheres.append("date(a.timestamp) <= date(?)")
+        params.append(date_to)
+
+    params += [limit, offset]
+    rows = db.execute(f'''
         SELECT  a.*, u.username
         FROM    audit_log a
         LEFT JOIN users u ON u.id = a.user_id
+        WHERE   {" AND ".join(wheres)}
         ORDER   BY a.timestamp DESC
         LIMIT   ? OFFSET ?
-    ''', (limit, offset)).fetchall()
+    ''', params).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/audit/users')
+@permission_required('audit.view')
+def api_audit_log_users():
+    """Return the distinct users who appear in the audit log (for filter dropdown)."""
+    db   = get_db()
+    rows = db.execute('''
+        SELECT DISTINCT u.id, u.username
+        FROM   audit_log a
+        JOIN   users u ON u.id = a.user_id
+        ORDER  BY u.username
+    ''').fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/admin/audit/export.csv')
+@permission_required('audit.view')
+def api_audit_log_export():
+    """Download the full filtered audit log as a CSV file."""
+    import csv, io
+
+    action    = request.args.get('action', '').strip()
+    user_id   = request.args.get('user_id', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+
+    db     = get_db()
+    wheres = ['1=1']
+    params: list = []
+
+    if action:
+        wheres.append('a.action = ?')
+        params.append(action)
+    if user_id:
+        wheres.append('a.user_id = ?')
+        params.append(int(user_id))
+    if date_from:
+        wheres.append("date(a.timestamp) >= date(?)")
+        params.append(date_from)
+    if date_to:
+        wheres.append("date(a.timestamp) <= date(?)")
+        params.append(date_to)
+
+    rows = db.execute(f'''
+        SELECT  a.timestamp, u.username, a.action, a.table_name,
+                a.record_id, a.details, a.ip_address
+        FROM    audit_log a
+        LEFT JOIN users u ON u.id = a.user_id
+        WHERE   {" AND ".join(wheres)}
+        ORDER   BY a.timestamp DESC
+    ''', params).fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(['Timestamp', 'User', 'Action', 'Table', 'Record ID', 'Details', 'IP'])
+    for r in rows:
+        writer.writerow([r['timestamp'], r['username'] or '—', r['action'],
+                         r['table_name'] or '', r['record_id'] or '',
+                         r['details'] or '', r['ip_address'] or ''])
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
+    filename  = f'{slug}_audit_log_{timestamp}.csv'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
 
 
 # ── BLUEPRINT: postcode lookup proxy ─────────────────────────────────────────
@@ -5380,6 +5473,9 @@ def api_maintenance_counts():
         'attendance':     db.execute('SELECT COUNT(*) FROM attendance').fetchone()[0],
         'mailshot_log':   db.execute('SELECT COUNT(*) FROM mailshot_log').fetchone()[0],
         'registrations':  db.execute('SELECT COUNT(*) FROM pending_registrations').fetchone()[0],
+        'members':        db.execute('SELECT COUNT(*) FROM members').fetchone()[0],
+        'member_contacts':db.execute('SELECT COUNT(*) FROM member_contacts').fetchone()[0],
+        'dofe':           db.execute('SELECT COUNT(*) FROM dofe_participants').fetchone()[0],
     })
 
 
@@ -5430,6 +5526,49 @@ def api_maintenance_clear_registrations():
     log_action('maintenance_clear', 'pending_registrations', None,
                {'cleared': n, 'by': session['username']})
     return jsonify({'success': True, 'deleted': n})
+
+
+@app.route('/api/admin/maintenance/members', methods=['DELETE'])
+@permission_required('admin.maintenance')
+def api_maintenance_clear_members():
+    """Permanently delete every member record.
+
+    Extra guard: only users with the built-in 'admin' role may call this.
+    The caller must also pass  confirm=DELETE ALL MEMBERS  in the JSON body
+    as a second layer of protection against accidental invocation.
+    """
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Only the admin role can clear all members'}), 403
+
+    body   = request.get_json(silent=True) or {}
+    phrase = body.get('confirm', '')
+    if phrase != 'DELETE ALL MEMBERS':
+        return jsonify({'error': 'Confirmation phrase incorrect'}), 400
+
+    db = get_db()
+    n_members     = db.execute('SELECT COUNT(*) FROM members').fetchone()[0]
+    n_attendance  = db.execute('SELECT COUNT(*) FROM attendance').fetchone()[0]
+    n_dofe        = db.execute('SELECT COUNT(*) FROM dofe_participants').fetchone()[0]
+
+    # Delete non-cascading dependants first
+    db.execute('DELETE FROM attendance')
+    db.execute('DELETE FROM dofe_participants')
+    # member_contacts and member_flags have ON DELETE CASCADE — removed automatically
+    db.execute('DELETE FROM members')
+    db.commit()
+
+    log_action('maintenance_clear_members', 'members', None, {
+        'members_deleted':    n_members,
+        'attendance_deleted': n_attendance,
+        'dofe_deleted':       n_dofe,
+        'by':                 session['username'],
+    })
+    return jsonify({
+        'success':            True,
+        'members_deleted':    n_members,
+        'attendance_deleted': n_attendance,
+        'dofe_deleted':       n_dofe,
+    })
 
 
 @app.route('/api/admin/maintenance/backup')

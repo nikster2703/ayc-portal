@@ -4,8 +4,15 @@
 {% block content %}
 <div class="page-header">
   <h1>🔍 Audit Log</h1>
-  <div style="display:flex;gap:10px;align-items:center">
-    <select class="session-select" id="action-filter" onchange="filterLog()">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <input type="date" id="f-date-from" class="form-input" style="font-size:13px;width:140px"
+           title="From date" onchange="loadLog()">
+    <input type="date" id="f-date-to" class="form-input" style="font-size:13px;width:140px"
+           title="To date" onchange="loadLog()">
+    <select class="session-select" id="user-filter" onchange="loadLog()">
+      <option value="">All users</option>
+    </select>
+    <select class="session-select" id="action-filter" onchange="loadLog()">
       <option value="all">All actions</option>
       <optgroup label="Auth">
         <option value="login">Logins</option>
@@ -61,15 +68,23 @@
         <option value="delete_email_template">Template deleted</option>
         <option value="send_mailshot">Mailshot sent</option>
       </optgroup>
+      <optgroup label="Documents">
+        <option value="update_document">Updated</option>
+        <option value="update_doc_metadata">Metadata saved</option>
+        <option value="delete_doc_field">Field permanently deleted</option>
+        <option value="deactivate_doc_field">Field deactivated</option>
+      </optgroup>
       <optgroup label="Admin">
         <option value="update_settings">Settings updated</option>
         <option value="create_role">Role created</option>
         <option value="update_role">Role updated</option>
         <option value="delete_role">Role deleted</option>
         <option value="maintenance_clear">Maintenance clear</option>
+        <option value="maintenance_clear_members">All members cleared</option>
       </optgroup>
     </select>
     <div class="count-pill" id="entry-count" style="cursor:default">—</div>
+    <button class="btn btn-ghost btn-sm" onclick="downloadCSV()" title="Download as CSV">⬇️ CSV</button>
   </div>
 </div>
 
@@ -80,7 +95,8 @@
 
 {% block scripts %}
 <script>
-  let allEntries = [];
+  let allEntries  = [];
+  let _usersLoaded = false;
 
   const ACTION_LABELS = {
     // Auth
@@ -136,32 +152,63 @@
     delete_role:             { icon: '🛡️', label: 'Role deleted',            colour: 'var(--red)'    },
     create_tag:              { icon: '🏷️', label: 'Tag definition created',  colour: 'var(--teal)'   },
     update_tag:              { icon: '🏷️', label: 'Tag definition updated',  colour: 'var(--navy)'   },
-    maintenance_clear:       { icon: '🧹', label: 'Maintenance clear',       colour: 'var(--orange)' },
+    maintenance_clear:         { icon: '🧹', label: 'Maintenance clear',          colour: 'var(--orange)' },
+    maintenance_clear_members: { icon: '☠️',  label: 'All members cleared',       colour: 'var(--red)'    },
+    update_document:           { icon: '📝', label: 'Document updated',           colour: 'var(--navy)'   },
+    update_doc_metadata:       { icon: '🏷️', label: 'Document metadata saved',    colour: 'var(--navy)'   },
+    delete_doc_field:          { icon: '🗑️', label: 'Doc field permanently deleted', colour: 'var(--red)' },
+    deactivate_doc_field:      { icon: '⏸️', label: 'Doc field deactivated',      colour: 'var(--orange)' },
     create_session_note:     { icon: '📝', label: 'Session note added',      colour: 'var(--teal)'   },
     delete_session_note:     { icon: '📝', label: 'Session note deleted',    colour: 'var(--orange)' },
     default:                 { icon: '📋', label: 'Action',                  colour: 'var(--muted)'  },
   };
 
+  function _buildParams() {
+    const p = new URLSearchParams({ limit: 1000 });
+    const action    = document.getElementById('action-filter').value;
+    const userId    = document.getElementById('user-filter').value;
+    const dateFrom  = document.getElementById('f-date-from').value;
+    const dateTo    = document.getElementById('f-date-to').value;
+    if (action && action !== 'all') p.set('action',    action);
+    if (userId)                     p.set('user_id',   userId);
+    if (dateFrom)                   p.set('date_from', dateFrom);
+    if (dateTo)                     p.set('date_to',   dateTo);
+    return p;
+  }
+
   async function loadLog() {
+    document.getElementById('audit-container').innerHTML =
+      '<div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>';
     try {
-      allEntries = await apiFetch('/api/admin/audit?limit=200');
-      document.getElementById('entry-count').textContent = `${allEntries.length} entries`;
+      // Populate user dropdown on first load
+      if (!_usersLoaded) {
+        _usersLoaded = true;
+        apiFetch('/api/admin/audit/users').then(users => {
+          const sel = document.getElementById('user-filter');
+          users.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.id;
+            opt.textContent = u.username;
+            sel.appendChild(opt);
+          });
+        }).catch(() => {});
+      }
+
+      allEntries = await apiFetch(`/api/admin/audit?${_buildParams()}`);
+      document.getElementById('entry-count').textContent =
+        `${allEntries.length.toLocaleString()} entries`;
       renderLog(allEntries);
     } catch (e) {
       document.getElementById('audit-container').innerHTML = `
-        <div class="alert-box err"><strong>⚠️ Could not load audit log</strong>${esc(e.message)}</div>`;
+        <div class="alert-box err"><strong>⚠️ Could not load audit log</strong> — ${esc(e.message)}</div>`;
     }
   }
 
   loadLog();
 
-  function filterLog() {
-    const action = document.getElementById('action-filter').value;
-    const filtered = action === 'all'
-      ? allEntries
-      : allEntries.filter(e => e.action === action);
-    document.getElementById('entry-count').textContent = `${filtered.length} entries`;
-    renderLog(filtered);
+  function downloadCSV() {
+    const p = _buildParams();
+    window.location.href = `/api/admin/audit/export.csv?${p}`;
   }
 
   function renderLog(entries) {
