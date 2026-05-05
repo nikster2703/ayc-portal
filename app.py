@@ -114,6 +114,16 @@ app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
 APP_VERSION = 'v9.7'   # v9.7: Branding system — per-org accent colour, logo upload, nav style; CSS variable refactor
 
+# Default branding settings — seeded into the settings table on first run.
+# Must be defined here (above ensure_tables) so the seeding loop can reference it.
+BRAND_KEYS = {
+    'brand_accent':      '#0096b4',
+    'brand_nav_style':   'dark',    # 'dark' | 'accent' | 'white'
+    'brand_logo_file':   '',        # filename inside BRANDING_DIR, or ''
+    'brand_club_name':   '',        # override CLUB_NAME if set
+    'brand_short_name':  '',        # override CLUB_SHORT_NAME if set
+}
+
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
 # Used to seed the DB on first run and to populate the roles editor UI.
@@ -1310,14 +1320,6 @@ _brand_cache = None
 def _invalidate_brand_cache():
     global _brand_cache
     _brand_cache = None
-
-BRAND_KEYS = {
-    'brand_accent':      '#0096b4',
-    'brand_nav_style':   'dark',    # 'dark' | 'accent' | 'white'
-    'brand_logo_file':   '',        # filename inside BRANDING_DIR, or ''
-    'brand_club_name':   '',        # override CLUB_NAME if set
-    'brand_short_name':  '',        # override CLUB_SHORT_NAME if set
-}
 
 def get_brand_settings():
     """Return a dict of brand settings, pulling from DB and caching in memory."""
