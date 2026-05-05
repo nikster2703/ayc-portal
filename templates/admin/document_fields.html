@@ -185,13 +185,12 @@
             <!-- Actions -->
             <div style="display:flex;gap:6px;flex-shrink:0">
               ${!inactive ? `
-              <button class="btn btn-ghost btn-sm" onclick="openEditModal(${f.id})">✏️ Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="deactivateField(${f.id}, ${JSON.stringify(f.label)})">
+              <button class="btn btn-ghost btn-sm" onclick='openEditModal(${f.id})'>✏️ Edit</button>
+              <button class="btn btn-danger btn-sm" onclick='deactivateField(${f.id}, ${JSON.stringify(f.label)})'>
                 Deactivate
               </button>` : `
-              <button class="btn btn-ghost btn-sm" onclick="reactivateField(${f.id})">
-                ↩ Restore
-              </button>`}
+              <button class="btn btn-ghost btn-sm" onclick='reactivateField(${f.id})'>↩ Restore</button>
+              <button class="btn btn-danger btn-sm" onclick='deleteField(${f.id}, ${JSON.stringify(f.label)})'>🗑 Delete</button>`}
             </div>
           </div>`;
         }).join('')}
@@ -334,11 +333,14 @@
     }
   }
 
-  /* ── Deactivate / Restore ───────────────────────────────────────────── */
+  /* ── Deactivate / Restore / Delete ─────────────────────────────────── */
   async function deactivateField(id, label) {
     if (!confirm(`Deactivate "${label}"?\n\nExisting document metadata will be preserved, but this field will no longer appear on new uploads or edits.`)) return;
     try {
-      await apiFetch(`/api/documents/field-definitions/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/documents/field-definitions/${id}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body:   JSON.stringify({ active: 0 }),
+      });
       fields = fields.map(f => f.id === id ? { ...f, active: 0 } : f);
       showToast('Field deactivated.');
       renderList();
@@ -355,6 +357,19 @@
       });
       fields = fields.map(f => f.id === id ? { ...f, active: 1 } : f);
       showToast('Field restored.');
+      renderList();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  async function deleteField(id, label) {
+    if (!confirm(`Permanently delete "${label}"?\n\nThis will also delete all metadata values stored against this field on existing documents. This cannot be undone.`)) return;
+    try {
+      const res = await apiFetch(`/api/documents/field-definitions/${id}`, { method: 'DELETE' });
+      fields = fields.filter(f => f.id !== id);
+      const extra = res.metadata_deleted ? ` (${res.metadata_deleted} metadata value${res.metadata_deleted !== 1 ? 's' : ''} removed)` : '';
+      showToast(`Field deleted${extra}.`);
       renderList();
     } catch (e) {
       showToast(e.message, true);

@@ -27,7 +27,7 @@
 <div id="retention-banner" style="display:none;background:#fff7ed;border:2px solid #fed7aa;
      border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#9a3412">
   ⚠️ <strong id="retention-count"></strong> document(s) have passed their retention date.
-  <a href="#" onclick="applyFilter({retain_before: new Date().toISOString().slice(0,10)});return false"
+  <a href="#" onclick="addCondition('retain_until','before',new Date().toISOString().slice(0,10));if(!filtersVisible)toggleFilters();runSearch();return false"
      style="color:#9a3412;text-decoration:underline;margin-left:6px">View them →</a>
 </div>
 {% endif %}
@@ -51,33 +51,14 @@
   <div id="cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto"></div>
 </div>
 
-<!-- ── Advanced filter panel ───────────────────────────────── -->
+<!-- ── Condition query builder ──────────────────────────────── -->
 <div id="filter-panel" style="display:none;background:white;border:2px solid var(--border);
      border-radius:12px;padding:16px 20px;margin-bottom:16px">
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">
-    <div class="form-group" style="margin:0">
-      <label style="font-size:12px">Uploaded from</label>
-      <input type="date" id="f-date-from" class="form-input" style="font-size:13px">
-    </div>
-    <div class="form-group" style="margin:0">
-      <label style="font-size:12px">Uploaded to</label>
-      <input type="date" id="f-date-to" class="form-input" style="font-size:13px">
-    </div>
-    <div class="form-group" style="margin:0">
-      <label style="font-size:12px">Retain until — before</label>
-      <input type="date" id="f-retain-before" class="form-input" style="font-size:13px">
-    </div>
-    <div class="form-group" style="margin:0">
-      <label style="font-size:12px">Retain until — after</label>
-      <input type="date" id="f-retain-after" class="form-input" style="font-size:13px">
-    </div>
-  </div>
-  <!-- Category-specific metadata filters rendered here -->
-  <div id="meta-filter-fields" style="margin-top:14px;display:grid;
-       grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px"></div>
-  <div style="margin-top:16px;display:flex;gap:8px">
-    <button class="btn btn-primary btn-sm" onclick="runSearch()">Apply filters</button>
-    <button class="btn btn-ghost btn-sm" onclick="clearAllFilters()">Clear</button>
+  <div id="condition-rows" style="display:flex;flex-direction:column;gap:8px"></div>
+  <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-ghost btn-sm" onclick="addCondition()">+ Add condition</button>
+    <button class="btn btn-primary btn-sm" onclick="runSearch()">Apply</button>
+    <button class="btn btn-ghost btn-sm" onclick="clearAllFilters()">Clear all</button>
   </div>
 </div>
 
@@ -203,14 +184,31 @@
     jpg:'🟡', jpeg:'🟡', png:'🟡',
   };
 
-  let allDocs           = [];   // current result set (may be filtered server-side)
-  let allCategories     = [];
-  let allRoles          = [];
-  let allMembers        = [];   // for member_ref pickers
-  let currentCat        = 'all';
-  let activeFilters     = {};   // track what's applied for badge/clear
-  let filtersVisible    = false;
-  let metaFilterDefs    = [];   // field defs for current category (filter panel)
+  let allDocs        = [];   // current result set (may be filtered server-side)
+  let allCategories  = [];
+  let allRoles       = [];
+  let allMembers     = [];   // for member_ref pickers
+  let currentCat     = 'all';
+  let filtersVisible = false;
+  let catMetaFields  = [];   // field defs for currently selected category
+  let _condId        = 0;    // unique row counter for condition builder
+
+  // ── Condition builder: standard field definitions ──────────────────────────
+  const STANDARD_FIELDS = [
+    { value: 'title',        label: 'Title',        type: 'text' },
+    { value: 'description',  label: 'Description',  type: 'text' },
+    { value: 'uploader',     label: 'Uploader',     type: 'text' },
+    { value: 'upload_date',  label: 'Upload date',  type: 'date' },
+    { value: 'retain_until', label: 'Retain until', type: 'date' },
+  ];
+
+  const OPS_MAP = {
+    text:       [['contains','Contains'],['eq','Equals'],['is_empty','Is empty'],['is_filled','Is filled']],
+    date:       [['before','Before'],['after','After'],['older_than','Older than (days)'],['is_empty','Is empty'],['is_filled','Is filled']],
+    number:     [['eq','Equals'],['gt','Greater than'],['lt','Less than'],['is_empty','Is empty'],['is_filled','Is filled']],
+    boolean:    [['is_true','Is yes'],['is_false','Is no'],['is_empty','Not set']],
+    member_ref: [['contains','Name contains'],['is_empty','Is empty'],['is_filled','Is filled']],
+  };
 
   /* ── Bootstrap ──────────────────────────────────────────── */
   async function init() {
@@ -253,9 +251,8 @@
     currentCat = cat;
     document.querySelectorAll('.tab-btn[data-cat]').forEach(b =>
       b.classList.toggle('active', b.dataset.cat === cat));
-    // Update meta filter fields for this category
     const catId = cat === 'all' ? null : (allCategories.find(c => String(c.id) === cat || c.name === cat)?.id ?? null);
-    updateMetaFilterFields(catId);
+    updateMetaFields(catId);
     runSearch();
   }
 
@@ -267,87 +264,162 @@
     document.getElementById('filter-toggle-btn').style.color = filtersVisible ? 'white' : '';
   }
 
-  function updateMetaFilterFields(catId) {
-    const wrap = document.getElementById('meta-filter-fields');
-    wrap.innerHTML = '';
-    metaFilterDefs = [];
-    if (!catId) return;
-    apiFetch(`/api/documents/field-definitions?category_id=${catId}`).then(fields => {
-      metaFilterDefs = fields;
-      wrap.innerHTML = fields.map(f => `
-        <div class="form-group" style="margin:0">
-          <label style="font-size:12px">${esc(f.label)}</label>
-          ${metaFilterInput(f)}
-        </div>`).join('');
-    }).catch(() => {});
+  /* ── Condition query builder ────────────────────────────── */
+  function _currentCatName() {
+    if (currentCat === 'all') return 'Category';
+    return allCategories.find(c => String(c.id) === currentCat || c.name === currentCat)?.name || 'Category';
   }
 
-  function metaFilterInput(f) {
-    const id = `mf-${f.id}`;
-    if (f.field_type === 'boolean') return `
-      <select id="${id}" class="form-input" style="font-size:13px">
-        <option value="">Any</option>
-        <option value="true">Yes</option>
-        <option value="false">No</option>
-      </select>`;
-    if (f.field_type === 'date') return `
-      <div style="display:flex;gap:4px">
-        <input type="date" id="${id}_from" class="form-input" style="font-size:12px" placeholder="From">
-        <input type="date" id="${id}_to"   class="form-input" style="font-size:12px" placeholder="To">
-      </div>`;
-    if (f.field_type === 'number') return `
-      <div style="display:flex;gap:4px;align-items:center">
-        <input type="number" id="${id}_min" class="form-input" style="font-size:12px;width:80px" placeholder="Min">
-        <span style="font-size:12px;color:var(--muted)">–</span>
-        <input type="number" id="${id}_max" class="form-input" style="font-size:12px;width:80px" placeholder="Max">
-      </div>`;
-    if (f.field_type === 'member_ref') return `
-      <input type="text" id="${id}" class="form-input" style="font-size:13px"
-             placeholder="Member name…" list="member-datalist">`;
-    return `<input type="text" id="${id}" class="form-input" style="font-size:13px"
-            placeholder="${esc(f.placeholder || 'Contains…')}">`;
+  function _buildFieldOptions() {
+    const std = STANDARD_FIELDS.map(f =>
+      `<option value="${f.value}">${esc(f.label)}</option>`).join('');
+    const meta = catMetaFields.length
+      ? `<optgroup label="── ${esc(_currentCatName())} fields ──">`
+        + catMetaFields.map(f =>
+            `<option value="meta_${f.id}" data-ftype="${f.field_type}">${esc(f.label)}</option>`
+          ).join('')
+        + '</optgroup>'
+      : '';
+    return '<option value="">— Select field —</option>'
+         + '<optgroup label="── Standard ──">' + std + '</optgroup>'
+         + meta;
   }
 
-  function collectMetaFilterParams() {
+  function addCondition(field='', op='', val='') {
+    const id  = ++_condId;
+    const row = document.createElement('div');
+    row.dataset.rowId = id;
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+    row.innerHTML = `
+      <select class="form-input cond-field" style="font-size:13px;flex:2;min-width:140px"
+              onchange="onCondFieldChange(this.closest('[data-row-id]'))">
+        ${_buildFieldOptions()}
+      </select>
+      <select class="form-input cond-op" style="font-size:13px;flex:1;min-width:120px"
+              onchange="onCondOpChange(this.closest('[data-row-id]'))">
+        <option value="">— Op —</option>
+      </select>
+      <span class="cond-val-wrap" style="flex:2;min-width:120px"></span>
+      <button class="btn btn-ghost btn-sm" style="flex-shrink:0;padding:4px 8px"
+              onclick="this.closest('[data-row-id]').remove();_updateFilterBadge()">✕</button>`;
+    document.getElementById('condition-rows').appendChild(row);
+    if (field) {
+      const sel = row.querySelector('.cond-field');
+      sel.value = field;
+      onCondFieldChange(row, op, val);
+    }
+    return row;
+  }
+
+  function _fieldType(row) {
+    const fieldSel = row.querySelector('.cond-field');
+    const fieldVal = fieldSel.value;
+    const std = STANDARD_FIELDS.find(f => f.value === fieldVal);
+    if (std) return std.type;
+    if (fieldVal.startsWith('meta_')) {
+      const opt = fieldSel.querySelector(`option[value="${CSS.escape(fieldVal)}"]`)
+               || [...fieldSel.options].find(o => o.value === fieldVal);
+      return opt?.dataset?.ftype || 'text';
+    }
+    return 'text';
+  }
+
+  function onCondFieldChange(row, presetOp='', presetVal='') {
+    const opSel   = row.querySelector('.cond-op');
+    const type    = _fieldType(row);
+    const ops     = OPS_MAP[type] || OPS_MAP.text;
+    opSel.innerHTML = ops.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+    if (presetOp && [...opSel.options].some(o => o.value === presetOp)) opSel.value = presetOp;
+    onCondOpChange(row, presetVal);
+  }
+
+  function onCondOpChange(row, presetVal='') {
+    const valWrap  = row.querySelector('.cond-val-wrap');
+    const op       = row.querySelector('.cond-op').value;
+    const type     = _fieldType(row);
+    const safeVal  = esc(presetVal);
+
+    if (['is_empty','is_filled','is_true','is_false'].includes(op)) {
+      valWrap.innerHTML = '';
+      return;
+    }
+    let html = '';
+    if (op === 'older_than') {
+      html = `<div style="display:flex;gap:4px;align-items:center">
+        <input type="number" class="form-input cond-val" style="font-size:13px;width:80px" min="1" placeholder="days" value="${safeVal}">
+        <span style="font-size:12px;color:var(--muted);white-space:nowrap">days ago</span>
+      </div>`;
+    } else if (type === 'date') {
+      html = `<input type="date" class="form-input cond-val" style="font-size:13px" value="${safeVal}">`;
+    } else if (type === 'number') {
+      html = `<input type="number" class="form-input cond-val" style="font-size:13px" placeholder="Value" value="${safeVal}">`;
+    } else if (type === 'member_ref') {
+      html = `<input type="text" class="form-input cond-val" style="font-size:13px" placeholder="Member name…" list="member-datalist" value="${safeVal}">`;
+    } else {
+      html = `<input type="text" class="form-input cond-val" style="font-size:13px" placeholder="Value…" value="${safeVal}">`;
+    }
+    valWrap.innerHTML = html;
+  }
+
+  function collectConditions() {
     const params = {};
-    metaFilterDefs.forEach(f => {
-      const id = `mf-${f.id}`;
-      if (f.field_type === 'date') {
-        const from = document.getElementById(id + '_from')?.value;
-        const to   = document.getElementById(id + '_to')?.value;
-        // Use separate _from/_to params so both bounds can be sent simultaneously
-        if (from) params[`field_${f.id}_from`] = from;
-        if (to)   params[`field_${f.id}_to`]   = to;
-      } else if (f.field_type === 'number') {
-        const min = document.getElementById(id + '_min')?.value;
-        const max = document.getElementById(id + '_max')?.value;
-        // Use separate _min/_max params so both bounds can be sent simultaneously
-        if (min) params[`field_${f.id}_min`] = min;
-        if (max) params[`field_${f.id}_max`] = max;
-      } else {
-        const val = document.getElementById(id)?.value?.trim();
-        if (val) {
-          params[`field_${f.id}_value`] = val;
-          params[`field_${f.id}_op`] = f.field_type === 'boolean' ? 'equals' : 'contains';
-        }
-      }
+    let n = 0;
+    document.querySelectorAll('#condition-rows [data-row-id]').forEach(row => {
+      const field = row.querySelector('.cond-field')?.value || '';
+      const op    = row.querySelector('.cond-op')?.value    || '';
+      if (!field || !op) return;
+      const val   = row.querySelector('.cond-val')?.value   || '';
+      params[`cond_${n}_field`] = field;
+      params[`cond_${n}_op`]   = op;
+      if (val) params[`cond_${n}_value`] = val;
+      n++;
     });
     return params;
   }
 
-  function applyFilter(extra) {
-    activeFilters = { ...activeFilters, ...extra };
-    runSearch();
+  function updateMetaFields(catId) {
+    catMetaFields = [];
+    if (!catId) {
+      // Drop any meta_ field rows; rebuild field selects without meta options
+      document.querySelectorAll('#condition-rows [data-row-id]').forEach(row => {
+        if ((row.querySelector('.cond-field')?.value || '').startsWith('meta_')) row.remove();
+      });
+      document.querySelectorAll('#condition-rows .cond-field').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = _buildFieldOptions();
+        if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+      });
+      return;
+    }
+    apiFetch(`/api/documents/field-definitions?category_id=${catId}`).then(fields => {
+      catMetaFields = fields;
+      document.querySelectorAll('#condition-rows .cond-field').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = _buildFieldOptions();
+        if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+      });
+    }).catch(() => {});
+  }
+
+  function _updateFilterBadge() {
+    const condCount = document.querySelectorAll('#condition-rows [data-row-id]').length;
+    const q = document.getElementById('search-q').value.trim();
+    const badge    = document.getElementById('filter-count-badge');
+    const clearBtn = document.getElementById('clear-filters-btn');
+    if (condCount > 0 || q) {
+      badge.textContent = condCount + (q ? 1 : 0);
+      badge.style.display = 'inline';
+      clearBtn.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+      clearBtn.style.display = 'none';
+    }
   }
 
   function clearAllFilters() {
-    activeFilters = {};
-    ['f-date-from','f-date-to','f-retain-before','f-retain-after'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
-    document.querySelectorAll('[id^="mf-"]').forEach(el => el.value = '');
+    document.getElementById('condition-rows').innerHTML = '';
     document.getElementById('search-q').value = '';
+    _updateFilterBadge();
     runSearch();
   }
 
@@ -357,40 +429,14 @@
     const q = document.getElementById('search-q').value.trim();
     if (q) params.set('q', q);
 
-    // Category tab
     if (currentCat !== 'all') {
       const catObj = allCategories.find(c => String(c.id) === currentCat || c.name === currentCat);
       if (catObj) params.set('category_id', catObj.id);
     }
 
-    // Date filters
-    const dateFrom     = document.getElementById('f-date-from')?.value;
-    const dateTo       = document.getElementById('f-date-to')?.value;
-    const retainBefore = document.getElementById('f-retain-before')?.value;
-    const retainAfter  = document.getElementById('f-retain-after')?.value;
-    if (dateFrom)     params.set('date_from',     dateFrom);
-    if (dateTo)       params.set('date_to',       dateTo);
-    if (retainBefore) params.set('retain_before', retainBefore);
-    if (retainAfter)  params.set('retain_after',  retainAfter);
+    Object.entries(collectConditions()).forEach(([k,v]) => params.set(k, v));
 
-    // Pushed filters (e.g. from retention banner link)
-    Object.entries(activeFilters).forEach(([k,v]) => params.set(k, v));
-
-    // Metadata field filters
-    Object.entries(collectMetaFilterParams()).forEach(([k,v]) => params.set(k,v));
-
-    // Track active filter count for badge
-    const filterCount = [...params.keys()].filter(k => k !== 'category_id' && k !== 'q').length;
-    const badge = document.getElementById('filter-count-badge');
-    const clearBtn = document.getElementById('clear-filters-btn');
-    if (filterCount > 0 || q) {
-      badge.textContent = filterCount + (q ? 1 : 0);
-      badge.style.display = 'inline';
-      clearBtn.style.display = 'inline-block';
-    } else {
-      badge.style.display = 'none';
-      clearBtn.style.display = 'none';
-    }
+    _updateFilterBadge();
 
     document.getElementById('docs-container').innerHTML =
       '<div class="loading-state"><div class="spinner"></div><p>Searching…</p></div>';

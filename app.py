@@ -91,7 +91,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v9.3'   # v9.3: Bug fixes — category tab onclick quote escaping, last_name→surname, date/number range filters, member datalist, redundant commits
+APP_VERSION = 'v9.4'   # v9.4: Hard delete for doc field definitions; unified condition query builder replacing old meta/date filters
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -4634,10 +4634,16 @@ def api_doc_field_definitions_delete(field_id):
     db = get_db()
     if not db.execute('SELECT id FROM document_field_definitions WHERE id = ?', (field_id,)).fetchone():
         return jsonify({'error': 'Not found'}), 404
-    db.execute('UPDATE document_field_definitions SET active = 0 WHERE id = ?', (field_id,))
+    # Count metadata rows that will be cascade-deleted
+    meta_count = db.execute(
+        'SELECT COUNT(*) FROM document_metadata WHERE field_id = ?', (field_id,)
+    ).fetchone()[0]
+    # Permanent delete — document_metadata.field_id has ON DELETE CASCADE
+    db.execute('DELETE FROM document_field_definitions WHERE id = ?', (field_id,))
     db.commit()
-    log_action('deactivate_doc_field', 'document_field_definitions', field_id, {})
-    return jsonify({'success': True})
+    log_action('delete_doc_field', 'document_field_definitions', field_id,
+               {'metadata_deleted': meta_count})
+    return jsonify({'success': True, 'metadata_deleted': meta_count})
 
 
 # ── Document list / upload / manage ──────────────────────────────────────────
@@ -4648,38 +4654,20 @@ def api_documents_list():
     db = get_db()
 
     # ── Collect filter params ─────────────────────────────────────────────────
-    q             = (request.args.get('q') or '').strip()
-    category_id   = request.args.get('category_id') or None
-    date_from     = request.args.get('date_from') or None
-    date_to       = request.args.get('date_to') or None
-    retain_before = request.args.get('retain_before') or None
-    retain_after  = request.args.get('retain_after') or None
+    q           = (request.args.get('q') or '').strip()
+    category_id = request.args.get('category_id') or None
 
-    # Metadata field filters: field_<fid>_value+op (text/bool/member),
-    # field_<fid>_from / _to (date bounds), field_<fid>_min / _max (number bounds)
-    meta_filters = []
-    for key, val in request.args.items():
-        if not key.startswith('field_') or not val.strip():
+    # Condition builder: cond_N_field / cond_N_op / cond_N_value  (N = 0..19)
+    # Standard fields : title | description | uploader | upload_date | retain_until
+    # Metadata fields : meta_<field_id>
+    conditions = []
+    for n in range(20):
+        f_field = request.args.get(f'cond_{n}_field', '').strip()
+        f_op    = request.args.get(f'cond_{n}_op',    '').strip()
+        if not f_field or not f_op:
             continue
-        try:
-            if key.endswith('_value'):
-                fid = int(key.split('_')[1])
-                op  = request.args.get(f'field_{fid}_op', 'contains')
-                meta_filters.append((fid, op, val.strip()))
-            elif key.endswith('_from'):
-                fid = int(key.split('_')[1])
-                meta_filters.append((fid, 'after', val.strip()))
-            elif key.endswith('_to'):
-                fid = int(key.split('_')[1])
-                meta_filters.append((fid, 'before', val.strip()))
-            elif key.endswith('_min'):
-                fid = int(key.split('_')[1])
-                meta_filters.append((fid, 'gte', val.strip()))
-            elif key.endswith('_max'):
-                fid = int(key.split('_')[1])
-                meta_filters.append((fid, 'lte', val.strip()))
-        except (IndexError, ValueError):
-            pass
+        f_val = request.args.get(f'cond_{n}_value', '').strip()
+        conditions.append((f_field, f_op, f_val))
 
     # ── FTS5 full-text search → restrict to matching doc_ids ─────────────────
     fts_ids = None
@@ -4718,22 +4706,6 @@ def api_documents_list():
         where_clauses.append('d.category_id = ?')
         params.append(category_id)
 
-    if date_from:
-        where_clauses.append("date(d.created_at) >= date(?)")
-        params.append(date_from)
-
-    if date_to:
-        where_clauses.append("date(d.created_at) <= date(?)")
-        params.append(date_to)
-
-    if retain_before:
-        where_clauses.append("d.retain_until IS NOT NULL AND d.retain_until <= ?")
-        params.append(retain_before)
-
-    if retain_after:
-        where_clauses.append("d.retain_until IS NOT NULL AND d.retain_until >= ?")
-        params.append(retain_after)
-
     where_sql = ' AND '.join(where_clauses)
 
     rows = db.execute(f'''
@@ -4754,32 +4726,94 @@ def api_documents_list():
 
     docs = [dict(r) for r in rows if _user_can_access_from_group_concat(r['allowed_role_ids'])]
 
-    # ── Apply metadata field filters (post-fetch) ─────────────────────────────
-    if meta_filters and docs:
-        doc_ids = [d['id'] for d in docs]
-        meta_rows = db.execute(
+    # ── Apply condition filters (post-fetch) ──────────────────────────────────
+    if conditions and docs:
+        from datetime import date as _date, timedelta as _td
+
+        # Load raw metadata values for all candidate docs (keyed by field_id int)
+        cond_doc_ids = [d['id'] for d in docs]
+        cond_meta_rows = db.execute(
             f'''SELECT dm.document_id, dm.field_id, dm.value
                 FROM document_metadata dm
-                WHERE dm.document_id IN ({",".join("?" * len(doc_ids))})''',
-            doc_ids
+                WHERE dm.document_id IN ({",".join("?" * len(cond_doc_ids))})''',
+            cond_doc_ids
         ).fetchall()
-        meta_by_doc = {}
-        for mr in meta_rows:
-            meta_by_doc.setdefault(mr['document_id'], {})[mr['field_id']] = mr['value']
+        cond_meta_by_doc: dict = {}
+        for mr in cond_meta_rows:
+            cond_meta_by_doc.setdefault(mr['document_id'], {})[mr['field_id']] = mr['value']
 
-        def passes_meta_filters(doc):
-            vals = meta_by_doc.get(doc['id'], {})
-            for fid, op, fval in meta_filters:
-                actual = vals.get(fid) or ''
-                if op == 'contains'   and fval.lower() not in actual.lower():  return False
-                if op == 'equals'     and actual.lower() != fval.lower():       return False
-                if op == 'before'     and not (actual and actual <= fval):       return False
-                if op == 'after'      and not (actual and actual >= fval):       return False
-                if op == 'gte'        and not (actual and float(actual or 0) >= float(fval)): return False
-                if op == 'lte'        and not (actual and float(actual or 0) <= float(fval)): return False
+        def passes_conditions(doc):
+            today     = _date.today()
+            meta_vals = cond_meta_by_doc.get(doc['id'], {})
+            for c_field, c_op, c_val in conditions:
+                # ── Resolve actual value ──────────────────────────────────
+                if c_field == 'title':
+                    actual = doc.get('title') or ''
+                elif c_field == 'description':
+                    actual = doc.get('description') or ''
+                elif c_field == 'uploader':
+                    actual = doc.get('uploaded_by_name') or ''
+                elif c_field == 'upload_date':
+                    actual = (doc.get('created_at') or '')[:10]
+                elif c_field == 'retain_until':
+                    actual = doc.get('retain_until') or ''
+                elif c_field.startswith('meta_'):
+                    try:
+                        fid = int(c_field[5:])
+                    except ValueError:
+                        continue
+                    actual = meta_vals.get(fid) or ''
+                else:
+                    continue
+
+                # ── Evaluate operator ─────────────────────────────────────
+                if c_op == 'is_empty':
+                    if actual.strip():
+                        return False
+                elif c_op == 'is_filled':
+                    if not actual.strip():
+                        return False
+                elif c_op == 'contains':
+                    if c_val.lower() not in actual.lower():
+                        return False
+                elif c_op == 'eq':
+                    if actual.lower() != c_val.lower():
+                        return False
+                elif c_op == 'before':
+                    if not actual or actual > c_val:
+                        return False
+                elif c_op == 'after':
+                    if not actual or actual < c_val:
+                        return False
+                elif c_op == 'older_than':
+                    try:
+                        days   = int(c_val)
+                        cutoff = (today - _td(days=days)).isoformat()
+                        if not actual or actual >= cutoff:
+                            return False
+                    except (ValueError, TypeError):
+                        pass
+                elif c_op == 'gt':
+                    try:
+                        if not actual or float(actual) <= float(c_val):
+                            return False
+                    except (ValueError, TypeError):
+                        return False
+                elif c_op == 'lt':
+                    try:
+                        if not actual or float(actual) >= float(c_val):
+                            return False
+                    except (ValueError, TypeError):
+                        return False
+                elif c_op == 'is_true':
+                    if actual.lower() not in ('1', 'true', 'yes'):
+                        return False
+                elif c_op == 'is_false':
+                    if actual.lower() in ('1', 'true', 'yes'):
+                        return False
             return True
 
-        docs = [d for d in docs if passes_meta_filters(d)]
+        docs = [d for d in docs if passes_conditions(d)]
 
     # ── Attach metadata summaries for card display ────────────────────────────
     if docs:
