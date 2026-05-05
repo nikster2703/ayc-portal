@@ -5,13 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_short_name }} Portal — Sign In</title>
   <link rel="stylesheet" href="/static/css/shared.css">
+  {% if brand %}
+  <style>
+    :root {
+      --accent:       {{ brand._palette.accent }};
+      --accent-dark:  {{ brand._palette.accent_dark }};
+      --accent-light: {{ brand._palette.accent_light }};
+      --nav-effective-bg:   {{ brand._nav_bg }};
+      --nav-effective-text: {{ brand._nav_text }};
+    }
+  </style>
+  {% endif %}
   <style>
     body {
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(140deg, #111e36 0%, #1e4080 60%, #0a6e8a 100%);
+      background: linear-gradient(140deg, #111e36 0%, var(--nav-effective-bg) 60%, var(--accent) 100%);
       padding: 20px;
     }
     .login-card {
@@ -25,14 +36,22 @@
     .club-badge { text-align: center; margin-bottom: 36px; }
     .club-icon {
       width: 68px; height: 68px;
-      background: var(--navy);
+      background: var(--accent);
       border-radius: 18px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       font-size: 34px;
       margin-bottom: 14px;
-      box-shadow: 0 8px 24px rgba(27,45,79,.3);
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+    .club-logo {
+      height: 68px; width: auto; max-width: 200px;
+      object-fit: contain;
+      margin-bottom: 14px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
     }
     .club-badge h1 { font-size: 22px; font-weight: 900; color: var(--navy); line-height: 1.25; }
     .club-badge p  { font-size: 14px; color: var(--muted); margin-top: 5px; }
@@ -59,7 +78,7 @@
       outline: none;
       transition: border-color .18s;
     }
-    .form-group input:focus { border-color: var(--teal); }
+    .form-group input:focus { border-color: var(--accent); }
 
     .login-btn {
       width: 100%;
@@ -102,7 +121,11 @@
 <body>
   <div class="login-card">
     <div class="club-badge">
-      <div class="club-icon">🏅</div>
+      {% if brand and brand._logo_url %}
+        <img src="{{ brand._logo_url }}" alt="{{ club_name }}" class="club-logo">
+      {% else %}
+        <div class="club-icon">🏅</div>
+      {% endif %}
       <h1>{{ club_name }}<br>Member Portal</h1>
       <p>Sign in to continue</p>
       <p class="version">{{ app_version }}</p>

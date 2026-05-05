@@ -100,14 +100,14 @@
       outline: none;
       transition: border-color .18s;
     }
-    .field input:focus, .field select:focus { border-color: var(--teal); }
+    .field input:focus, .field select:focus { border-color: var(--accent); }
     .field input.error, .field select.error { border-color: var(--red); }
 
     .postcode-wrap { display: flex; gap: 8px; }
     .postcode-wrap input { flex: 1; }
     .find-btn {
       padding: 11px 16px;
-      background: var(--teal);
+      background: var(--accent);
       color: white;
       border: none;
       border-radius: 10px;
@@ -128,7 +128,7 @@
       margin-top: -4px;
     }
     .lookup-msg.err  { background: var(--red-bg);    color: var(--red);  border: 1.5px solid #fca5a5; }
-    .lookup-msg.info { background: var(--teal-light); color: var(--teal); border: 1.5px solid #a5dce8; }
+    .lookup-msg.info { background: var(--accent-light); color: var(--accent); border: 1.5px solid #a5dce8; }
 
     .submit-section { padding: 0 0 8px; }
     .submit-btn {
@@ -173,11 +173,11 @@
     #success-screen p  { font-size: 15px; color: var(--muted); line-height: 1.6; }
     .success-note {
       margin-top: 24px;
-      background: var(--teal-light);
+      background: var(--accent-light);
       border-radius: 12px;
       padding: 16px 20px;
       font-size: 14px; font-weight: 700;
-      color: var(--teal); line-height: 1.5;
+      color: var(--accent); line-height: 1.5;
     }
 
     @media (max-width: 500px) {

@@ -195,7 +195,7 @@
     const stats = [];
 
     // Active Members tile
-    stats.push({ icon: '👥', value: m.active ?? 0, label: 'Active Members', href: '/members', colour: 'var(--teal)' });
+    stats.push({ icon: '👥', value: m.active ?? 0, label: 'Active Members', href: '/members', colour: 'var(--accent)' });
 
     // Session tiles — generated from SESSION_TYPES, scoped where applicable
     for (const st of SESSION_TYPES) {
@@ -275,7 +275,7 @@
       if (!sessions.length) {
         el.innerHTML = `<p style="color:var(--muted);font-size:13px;padding:6px 0">
           No upcoming sessions in the calendar yet.
-          <a href="/calendar" style="color:var(--teal)">Set up the term →</a></p>`;
+          <a href="/calendar" style="color:var(--accent)">Set up the term →</a></p>`;
         return;
       }
       const STATUS_COLOURS = { planned: 'var(--green)', special: '#f59e0b', cancelled: 'var(--red)' };
@@ -291,7 +291,7 @@
             <a href="/register" style="text-decoration:none">
               <div style="background:white;border:2px solid var(--border);border-radius:12px;
                           padding:12px 14px;transition:border-color .15s"
-                   onmouseover="this.style.borderColor='var(--teal)'"
+                   onmouseover="this.style.borderColor='var(--accent)'"
                    onmouseout="this.style.borderColor='var(--border)'">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
                   <span style="font-size:16px">${icon}</span>
@@ -301,7 +301,7 @@
                 <div style="font-weight:900;font-size:15px;color:var(--navy);
                             ${isCancelled ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(dLabel)}</div>
                 <div style="font-size:12px;color:var(--muted);font-weight:700">${esc(s.session_type)}</div>
-                ${s.notes ? `<div style="font-size:11px;color:var(--teal);margin-top:3px;font-weight:700">📝 ${esc(s.notes)}</div>` : ''}
+                ${s.notes ? `<div style="font-size:11px;color:var(--accent);margin-top:3px;font-weight:700">📝 ${esc(s.notes)}</div>` : ''}
               </div>
             </a>`;
         }).join('') + `</div>`;
@@ -365,7 +365,7 @@
     gap: 4px;
     transition: border-color .18s, box-shadow .18s;
   }
-  .stat-card:hover { border-color: var(--teal); box-shadow: 0 4px 18px rgba(0,150,180,.1); }
+  .stat-card:hover { border-color: var(--accent); box-shadow: 0 4px 18px rgba(0,150,180,.1); }
   .stat-card.skeleton { min-height: 100px; background: #f0f2f5; border-color: transparent; animation: pulse 1.4s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
   .stat-icon  { font-size: 26px; }
@@ -404,7 +404,7 @@
   .activity-label { font-weight: 700; font-size: 14px; }
   .activity-detail { font-size: 13px; color: var(--muted); margin-left: 6px; }
   .activity-meta  { text-align: right; flex-shrink: 0; }
-  .activity-user  { display: block; font-size: 13px; font-weight: 700; color: var(--teal); }
+  .activity-user  { display: block; font-size: 13px; font-weight: 700; color: var(--accent); }
   .activity-time  { display: block; font-size: 12px; color: var(--muted); }
 
   /* ── Dashboard responsive ──────────────────────────── */

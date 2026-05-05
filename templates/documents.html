@@ -39,11 +39,11 @@
     <input type="text" id="search-q" placeholder="🔍 Search documents…"
            style="flex:1;border:none;padding:8px 12px;font-size:14px;outline:none"
            onkeydown="if(event.key==='Enter')runSearch()">
-    <button onclick="runSearch()" style="background:var(--teal);color:white;border:none;
+    <button onclick="runSearch()" style="background:var(--accent);color:white;border:none;
             padding:0 14px;cursor:pointer;font-size:13px;font-weight:700">Search</button>
   </div>
   <button class="btn btn-ghost btn-sm" onclick="toggleFilters()" id="filter-toggle-btn">
-    ⚙️ Filters <span id="filter-count-badge" style="display:none;background:var(--teal);
+    ⚙️ Filters <span id="filter-count-badge" style="display:none;background:var(--accent);
     color:white;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px"></span>
   </button>
   <button class="btn btn-ghost btn-sm" id="clear-filters-btn" style="display:none"
@@ -260,7 +260,7 @@
   function toggleFilters() {
     filtersVisible = !filtersVisible;
     document.getElementById('filter-panel').style.display = filtersVisible ? 'block' : 'none';
-    document.getElementById('filter-toggle-btn').style.background = filtersVisible ? 'var(--teal)' : '';
+    document.getElementById('filter-toggle-btn').style.background = filtersVisible ? 'var(--accent)' : '';
     document.getElementById('filter-toggle-btn').style.color = filtersVisible ? 'white' : '';
   }
 
@@ -570,7 +570,7 @@
     wrap.innerHTML = allRoles.map(r => `
       <label style="display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px">
         <input type="checkbox" value="${r.id}" ${selectedIds.includes(r.id)?'checked':''}
-               style="accent-color:var(--teal)">
+               style="accent-color:var(--accent)">
         ${esc(r.display_name||r.name)}
       </label>`).join('');
   }
@@ -823,7 +823,7 @@
     gap: 12px;
     transition: border-color .18s;
   }
-  .doc-card:hover { border-color: var(--teal); }
+  .doc-card:hover { border-color: var(--accent); }
   .doc-icon    { font-size: 28px; flex-shrink:0; line-height:1; margin-top:3px; }
   .doc-info    { flex:1; min-width:0; }
   .doc-title   { font-size:14px; font-weight:800; color:var(--navy);

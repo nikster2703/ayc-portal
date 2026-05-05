@@ -78,7 +78,7 @@
       outline: none;
       transition: border-color .18s;
     }
-    .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--teal); }
+    .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
     .field input.error, .field textarea.error, .field select.error { border-color: var(--red); }
     .field textarea { resize: vertical; min-height: 80px; }
 
@@ -86,7 +86,7 @@
     .postcode-wrap input { flex: 1; }
     .find-btn {
       padding: 11px 16px;
-      background: var(--teal);
+      background: var(--accent);
       color: white;
       border: none;
       border-radius: 10px;
@@ -107,7 +107,7 @@
       margin-top: -4px;
     }
     .lookup-msg.err  { background: var(--red-bg);    color: var(--red);  border: 1.5px solid #fca5a5; }
-    .lookup-msg.info { background: var(--teal-light); color: var(--teal); border: 1.5px solid #a5dce8; }
+    .lookup-msg.info { background: var(--accent-light); color: var(--accent); border: 1.5px solid #a5dce8; }
 
     .opt-badge {
       font-size: 10px; font-weight: 700;
@@ -130,7 +130,7 @@
       text-align: left;
       transition: border-color .18s, color .18s;
     }
-    .add-contact-btn:hover { border-color: var(--teal); color: var(--teal); }
+    .add-contact-btn:hover { border-color: var(--accent); color: var(--accent); }
     #second-contact { display: none; }
     #second-contact.visible { display: contents; }
 
@@ -156,7 +156,7 @@
       cursor: pointer;
       transition: all .18s;
     }
-    .yn-btn:hover { border-color: var(--teal); color: var(--teal); }
+    .yn-btn:hover { border-color: var(--accent); color: var(--accent); }
     .yn-btn.yes.selected { background: var(--green-bg); border-color: var(--green); color: var(--green); }
     .yn-btn.no.selected  { background: var(--red-bg);   border-color: var(--red);   color: var(--red);   }
     .declaration-row.required-err .yn-group .yn-btn:not(.selected) { border-color: var(--red); }
@@ -204,11 +204,11 @@
     #success-screen p  { font-size: 15px; color: var(--muted); line-height: 1.6; }
     .success-note {
       margin-top: 24px;
-      background: var(--teal-light);
+      background: var(--accent-light);
       border-radius: 12px;
       padding: 16px 20px;
       font-size: 14px; font-weight: 700;
-      color: var(--teal); line-height: 1.5;
+      color: var(--accent); line-height: 1.5;
     }
 
     @media (max-width: 500px) {

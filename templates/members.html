@@ -114,7 +114,7 @@
     <!-- Contacts — shown only when type has contact fields -->
     <div id="edit-contacts-section" style="display:none">
       <div style="border-top:2px solid var(--border);margin:14px 0 16px;padding-top:14px">
-        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 1</div>
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:12px">📞 Contact 1</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group"><label class="form-label">Name</label><input id="e-c1-name" type="text" class="form-input"></div>
           <div class="form-group"><label class="form-label">Phone</label><input id="e-c1-phone" type="tel" class="form-input"></div>
@@ -122,7 +122,7 @@
         </div>
       </div>
       <div style="border-top:2px solid var(--border);margin:0 0 16px;padding-top:14px">
-        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--teal);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group"><label class="form-label">Name</label><input id="e-c2-name" type="text" class="form-input"></div>
           <div class="form-group"><label class="form-label">Phone</label><input id="e-c2-phone" type="tel" class="form-input"></div>
@@ -725,7 +725,7 @@
         return `<div class="form-group" data-key="${field.key}" data-column="${col}" style="align-self:end;padding-bottom:4px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0;font-weight:700;font-size:13px">
             <input type="checkbox" id="${id}" ${(v === 1 || v === '1' || v === true || v === 'true' || v === 'yes') ? 'checked' : ''}
-                   style="width:18px;height:18px;accent-color:var(--teal)">
+                   style="width:18px;height:18px;accent-color:var(--accent)">
             ${esc(field.label)}
           </label>
         </div>`;
