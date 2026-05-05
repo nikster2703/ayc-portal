@@ -44,7 +44,7 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from flask import (Flask, g, jsonify, redirect, render_template,
                    request, session, url_for, send_from_directory,
-                   Response, stream_with_context)
+                   send_file, Response, stream_with_context)
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.utils import secure_filename
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -86,12 +86,30 @@ csrf = CSRFProtect(app)
 
 DATABASE   = os.path.join(INSTANCE_DIR, 'data', 'ayc.db')
 UPLOAD_DIR = os.path.join(INSTANCE_DIR, 'data', 'documents')
+LOG_DIR    = os.path.join(INSTANCE_DIR, 'data', 'logs')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(LOG_DIR,    exist_ok=True)
+
+# ── File logging (WARNING and above → data/logs/app.log) ──────────────────────
+# Captures the same errors that previously only appeared in the terminal.
+# RotatingFileHandler keeps up to 10 × 5 MB files (app.log … app.log.9).
+import logging
+from logging.handlers import RotatingFileHandler as _RFH
+
+_log_path    = os.path.join(LOG_DIR, 'app.log')
+_file_hdlr   = _RFH(_log_path, maxBytes=5 * 1024 * 1024, backupCount=9, encoding='utf-8')
+_file_hdlr.setLevel(logging.WARNING)
+_file_hdlr.setFormatter(logging.Formatter(
+    '%(asctime)s [%(levelname)-8s] %(module)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+))
+app.logger.addHandler(_file_hdlr)
+app.logger.setLevel(logging.WARNING)
 
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v9.5'   # v9.5: Clear-all-members (danger zone); audit log viewer with date/user filters + CSV export
+APP_VERSION = 'v9.6'   # v9.6: File-based system log (RotatingFileHandler); system log viewer UI with level filter + download
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -1622,6 +1640,11 @@ def users_page():
 @permission_required('audit.view')
 def audit_page():
     return render_template('admin/audit.html', active_page='audit', **tpl_ctx())
+
+@app.route('/admin/logs')
+@permission_required('admin.maintenance')
+def system_logs_page():
+    return render_template('admin/system_logs.html', active_page='settings', **tpl_ctx())
 
 @app.route('/admin/settings')
 @permission_required('admin.settings')
@@ -5459,6 +5482,88 @@ def api_mailshots_history():
         LIMIT   50
     ''').fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+# ── Unhandled exception logger ───────────────────────────────────────────────
+# Flask propagates unhandled exceptions to app.logger in production, but this
+# explicit handler guarantees the full traceback reaches the log file.
+@app.errorhandler(Exception)
+def _handle_unhandled_exception(exc):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return exc          # let Werkzeug handle 404s, 405s, etc. normally
+    app.logger.error('Unhandled exception', exc_info=True)
+    return jsonify({'error': 'Internal server error — check System Logs for details'}), 500
+
+
+# ── BLUEPRINT: system log viewer (admin.maintenance) ─────────────────────────
+
+def _safe_log_path(filename: str):
+    """Return an absolute path inside LOG_DIR, or None if the name is unsafe."""
+    safe   = os.path.basename(filename)          # strip any directory component
+    full   = os.path.join(LOG_DIR, safe)
+    # Ensure it resolves inside LOG_DIR (defence-in-depth against symlink tricks)
+    if not os.path.abspath(full).startswith(os.path.abspath(LOG_DIR) + os.sep):
+        return None
+    return full
+
+
+@app.route('/api/admin/logs')
+@permission_required('admin.maintenance')
+def api_logs_list():
+    """List all log files in LOG_DIR with size and last-modified metadata."""
+    import glob
+    files = []
+    for path in sorted(glob.glob(os.path.join(LOG_DIR, 'app.log*')),
+                       key=os.path.getmtime, reverse=True):
+        st = os.stat(path)
+        files.append({
+            'filename':  os.path.basename(path),
+            'size':      st.st_size,
+            'modified':  datetime.fromtimestamp(st.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+        })
+    return jsonify(files)
+
+
+@app.route('/api/admin/logs/tail')
+@permission_required('admin.maintenance')
+def api_logs_tail():
+    """Return the last N lines of a log file as a JSON list of strings."""
+    filename = request.args.get('file', 'app.log')
+    n_lines  = min(int(request.args.get('lines', 500)), 5000)
+    path     = _safe_log_path(filename)
+    if not path:
+        return jsonify({'error': 'Invalid filename'}), 400
+    if not os.path.exists(path):
+        return jsonify({'lines': [], 'truncated': False})
+
+    # Efficient tail: read from end of file
+    with open(path, 'rb') as f:
+        f.seek(0, 2)
+        size = f.tell()
+        # Read last 512 KB at most to find the desired number of lines
+        chunk = min(size, 512 * 1024)
+        f.seek(max(0, size - chunk))
+        raw = f.read().decode('utf-8', errors='replace')
+
+    all_lines = raw.splitlines()
+    tail      = all_lines[-n_lines:]
+    return jsonify({'lines': tail, 'truncated': len(all_lines) > n_lines,
+                    'total_in_chunk': len(all_lines)})
+
+
+@app.route('/api/admin/logs/<path:filename>/download')
+@permission_required('admin.maintenance')
+def api_logs_download(filename):
+    """Download a log file."""
+    path = _safe_log_path(filename)
+    if not path:
+        return jsonify({'error': 'Invalid filename'}), 400
+    if not os.path.exists(path):
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(path, as_attachment=True,
+                     download_name=os.path.basename(path),
+                     mimetype='text/plain')
 
 
 # ── BLUEPRINT: maintenance (admin only) ───────────────────────────────────────

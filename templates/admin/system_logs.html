@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — System Logs{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none">← Settings</a>
+  <h1 style="margin-top:10px">🖥️ System Logs</h1>
+</div>
+
+<!-- ── Toolbar ──────────────────────────────────────────────────────── -->
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+
+  <!-- File selector -->
+  <select id="file-select" class="session-select" onchange="loadLog()"
+          style="min-width:200px">
+    <option value="app.log">app.log (current)</option>
+  </select>
+
+  <!-- Level filter -->
+  <div style="display:flex;gap:0;border:2px solid var(--border);border-radius:8px;overflow:hidden">
+    <button id="lvl-all"   class="level-btn active" onclick="setLevel('all')">All</button>
+    <button id="lvl-warn"  class="level-btn"        onclick="setLevel('warn')">⚠️ Warnings+</button>
+    <button id="lvl-error" class="level-btn"        onclick="setLevel('error')">🔴 Errors</button>
+  </div>
+
+  <!-- Line count -->
+  <div class="count-pill" id="line-count" style="cursor:default">—</div>
+
+  <!-- Right-side actions -->
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <button class="btn btn-ghost btn-sm" onclick="loadLog()" title="Refresh">🔄 Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="downloadLog()" title="Download current file">⬇️ Download</button>
+  </div>
+</div>
+
+<!-- ── Log viewer ──────────────────────────────────────────────────── -->
+<div id="log-outer" style="border:2px solid #1e293b;border-radius:12px;overflow:hidden">
+  <div id="truncation-banner" style="display:none;background:#1e293b;color:#94a3b8;
+       padding:6px 14px;font-size:12px;font-family:monospace;border-bottom:1px solid #334155">
+  </div>
+  <pre id="log-viewer" style="
+    background:#0f172a;color:#e2e8f0;margin:0;padding:16px 18px;
+    font-size:12.5px;font-family:'Menlo','Consolas','Courier New',monospace;
+    line-height:1.65;overflow-x:auto;max-height:72vh;overflow-y:auto;
+    white-space:pre-wrap;word-break:break-all">
+    <span style="color:#64748b">Loading log…</span>
+  </pre>
+</div>
+<div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:right" id="log-meta"></div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .level-btn {
+    background: white;
+    border: none;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--muted);
+    transition: background .12s, color .12s;
+  }
+  .level-btn:not(:last-child) { border-right: 2px solid var(--border); }
+  .level-btn.active { background: var(--navy); color: white; }
+  .level-btn:hover:not(.active) { background: var(--cream); }
+</style>
+<script>
+  let allLines    = [];
+  let currentFile = 'app.log';
+  let currentLevel = 'all';
+
+  // ── Colour map for log levels ──────────────────────────────────────
+  function colouriseLine(line) {
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const l   = line.toUpperCase();
+    if (l.includes('[ERROR   ]') || l.includes('[CRITICAL]') || l.includes('ERROR') && l.startsWith('20')) {
+      return `<span style="color:#f87171">${esc(line)}</span>`;
+    }
+    if (l.includes('[WARNING ]') || l.includes('[WARNING]')) {
+      return `<span style="color:#fb923c">${esc(line)}</span>`;
+    }
+    // Tracebacks / indented lines that follow an error
+    if (line.startsWith('  ') || line.startsWith('\t') || line.startsWith('Traceback')) {
+      return `<span style="color:#fca5a5">${esc(line)}</span>`;
+    }
+    // Timestamps at start → dim them slightly
+    if (/^\d{4}-\d{2}-\d{2}/.test(line)) {
+      const tsEnd = line.indexOf(']') + 1;
+      if (tsEnd > 0) {
+        return `<span style="color:#475569">${esc(line.slice(0, tsEnd))}</span>${esc(line.slice(tsEnd))}`;
+      }
+    }
+    return `<span style="color:#94a3b8">${esc(line)}</span>`;
+  }
+
+  function lineMatchesLevel(line, level) {
+    if (level === 'all')   return true;
+    const l = line.toUpperCase();
+    if (level === 'error') return l.includes('[ERROR') || l.includes('[CRITICAL') ||
+                                  (line.startsWith('  ') && allLines.some((ln, i) => {
+                                    // include indented traceback lines
+                                    return false; // simplified — just filter by tag
+                                  }));
+    if (level === 'warn')  return l.includes('[WARNING') || l.includes('[ERROR') || l.includes('[CRITICAL');
+    return true;
+  }
+
+  function renderLines() {
+    const viewer = document.getElementById('log-viewer');
+    let filtered = allLines;
+
+    if (currentLevel === 'error') {
+      // Include error lines AND any immediately-following indented traceback lines
+      filtered = [];
+      let inError = false;
+      for (const ln of allLines) {
+        const u = ln.toUpperCase();
+        if (u.includes('[ERROR') || u.includes('[CRITICAL')) { inError = true; }
+        else if (/^\d{4}-\d{2}-\d{2}/.test(ln) || ln === '') { inError = false; }
+        if (inError) filtered.push(ln);
+      }
+    } else if (currentLevel === 'warn') {
+      filtered = [];
+      let inWarnOrAbove = false;
+      for (const ln of allLines) {
+        const u = ln.toUpperCase();
+        if (u.includes('[WARNING') || u.includes('[ERROR') || u.includes('[CRITICAL')) { inWarnOrAbove = true; }
+        else if (/^\d{4}-\d{2}-\d{2}/.test(ln) || ln === '') { inWarnOrAbove = false; }
+        if (inWarnOrAbove) filtered.push(ln);
+      }
+    }
+
+    const count = document.getElementById('line-count');
+    if (!filtered.length) {
+      viewer.innerHTML = '<span style="color:#64748b">No entries match the current filter.</span>';
+      count.textContent = '0 lines';
+      return;
+    }
+
+    viewer.innerHTML = filtered.map(colouriseLine).join('\n');
+    count.textContent = `${filtered.length.toLocaleString()} line${filtered.length !== 1 ? 's' : ''}`;
+
+    // Scroll to bottom (most recent entries are at the bottom)
+    viewer.scrollTop = viewer.scrollHeight;
+  }
+
+  // ── Load log file from server ──────────────────────────────────────
+  async function loadLog() {
+    const file   = document.getElementById('file-select').value;
+    currentFile  = file;
+    const viewer = document.getElementById('log-viewer');
+    viewer.innerHTML = '<span style="color:#64748b">Loading…</span>';
+    document.getElementById('line-count').textContent = '—';
+
+    try {
+      const data = await apiFetch(`/api/admin/logs/tail?file=${encodeURIComponent(file)}&lines=1000`);
+      allLines = data.lines || [];
+
+      const banner = document.getElementById('truncation-banner');
+      if (data.truncated) {
+        banner.textContent =
+          `Showing last 1,000 lines — file has more. Download to see everything.`;
+        banner.style.display = 'block';
+      } else {
+        banner.style.display = 'none';
+      }
+
+      const meta = document.getElementById('log-meta');
+      if (allLines.length === 0) {
+        viewer.innerHTML = '<span style="color:#64748b">Log file is empty — no warnings or errors recorded yet.</span>';
+        document.getElementById('line-count').textContent = '0 lines';
+        meta.textContent = '';
+        return;
+      }
+
+      renderLines();
+
+      // Show file info
+      const fileOpt = [...document.getElementById('file-select').options]
+        .find(o => o.value === file);
+      meta.textContent = fileOpt?.dataset?.info || '';
+
+    } catch (e) {
+      viewer.innerHTML = `<span style="color:#f87171">Error loading log: ${e.message}</span>`;
+    }
+  }
+
+  // ── Populate file selector ─────────────────────────────────────────
+  async function loadFileList() {
+    try {
+      const files = await apiFetch('/api/admin/logs');
+      const sel   = document.getElementById('file-select');
+      sel.innerHTML = '';
+
+      if (!files.length) {
+        const opt    = document.createElement('option');
+        opt.value    = 'app.log';
+        opt.textContent = 'app.log (no entries yet)';
+        sel.appendChild(opt);
+      } else {
+        files.forEach((f, i) => {
+          const opt = document.createElement('option');
+          opt.value = f.filename;
+          const sizeKb = (f.size / 1024).toFixed(1);
+          opt.textContent = i === 0
+            ? `${f.filename} — current (${sizeKb} KB)`
+            : `${f.filename} — ${f.modified} (${sizeKb} KB)`;
+          opt.dataset.info = `${f.filename} · ${sizeKb} KB · last modified ${f.modified}`;
+          sel.appendChild(opt);
+        });
+      }
+      loadLog();
+    } catch (e) {
+      document.getElementById('log-viewer').innerHTML =
+        `<span style="color:#f87171">Could not load file list: ${e.message}</span>`;
+    }
+  }
+
+  // ── Level filter ───────────────────────────────────────────────────
+  function setLevel(level) {
+    currentLevel = level;
+    document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`lvl-${level}`).classList.add('active');
+    renderLines();
+  }
+
+  // ── Download ───────────────────────────────────────────────────────
+  function downloadLog() {
+    window.location.href = `/api/admin/logs/${encodeURIComponent(currentFile)}/download`;
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────
+  loadFileList();
+</script>
+{% endblock %}
