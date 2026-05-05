@@ -293,6 +293,14 @@ def _connect_db(path=None):
     Raises RuntimeError on startup if DB_ENCRYPTION_KEY is missing or invalid —
     the app must never run without the key once the database is encrypted.
     Verifies the key immediately so a wrong key fails fast and clearly.
+
+    Performance settings applied on every connection:
+    - WAL journal mode: readers never block writers; much better for concurrent
+      Flask requests. Persistent once set — safe to apply on every open.
+    - synchronous=NORMAL: safe with WAL (fsync only at checkpoint, not every
+      write), significantly faster than the default FULL.
+    - busy_timeout=5000: if two writes collide, wait up to 5 s before raising
+      OperationalError, eliminating almost all "database is locked" errors.
     """
     if path is None:
         path = DATABASE
@@ -301,6 +309,9 @@ def _connect_db(path=None):
     conn = sqlite3.connect(path)
     conn.execute(f"PRAGMA key='{key}'")
     conn.execute('SELECT count(*) FROM sqlite_master')  # verify key immediately
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA synchronous=NORMAL')
+    conn.execute('PRAGMA busy_timeout=5000')
     return conn
 
 
