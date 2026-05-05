@@ -88,6 +88,12 @@
     {% endif %}
 
     {% if 'admin.settings' in user_permissions %}
+    <a href="/admin/branding" class="settings-card">
+      <div class="settings-card__icon">🎨</div>
+      <div class="settings-card__title">Branding</div>
+      <div class="settings-card__desc">Customise the portal accent colour, navigation bar style, and upload your organisation's logo.</div>
+    </a>
+
     <a href="/admin/roles" class="settings-card">
       <div class="settings-card__icon">🔐</div>
       <div class="settings-card__title">Roles &amp; Permissions</div>

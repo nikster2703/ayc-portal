@@ -1,18 +1,31 @@
 /* ================================================================
-   AYC PORTAL — SHARED STYLES  v4.1  (Flask / SQLite edition)
+   AYC PORTAL — SHARED STYLES  v4.2  (Flask / SQLite edition)
    ================================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
 
 :root {
+  /* ── Core palette ── */
   --navy:       #1b2d4f;
   --navy-dark:  #111e36;
-  --teal:       #0096b4;
-  --teal-light: #e0f6fb;
   --cream:      #f5f3ef;
   --text:       #1b2d4f;
   --muted:      #6b7d96;
   --border:     #dce3ef;
+  --surface:    #ffffff;
+  --bg:         #f5f3ef;
+
+  /* ── Accent colour — overridden per-org via inline <style> in base.html ── */
+  --accent:       #0096b4;
+  --accent-dark:  #007a96;
+  --accent-light: #e0f6fb;
+
+  /* ── Navigation header — overridden per-org via inline <style> in base.html ── */
+  --nav-effective-bg:     var(--navy);
+  --nav-effective-text:   #ffffff;
+  --nav-effective-border: transparent;
+
+  /* ── Status colours ── */
   --red:        #c53030;
   --red-bg:     #fff5f5;
   --green:      #276749;
@@ -26,8 +39,9 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 
 /* ─── APP HEADER ────────────────────────────────── */
 .app-header {
-  background: var(--navy);
-  color: white;
+  background: var(--nav-effective-bg);
+  color: var(--nav-effective-text);
+  border-bottom: 2px solid var(--nav-effective-border);
   height: 62px;
   padding: 0 24px;
   display: flex;
@@ -40,7 +54,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 900; }
 .brand-icon { font-size: 24px; }
-.brand a { color: white; text-decoration: none; display: flex; align-items: center; gap: 10px; }
+.brand-logo { height: 34px; width: auto; max-width: 160px; object-fit: contain; }
+.brand a { color: var(--nav-effective-text); text-decoration: none; display: flex; align-items: center; gap: 10px; }
 
 .header-right { display: flex; align-items: center; gap: 12px; }
 .user-pill {
@@ -52,8 +67,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 }
 .logout-btn {
   background: transparent;
-  border: 2px solid rgba(255,255,255,.38);
-  color: white;
+  border: 2px solid rgba(128,128,128,.38);
+  color: var(--nav-effective-text);
   border-radius: 8px;
   padding: 5px 13px;
   font-family: 'Nunito', sans-serif;
@@ -61,8 +76,9 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   font-weight: 700;
   cursor: pointer;
   transition: all .18s;
+  opacity: .85;
 }
-.logout-btn:hover { background: rgba(255,255,255,.14); border-color: white; }
+.logout-btn:hover { opacity: 1; border-color: var(--nav-effective-text); }
 
 /* ─── NAV ───────────────────────────────────────── */
 .app-nav {
@@ -86,14 +102,14 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   transition: color .18s, border-color .18s;
 }
 .nav-link:hover { color: var(--navy); }
-.nav-link.active { color: var(--teal); border-bottom-color: var(--teal); }
+.nav-link.active { color: var(--accent); border-bottom-color: var(--accent); }
 .nav-link.soon { opacity: 0.5; pointer-events: none; }
 .nav-icon { font-size: 16px; }
 .soon-tag {
   font-size: 9px;
   font-weight: 800;
-  background: var(--teal-light);
-  color: var(--teal);
+  background: var(--accent-light);
+  color: var(--accent);
   border-radius: 4px;
   padding: 1px 5px;
   letter-spacing: .05em;
@@ -116,8 +132,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 .version-badge {
   display: inline-block;
   margin-top: 20px;
-  background: var(--teal-light);
-  color: var(--teal);
+  background: var(--accent-light);
+  color: var(--accent);
   border-radius: 20px;
   padding: 6px 16px;
   font-size: 13px;
@@ -152,7 +168,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   background: white;
   transition: border-color .18s;
 }
-.search-input:focus { border-color: var(--teal); }
+.search-input:focus { border-color: var(--accent); }
 
 .session-select {
   padding: 11px 14px;
@@ -167,7 +183,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   cursor: pointer;
   transition: border-color .18s;
 }
-.session-select:focus { border-color: var(--teal); }
+.session-select:focus { border-color: var(--accent); }
 
 .leaver-toggle {
   display: flex;
@@ -185,13 +201,13 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   transition: border-color .18s, color .18s;
   user-select: none;
 }
-.leaver-toggle:hover { border-color: var(--teal); color: var(--text); }
+.leaver-toggle:hover { border-color: var(--accent); color: var(--text); }
 .leaver-toggle.active { border-color: var(--red); color: var(--red); background: var(--red-bg); }
 .leaver-toggle input { display: none; }
 
 .count-pill {
-  background: var(--teal-light);
-  color: var(--teal);
+  background: var(--accent-light);
+  color: var(--accent);
   border-radius: 20px;
   padding: 9px 18px;
   font-size: 13.5px;
@@ -202,8 +218,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   transition: border-color .18s, background .18s;
   user-select: none;
 }
-.count-pill:hover { border-color: var(--teal); }
-.count-pill.showing-all { background: var(--teal); color: white; }
+.count-pill:hover { border-color: var(--accent); }
+.count-pill.showing-all { background: var(--accent); color: white; }
 
 /* ─── MEMBER CARDS ───────────────────────────────── */
 .members-grid {
@@ -219,8 +235,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   cursor: pointer;
   transition: border-color .18s, box-shadow .18s;
 }
-.member-card:hover    { border-color: var(--teal); box-shadow: 0 4px 18px rgba(0,150,180,.1); }
-.member-card.expanded { border-color: var(--teal); }
+.member-card:hover    { border-color: var(--accent); box-shadow: 0 4px 18px rgba(0,150,180,.1); }
+.member-card.expanded { border-color: var(--accent); }
 
 .card-head {
   padding: 12px 14px;
@@ -259,7 +275,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: .09em;
-  color: var(--teal);
+  color: var(--accent);
   margin-bottom: 10px;
 }
 .dg { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 18px; }
@@ -273,7 +289,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 .badge-active { background: var(--green-bg);  color: var(--green); }
 .badge-leaver { background: var(--orange-bg); color: var(--orange); }
 .badge-admin  { background: var(--navy);      color: white; }
-.badge-editor { background: var(--teal-light);color: var(--teal); }
+.badge-editor { background: var(--accent-light);color: var(--accent); }
 .badge-leader { background: var(--green-bg);  color: var(--green); }
 .badge-ro     { background: var(--border);    color: var(--muted); }
 
@@ -282,7 +298,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 .spinner {
   width: 40px; height: 40px;
   border: 4px solid var(--border);
-  border-top-color: var(--teal);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin .75s linear infinite;
   margin: 0 auto 16px;
@@ -316,12 +332,12 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 }
 .btn-primary  { background: var(--navy);  color: white; }
 .btn-primary:hover  { background: var(--navy-dark); }
-.btn-teal     { background: var(--teal);  color: white; }
+.btn-teal     { background: var(--accent);  color: white; }
 .btn-teal:hover     { opacity: .88; }
 .btn-danger   { background: var(--red-bg); color: var(--red); border-color: #fca5a5; }
 .btn-danger:hover   { background: var(--red); color: white; }
 .btn-ghost    { background: transparent; color: var(--muted); border-color: var(--border); }
-.btn-ghost:hover    { border-color: var(--teal); color: var(--navy); }
+.btn-ghost:hover    { border-color: var(--accent); color: var(--navy); }
 .btn-sm { padding: 6px 12px; font-size: 12px; }
 
 /* ─── MODAL ──────────────────────────────────────── */
@@ -391,7 +407,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 }
 .form-group input:focus,
 .form-group select:focus,
-.form-group textarea:focus { border-color: var(--teal); }
+.form-group textarea:focus { border-color: var(--accent); }
 
 /* ─── TABLE ──────────────────────────────────────── */
 .data-table {
@@ -420,7 +436,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   font-weight: 700;
 }
 .data-table tr:last-child td { border-bottom: none; }
-.data-table tr:hover td { background: var(--teal-light); }
+.data-table tr:hover td { background: var(--accent-light); }
 .data-table .actions { display: flex; gap: 8px; }
 
 /* ─── PAGE HEADER ROW ────────────────────────────── */
@@ -473,8 +489,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   cursor: pointer;
   transition: border-color .18s, color .18s, background .18s;
 }
-.tab-btn:hover  { border-color: var(--teal); color: var(--text); }
-.tab-btn.active { border-color: var(--teal); background: var(--teal); color: white; }
+.tab-btn:hover  { border-color: var(--accent); color: var(--text); }
+.tab-btn.active { border-color: var(--accent); background: var(--accent); color: white; }
 
 /* ─── FLAG BADGES (medical, unattended exit) ─────── */
 .flag-badge {
@@ -659,6 +675,6 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 .footer-version {
   font-weight: 800;
   letter-spacing: .04em;
-  color: var(--teal);
+  color: var(--accent);
   opacity: .7;
 }

@@ -6,6 +6,18 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}{{ club_short_name }} Portal{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/shared.css">
+  {% if brand %}
+  <style>
+    :root {
+      --accent:       {{ brand._palette.accent }};
+      --accent-dark:  {{ brand._palette.accent_dark }};
+      --accent-light: {{ brand._palette.accent_light }};
+      --nav-effective-bg:     {{ brand._nav_bg }};
+      --nav-effective-text:   {{ brand._nav_text }};
+      --nav-effective-border: {{ brand._nav_border }};
+    }
+  </style>
+  {% endif %}
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -14,8 +26,12 @@
   <header class="app-header">
     <div class="brand">
       <a href="/dashboard">
-        <span class="brand-icon">🏅</span>
-        <span class="brand-label">{{ club_name }}</span>
+        {% if brand and brand._logo_url %}
+          <img src="{{ brand._logo_url }}" alt="{{ club_name }}" class="brand-logo">
+        {% else %}
+          <span class="brand-icon">🏅</span>
+          <span class="brand-label">{{ club_name }}</span>
+        {% endif %}
       </a>
     </div>
     <div class="header-right">

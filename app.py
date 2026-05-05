@@ -29,6 +29,7 @@ import base64
 import re
 import smtplib
 import time
+import colorsys
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -84,11 +85,13 @@ app.config['WTF_CSRF_HEADERS']     = ['X-CSRFToken']   # header name used by api
 app.config['WTF_CSRF_TIME_LIMIT']  = None               # bounded by session lifetime (8 h)
 csrf = CSRFProtect(app)
 
-DATABASE   = os.path.join(INSTANCE_DIR, 'data', 'ayc.db')
-UPLOAD_DIR = os.path.join(INSTANCE_DIR, 'data', 'documents')
-LOG_DIR    = os.path.join(INSTANCE_DIR, 'data', 'logs')
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(LOG_DIR,    exist_ok=True)
+DATABASE    = os.path.join(INSTANCE_DIR, 'data', 'ayc.db')
+UPLOAD_DIR  = os.path.join(INSTANCE_DIR, 'data', 'documents')
+LOG_DIR     = os.path.join(INSTANCE_DIR, 'data', 'logs')
+BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
+os.makedirs(UPLOAD_DIR,   exist_ok=True)
+os.makedirs(LOG_DIR,      exist_ok=True)
+os.makedirs(BRANDING_DIR, exist_ok=True)
 
 # ── File logging (WARNING and above → data/logs/app.log) ──────────────────────
 # Captures the same errors that previously only appeared in the terminal.
@@ -109,7 +112,7 @@ app.logger.setLevel(logging.WARNING)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
-APP_VERSION = 'v9.6'   # v9.6: File-based system log (RotatingFileHandler); system log viewer UI with level filter + download
+APP_VERSION = 'v9.7'   # v9.7: Branding system — per-org accent colour, logo upload, nav style; CSS variable refactor
 
 # ── Permission catalogue ───────────────────────────────────────────────────────
 # Single source of truth for every permission code the app supports.
@@ -792,6 +795,10 @@ def ensure_tables():
     for key, val in _qr_defaults:
         if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
             sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
+    # v9.7: Branding settings
+    for key, val in BRAND_KEYS.items():
+        if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
+            sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
     sdb.commit()
     sdb.close()
 
@@ -1268,8 +1275,101 @@ def has_permission(permission_code):
     Safe to call from templates and helper functions."""
     return permission_code in session.get('permissions', [])
 
+# ── Branding helpers ───────────────────────────────────────────────────────────
+
+def _hex_to_hls(hex_color):
+    """Convert #rrggbb to (h, l, s) in [0..1] range."""
+    h = hex_color.lstrip('#')
+    r, g, b = int(h[0:2], 16)/255, int(h[2:4], 16)/255, int(h[4:6], 16)/255
+    return colorsys.rgb_to_hls(r, g, b)
+
+def _hls_to_hex(h, l, s):
+    """Convert (h, l, s) in [0..1] to #rrggbb."""
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return '#{:02x}{:02x}{:02x}'.format(int(r*255), int(g*255), int(b*255))
+
+def derive_palette(accent_hex):
+    """Given an accent colour, return a dict of CSS variable values.
+
+    Returns:
+        accent        — the base colour as supplied
+        accent_dark   — slightly darker / more saturated (for hover)
+        accent_light  — very pale tint (for badge backgrounds, row highlights)
+    """
+    try:
+        h, l, s = _hex_to_hls(accent_hex)
+        dark  = _hls_to_hex(h, max(0.0, l * 0.80), min(1.0, s * 1.1))
+        light = _hls_to_hex(h, min(0.96, l * 2.8 + 0.55), min(1.0, s * 0.6))
+        return {'accent': accent_hex, 'accent_dark': dark, 'accent_light': light}
+    except Exception:
+        return {'accent': '#0096b4', 'accent_dark': '#007a96', 'accent_light': '#e0f6fb'}
+
+# In-memory brand settings cache — invalidated on POST /api/admin/branding
+_brand_cache = None
+
+def _invalidate_brand_cache():
+    global _brand_cache
+    _brand_cache = None
+
+BRAND_KEYS = {
+    'brand_accent':      '#0096b4',
+    'brand_nav_style':   'dark',    # 'dark' | 'accent' | 'white'
+    'brand_logo_file':   '',        # filename inside BRANDING_DIR, or ''
+    'brand_club_name':   '',        # override CLUB_NAME if set
+    'brand_short_name':  '',        # override CLUB_SHORT_NAME if set
+}
+
+def get_brand_settings():
+    """Return a dict of brand settings, pulling from DB and caching in memory."""
+    global _brand_cache
+    if _brand_cache is not None:
+        return _brand_cache
+
+    db = _connect_db()
+    db.row_factory = sqlite3.Row
+    rows = db.execute(
+        "SELECT key, value FROM settings WHERE key LIKE 'brand_%'"
+    ).fetchall()
+    db.close()
+
+    result = dict(BRAND_KEYS)  # start with defaults
+    for row in rows:
+        result[row['key']] = row['value']
+
+    # Derive accent palette
+    palette = derive_palette(result['brand_accent'])
+
+    # Resolve nav colours based on nav style
+    nav_style = result['brand_nav_style']
+    if nav_style == 'accent':
+        # Use accent colour as nav background, auto-detect light/dark text
+        h, l, s = _hex_to_hls(result['brand_accent'])
+        nav_text = '#ffffff' if l < 0.55 else '#1a202c'
+        nav_bg   = result['brand_accent']
+        nav_border = palette['accent_dark']
+    elif nav_style == 'white':
+        nav_bg   = '#ffffff'
+        nav_text = '#1b2d4f'
+        nav_border = '#dce3ef'
+    else:  # 'dark' (default)
+        nav_bg   = '#1b2d4f'
+        nav_text = '#ffffff'
+        nav_border = 'transparent'
+
+    result['_palette']    = palette
+    result['_nav_bg']     = nav_bg
+    result['_nav_text']   = nav_text
+    result['_nav_border'] = nav_border
+    result['_logo_url']   = f'/branding/logo?v={int(time.time())}' if result['brand_logo_file'] else ''
+
+    _brand_cache = result
+    return result
+
 def tpl_ctx():
     """Inject current user info into every protected template."""
+    brand = get_brand_settings()
+    club  = brand.get('brand_club_name')  or CLUB_NAME
+    short = brand.get('brand_short_name') or CLUB_SHORT_NAME
     return {
         'current_user':         session.get('username', ''),
         'current_role':         session.get('role', ''),
@@ -1278,8 +1378,9 @@ def tpl_ctx():
         'app_version':          APP_VERSION,
         'session_types':        get_session_types(),        # [{id, name, weekday}, ...]
         'user_permissions':     session.get('permissions', []),  # list of permission codes
-        'club_name':            CLUB_NAME,
-        'club_short_name':      CLUB_SHORT_NAME,
+        'club_name':            club,
+        'club_short_name':      short,
+        'brand':                brand,
     }
 
 # ── Page routes ────────────────────────────────────────────────────────────────
@@ -1646,6 +1747,27 @@ def audit_page():
 def system_logs_page():
     return render_template('admin/system_logs.html', active_page='settings', **tpl_ctx())
 
+# ── Branding — public logo endpoint ───────────────────────────────────────────
+
+@app.route('/branding/logo')
+def branding_logo():
+    """Serve the organisation logo (publicly accessible — no auth needed)."""
+    brand = get_brand_settings()
+    filename = brand.get('brand_logo_file', '')
+    if not filename:
+        return '', 404
+    safe = os.path.join(BRANDING_DIR, os.path.basename(filename))
+    if not os.path.isfile(safe):
+        return '', 404
+    return send_from_directory(BRANDING_DIR, os.path.basename(filename))
+
+# ── Branding admin page ────────────────────────────────────────────────────────
+
+@app.route('/admin/branding')
+@permission_required('admin.settings')
+def branding_page():
+    return render_template('admin/branding.html', active_page='settings', **tpl_ctx())
+
 @app.route('/admin/settings')
 @permission_required('admin.settings')
 def settings_page():
@@ -1745,6 +1867,128 @@ def api_settings_save():
     db.commit()
     if saved:
         log_action('update_settings', 'settings', None, {'changes': saved})
+    return jsonify({'success': True})
+
+# ── Branding API ───────────────────────────────────────────────────────────────
+
+ALLOWED_LOGO_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg', 'webp', 'gif'}
+
+@app.route('/api/admin/branding')
+@permission_required('admin.settings')
+def api_branding_get():
+    """Return current branding settings."""
+    brand = get_brand_settings()
+    return jsonify({
+        'accent':     brand.get('brand_accent', '#0096b4'),
+        'nav_style':  brand.get('brand_nav_style', 'dark'),
+        'club_name':  brand.get('brand_club_name', ''),
+        'short_name': brand.get('brand_short_name', ''),
+        'has_logo':   bool(brand.get('brand_logo_file')),
+    })
+
+@app.route('/api/admin/branding', methods=['POST'])
+@permission_required('admin.settings')
+def api_branding_save():
+    """Save branding settings (colour, nav style, club name override).
+    Does NOT handle logo upload — use POST /api/admin/branding/logo for that."""
+    data = request.get_json() or {}
+    updates = {}
+
+    if 'accent' in data:
+        # Validate it looks like a hex colour
+        v = str(data['accent']).strip()
+        if not re.match(r'^#[0-9a-fA-F]{6}$', v):
+            return jsonify({'error': 'accent must be a 6-digit hex colour e.g. #ff5500'}), 400
+        updates['brand_accent'] = v
+
+    if 'nav_style' in data:
+        v = str(data['nav_style']).strip()
+        if v not in ('dark', 'accent', 'white'):
+            return jsonify({'error': 'nav_style must be dark, accent or white'}), 400
+        updates['brand_nav_style'] = v
+
+    if 'club_name' in data:
+        updates['brand_club_name'] = str(data['club_name']).strip()[:120]
+
+    if 'short_name' in data:
+        updates['brand_short_name'] = str(data['short_name']).strip()[:30]
+
+    if not updates:
+        return jsonify({'success': True, 'message': 'Nothing to update'})
+
+    db = get_db()
+    for key, val in updates.items():
+        db.execute(
+            'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
+            ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by',
+            (key, val, session['user_id'])
+        )
+    db.commit()
+    _invalidate_brand_cache()
+    log_action('update_branding', 'settings', None, updates)
+    return jsonify({'success': True})
+
+@app.route('/api/admin/branding/logo', methods=['POST'])
+@permission_required('admin.settings')
+def api_branding_logo_upload():
+    """Upload a new organisation logo."""
+    if 'logo' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    f = request.files['logo']
+    if not f.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in ALLOWED_LOGO_EXTENSIONS:
+        return jsonify({'error': f'File type .{ext} not allowed — use PNG, JPG, SVG or WebP'}), 400
+
+    filename = f'logo.{ext}'
+    save_path = os.path.join(BRANDING_DIR, filename)
+
+    # Remove any previous logo files (all extensions)
+    for old in os.listdir(BRANDING_DIR):
+        if old.startswith('logo.'):
+            try:
+                os.remove(os.path.join(BRANDING_DIR, old))
+            except OSError:
+                pass
+
+    f.save(save_path)
+
+    db = get_db()
+    db.execute(
+        'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
+        ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by',
+        ('brand_logo_file', filename, session['user_id'])
+    )
+    db.commit()
+    _invalidate_brand_cache()
+    log_action('upload_branding_logo', 'settings', None, {'filename': filename})
+    return jsonify({'success': True, 'filename': filename})
+
+@app.route('/api/admin/branding/logo', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_branding_logo_delete():
+    """Remove the organisation logo."""
+    brand = get_brand_settings()
+    filename = brand.get('brand_logo_file', '')
+    if filename:
+        path = os.path.join(BRANDING_DIR, os.path.basename(filename))
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+    db = get_db()
+    db.execute(
+        'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
+        ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by',
+        ('brand_logo_file', '', session['user_id'])
+    )
+    db.commit()
+    _invalidate_brand_cache()
+    log_action('delete_branding_logo', 'settings', None, {})
     return jsonify({'success': True})
 
 # ── Login rate limiter (in-memory, per-IP) ────────────────────────────────────

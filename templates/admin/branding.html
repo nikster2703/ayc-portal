@@ -1,0 +1,464 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Branding{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none">← Settings</a>
+  <h1 style="margin-top:10px">🎨 Branding</h1>
+</div>
+
+<style>
+  .brand-section {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 24px 26px;
+    margin-bottom: 20px;
+  }
+  .brand-section-title {
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--muted);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1.5px solid var(--border);
+  }
+  .colour-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .colour-swatch {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .colour-swatch:hover { border-color: var(--muted); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  #accent-hex-input {
+    font-family: 'Menlo', 'Consolas', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    width: 120px;
+    text-transform: uppercase;
+  }
+
+  /* Nav style cards */
+  .nav-style-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .nav-style-card {
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .nav-style-card:hover { border-color: var(--accent); }
+  .nav-style-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+  .nav-style-card input[type=radio] { display: none; }
+  .nav-preview-bar {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 800;
+    gap: 8px;
+  }
+  .nav-preview-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    opacity: .5;
+  }
+  .nav-style-label {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--navy);
+    text-align: center;
+  }
+
+  /* Logo dropzone */
+  .logo-drop {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .logo-drop:hover, .logo-drop.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .logo-drop input { display: none; }
+
+  /* Live preview bar */
+  #preview-bar {
+    border-radius: 10px;
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 900;
+    margin-bottom: 20px;
+    transition: background .25s, color .25s;
+  }
+  #preview-bar img { height: 28px; width: auto; max-width: 130px; object-fit: contain; }
+</style>
+
+<!-- Live preview bar -->
+<div id="preview-bar" style="background:#1b2d4f;color:#ffffff">
+  <span id="preview-icon">🏅</span>
+  <span id="preview-name">{{ club_name }}</span>
+</div>
+
+<!-- ── Accent colour ──────────────────────────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Accent Colour</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+    Used for active nav items, buttons, badges, focus rings, and highlights throughout the portal.
+  </p>
+  <div class="colour-row">
+    <input type="color" id="accent-picker" class="colour-swatch"
+           value="{{ brand.brand_accent or '#0096b4' }}"
+           oninput="onAccentChange(this.value)">
+    <div class="form-group" style="margin:0">
+      <input id="accent-hex-input" type="text" class="form-group input"
+             style="width:130px;padding:9px 12px;border:2px solid var(--border);border-radius:9px;font-family:monospace;font-size:15px;font-weight:700"
+             value="{{ brand.brand_accent or '#0096b4' }}"
+             maxlength="7"
+             oninput="onHexInput(this.value)"
+             placeholder="#0096b4">
+    </div>
+    <!-- Preset swatches -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      {% for colour in ['#0096b4','#2563eb','#7c3aed','#db2777','#ea580c','#16a34a','#0891b2','#1b2d4f'] %}
+      <button type="button" onclick="onAccentChange('{{ colour }}')"
+              style="width:28px;height:28px;border-radius:7px;border:2px solid var(--border);
+                     background:{{ colour }};cursor:pointer;transition:transform .1s"
+              title="{{ colour }}"
+              onmouseover="this.style.transform='scale(1.15)'"
+              onmouseout="this.style.transform='scale(1)'"></button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Nav style ──────────────────────────────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Navigation Bar Style</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+    Choose how the top navigation bar looks. "Accent" uses your chosen colour directly.
+  </p>
+  <div class="nav-style-grid" id="nav-style-grid">
+
+    <label class="nav-style-card {% if brand.brand_nav_style == 'dark' or not brand.brand_nav_style %}selected{% endif %}"
+           onclick="selectNavStyle('dark')">
+      <input type="radio" name="nav_style" value="dark" {% if brand.brand_nav_style == 'dark' or not brand.brand_nav_style %}checked{% endif %}>
+      <div class="nav-preview-bar" style="background:#1b2d4f;color:white">
+        <div class="nav-preview-dot" style="background:white"></div>
+        Dark Navy
+      </div>
+      <div class="nav-style-label">Dark (default)</div>
+    </label>
+
+    <label class="nav-style-card {% if brand.brand_nav_style == 'accent' %}selected{% endif %}"
+           id="nav-card-accent" onclick="selectNavStyle('accent')">
+      <input type="radio" name="nav_style" value="accent" {% if brand.brand_nav_style == 'accent' %}checked{% endif %}>
+      <div class="nav-preview-bar" id="nav-preview-accent"
+           style="background:{{ brand.brand_accent or '#0096b4' }};color:white">
+        <div class="nav-preview-dot" style="background:white"></div>
+        Accent
+      </div>
+      <div class="nav-style-label">Accent Colour</div>
+    </label>
+
+    <label class="nav-style-card {% if brand.brand_nav_style == 'white' %}selected{% endif %}"
+           onclick="selectNavStyle('white')">
+      <input type="radio" name="nav_style" value="white" {% if brand.brand_nav_style == 'white' %}checked{% endif %}>
+      <div class="nav-preview-bar" style="background:white;color:#1b2d4f;border-bottom:2px solid #dce3ef">
+        <div class="nav-preview-dot" style="background:#1b2d4f"></div>
+        Light
+      </div>
+      <div class="nav-style-label">White / Light</div>
+    </label>
+
+  </div>
+</div>
+
+<!-- ── Club name override ─────────────────────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Club Name Override</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+    Leave blank to use the name set in your <code>.env</code> file (<strong>{{ club_name }}</strong> / <strong>{{ club_short_name }}</strong>).
+    Set here to override for the portal UI without changing server config.
+  </p>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+    <div class="form-group" style="margin:0">
+      <label>Full Club Name</label>
+      <input id="club-name-input" type="text" placeholder="e.g. Ashford Youth Club"
+             value="{{ brand.brand_club_name or '' }}" maxlength="120">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Short Name</label>
+      <input id="short-name-input" type="text" placeholder="e.g. AYC"
+             value="{{ brand.brand_short_name or '' }}" maxlength="30">
+    </div>
+  </div>
+</div>
+
+<!-- ── Logo ───────────────────────────────────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Organisation Logo</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+    Upload a PNG, SVG, or JPG logo. It will replace the 🏅 icon in the navigation bar.
+    Recommended height: 60–120 px on a transparent background.
+  </p>
+
+  {% if brand.brand_logo_file %}
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;
+              background:var(--cream);border-radius:10px;padding:14px 18px">
+    <img src="{{ brand._logo_url }}" alt="Logo" style="height:40px;width:auto;max-width:140px;object-fit:contain">
+    <div style="flex:1">
+      <div style="font-weight:800;font-size:14px;color:var(--navy)">{{ brand.brand_logo_file }}</div>
+      <div style="font-size:12px;color:var(--muted)">Current logo</div>
+    </div>
+    <button class="btn btn-danger btn-sm" onclick="deleteLogo()">Remove</button>
+  </div>
+  {% endif %}
+
+  <div class="logo-drop" id="logo-drop"
+       onclick="document.getElementById('logo-file').click()"
+       ondragover="event.preventDefault();this.classList.add('drag-over')"
+       ondragleave="this.classList.remove('drag-over')"
+       ondrop="onLogoDrop(event)">
+    <input type="file" id="logo-file" accept=".png,.jpg,.jpeg,.svg,.webp,.gif"
+           onchange="uploadLogo(this.files[0])">
+    <div style="font-size:32px;margin-bottom:8px">🖼️</div>
+    <div style="font-weight:800;color:var(--navy);font-size:14px">Click to upload or drag &amp; drop</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px">PNG, SVG, JPG, WebP · Max 5 MB</div>
+  </div>
+
+  <div id="logo-upload-progress" style="display:none;margin-top:10px">
+    <div style="font-size:13px;color:var(--muted)">Uploading…</div>
+  </div>
+</div>
+
+<!-- ── Actions ───────────────────────────────────────────────────── -->
+<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+  <a href="/admin/settings" class="btn btn-ghost">Cancel</a>
+  <button class="btn btn-teal" onclick="saveSettings()">💾 Save Branding</button>
+</div>
+
+<div id="toast" class="toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let _currentAccent  = '{{ brand.brand_accent or "#0096b4" }}';
+  let _currentNavStyle = '{{ brand.brand_nav_style or "dark" }}';
+
+  /* ── Utilities ───────────────────────────────────────────────────── */
+  function showToastLocal(msg, err) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (err ? ' err' : '');
+    clearTimeout(t._to);
+    t._to = setTimeout(() => t.className = 'toast', 3200);
+  }
+
+  /* ── Colour helpers ──────────────────────────────────────────────── */
+  function hexToHSL(hex) {
+    let r = parseInt(hex.slice(1,3),16)/255,
+        g = parseInt(hex.slice(3,5),16)/255,
+        b = parseInt(hex.slice(5,7),16)/255;
+    let max = Math.max(r,g,b), min = Math.min(r,g,b), l = (max+min)/2, s = 0, h = 0;
+    if (max !== min) {
+      s = l > 0.5 ? (max-min)/(2-max-min) : (max-min)/(max+min);
+      switch(max) {
+        case r: h = ((g-b)/(max-min) + (g<b?6:0))/6; break;
+        case g: h = ((b-r)/(max-min) + 2)/6; break;
+        case b: h = ((r-g)/(max-min) + 4)/6; break;
+      }
+    }
+    return {h, s, l};
+  }
+
+  function hslToHex(h, s, l) {
+    let r, g, b;
+    if (!s) { r = g = b = l; }
+    else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t++;
+        if (t > 1) t--;
+        if (t < 1/6) return p + (q-p)*6*t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q-p)*(2/3-t)*6;
+        return p;
+      };
+      const q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+      r = hue2rgb(p, q, h+1/3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h-1/3);
+    }
+    return '#' + [r,g,b].map(x => Math.round(x*255).toString(16).padStart(2,'0')).join('');
+  }
+
+  function deriveAccentVars(hex) {
+    const {h, s, l} = hexToHSL(hex);
+    const dark  = hslToHex(h, Math.min(1, s*1.1), Math.max(0, l*0.80));
+    const light = hslToHex(h, Math.min(1, s*0.6), Math.min(0.96, l*2.8+0.55));
+    return {accent: hex, dark, light};
+  }
+
+  function isLightColour(hex) {
+    const {l} = hexToHSL(hex);
+    return l > 0.55;
+  }
+
+  /* ── Update CSS vars in real-time ────────────────────────────────── */
+  function applyAccentToPage(hex) {
+    const {accent, dark, light} = deriveAccentVars(hex);
+    document.documentElement.style.setProperty('--accent',       accent);
+    document.documentElement.style.setProperty('--accent-dark',  dark);
+    document.documentElement.style.setProperty('--accent-light', light);
+    // Also update accent nav card preview
+    document.getElementById('nav-preview-accent').style.background = hex;
+    document.getElementById('nav-preview-accent').style.color =
+      isLightColour(hex) ? '#1a202c' : '#ffffff';
+  }
+
+  function applyNavStyleToPage(style) {
+    let bg, text, border;
+    if (style === 'accent') {
+      bg = _currentAccent;
+      text = isLightColour(_currentAccent) ? '#1a202c' : '#ffffff';
+      border = deriveAccentVars(_currentAccent).dark;
+    } else if (style === 'white') {
+      bg = '#ffffff'; text = '#1b2d4f'; border = '#dce3ef';
+    } else {
+      bg = '#1b2d4f'; text = '#ffffff'; border = 'transparent';
+    }
+    document.documentElement.style.setProperty('--nav-effective-bg',     bg);
+    document.documentElement.style.setProperty('--nav-effective-text',   text);
+    document.documentElement.style.setProperty('--nav-effective-border', border);
+    // Update the preview bar too
+    const bar = document.getElementById('preview-bar');
+    bar.style.background = bg;
+    bar.style.color = text;
+  }
+
+  /* ── Accent colour events ────────────────────────────────────────── */
+  function onAccentChange(hex) {
+    _currentAccent = hex;
+    document.getElementById('accent-picker').value = hex;
+    document.getElementById('accent-hex-input').value = hex.toUpperCase();
+    applyAccentToPage(hex);
+    if (_currentNavStyle === 'accent') applyNavStyleToPage('accent');
+  }
+
+  function onHexInput(val) {
+    val = val.trim();
+    if (!val.startsWith('#')) val = '#' + val;
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) onAccentChange(val);
+  }
+
+  /* ── Nav style ───────────────────────────────────────────────────── */
+  function selectNavStyle(style) {
+    _currentNavStyle = style;
+    document.querySelectorAll('.nav-style-card').forEach(c => c.classList.remove('selected'));
+    // Find the card with the matching radio value
+    const radio = document.querySelector(`input[name=nav_style][value="${style}"]`);
+    if (radio) {
+      radio.checked = true;
+      radio.closest('.nav-style-card').classList.add('selected');
+    }
+    applyNavStyleToPage(style);
+  }
+
+  /* ── Logo upload ─────────────────────────────────────────────────── */
+  function onLogoDrop(e) {
+    e.preventDefault();
+    document.getElementById('logo-drop').classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) uploadLogo(file);
+  }
+
+  async function uploadLogo(file) {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToastLocal('Logo must be under 5 MB.', true); return;
+    }
+    const progress = document.getElementById('logo-upload-progress');
+    progress.style.display = 'block';
+    const fd = new FormData();
+    fd.append('logo', file);
+    try {
+      const res = await fetch('/api/admin/branding/logo', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': document.querySelector('meta[name=csrf-token]').content },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Upload failed');
+      showToastLocal('Logo uploaded — page will reload…');
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+      showToastLocal(e.message, true);
+    } finally {
+      progress.style.display = 'none';
+    }
+  }
+
+  async function deleteLogo() {
+    if (!confirm('Remove the organisation logo?')) return;
+    try {
+      const res = await fetch('/api/admin/branding/logo', {
+        method: 'DELETE',
+        headers: { 'X-CSRFToken': document.querySelector('meta[name=csrf-token]').content },
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      showToastLocal('Logo removed.');
+      setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+      showToastLocal(e.message, true);
+    }
+  }
+
+  /* ── Save settings ───────────────────────────────────────────────── */
+  async function saveSettings() {
+    const hex = document.getElementById('accent-hex-input').value.trim().toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(hex)) {
+      showToastLocal('Please enter a valid 6-digit hex colour.', true); return;
+    }
+    const navStyle  = _currentNavStyle;
+    const clubName  = document.getElementById('club-name-input').value.trim();
+    const shortName = document.getElementById('short-name-input').value.trim();
+
+    try {
+      const res = await apiFetch('/api/admin/branding', {
+        method: 'POST',
+        body: JSON.stringify({ accent: hex, nav_style: navStyle, club_name: clubName, short_name: shortName }),
+      });
+      showToastLocal('Branding saved! Reloading…');
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+      showToastLocal(e.message, true);
+    }
+  }
+
+  /* ── Boot — apply current settings immediately ───────────────────── */
+  applyAccentToPage(_currentAccent);
+  applyNavStyleToPage(_currentNavStyle);
+</script>
+{% endblock %}
