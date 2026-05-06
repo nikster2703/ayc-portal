@@ -330,6 +330,7 @@ def ensure_tables():
         "ALTER TABLE documents ADD COLUMN retain_until TEXT",
         "ALTER TABLE documents ADD COLUMN retention_notes TEXT",
         "ALTER TABLE documents ADD COLUMN file_size INTEGER",
+        "ALTER TABLE documents ADD COLUMN file_path TEXT NOT NULL DEFAULT ''",
     ]
     for stmt in alter_stmts:
         try:

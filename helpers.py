@@ -379,7 +379,7 @@ def _rebuild_doc_fts(db, doc_id):
     if not _fts5_available(db):
         return
     doc = db.execute(
-        'SELECT id, original_filename, description, active FROM documents WHERE id = ?',
+        'SELECT id, filename, description, active FROM documents WHERE id = ?',
         (doc_id,)
     ).fetchone()
     if not doc or not doc['active']:
@@ -388,7 +388,7 @@ def _rebuild_doc_fts(db, doc_id):
         except Exception:
             pass
         return
-    content = ' '.join(filter(None, [doc['original_filename'], doc['description']]))
+    content = ' '.join(filter(None, [doc['filename'], doc['description']]))
     try:
         db.execute('DELETE FROM documents_fts WHERE doc_id = ?', (doc_id,))
         if content.strip():

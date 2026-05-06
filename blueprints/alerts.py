@@ -4,7 +4,7 @@ Routes: /api/alert-rules/*, /api/alerts/*, /api/members/<id>/flags/*, /admin/ale
 Helpers: _run_alert_rule, run_all_alert_rules  (also called by scheduler in app.py)
 """
 
-import sqlite3
+import sqlcipher3 as sqlite3
 from collections import defaultdict
 from datetime import datetime
 

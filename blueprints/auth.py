@@ -10,15 +10,16 @@ from datetime import datetime, timezone
 import bcrypt
 from flask import Blueprint, jsonify, redirect, request, session, url_for
 
-from config import ROLE_DISPLAY_NAMES, LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS
+from config import (
+    ROLE_DISPLAY_NAMES, LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
+    APP_VERSION, CLUB_NAME, CLUB_SHORT_NAME,
+)
 from extensions import csrf
+from flask import render_template
 from helpers import (
     get_db, log_action, login_required, validate_password,
     get_brand_settings, get_session_types, tpl_ctx,
-    CLUB_NAME, CLUB_SHORT_NAME,
 )
-from config import APP_VERSION
-from flask import render_template
 
 bp = Blueprint('auth', __name__)
 

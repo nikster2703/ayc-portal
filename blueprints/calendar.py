@@ -3,7 +3,7 @@ AYC Portal — Calendar blueprint.
 Routes: /api/calendar/*, /api/session-types
 """
 
-import sqlite3
+import sqlcipher3 as sqlite3
 from datetime import date as dt_date, timedelta as dt_timedelta
 
 from flask import Blueprint, jsonify, request, session

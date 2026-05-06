@@ -11,12 +11,13 @@ from datetime import date as _date, timedelta as _td
 from flask import Blueprint, current_app, jsonify, request, session
 from werkzeug.utils import secure_filename
 
+from config import UPLOAD_DIR
 from helpers import (
     get_db, log_action, login_required, permission_required,
     encrypt_file, decrypt_file,
     resolve_doc_path, user_can_access_doc, _user_can_access_from_group_concat,
     _fts5_available, _rebuild_doc_fts,
-    allowed_file, UPLOAD_DIR,
+    allowed_file,
 )
 
 bp = Blueprint('documents', __name__)
@@ -634,8 +635,11 @@ def api_documents_download(doc_id):
     if not user_can_access_doc(doc):
         return jsonify({'error': 'Forbidden'}), 403
     log_action('download_document', 'documents', doc_id, {'title': doc['title']})
-    with open(resolve_doc_path(doc), 'rb') as fh:
-        decrypted = decrypt_file(fh.read())
+    try:
+        with open(resolve_doc_path(doc), 'rb') as fh:
+            decrypted = decrypt_file(fh.read())
+    except FileNotFoundError:
+        return jsonify({'error': 'File not found on disk — it may have been lost during a server migration.'}), 404
     return current_app.response_class(
         decrypted,
         mimetype=doc['mime_type'] or 'application/octet-stream',
@@ -654,8 +658,11 @@ def api_documents_view(doc_id):
     if not user_can_access_doc(doc):
         return jsonify({'error': 'Forbidden'}), 403
     log_action('view_document', 'documents', doc_id, {'title': doc['title']})
-    with open(resolve_doc_path(doc), 'rb') as fh:
-        decrypted = decrypt_file(fh.read())
+    try:
+        with open(resolve_doc_path(doc), 'rb') as fh:
+            decrypted = decrypt_file(fh.read())
+    except FileNotFoundError:
+        return jsonify({'error': 'File not found on disk — it may have been lost during a server migration.'}), 404
     return current_app.response_class(
         decrypted,
         mimetype=doc['mime_type'] or 'application/octet-stream',

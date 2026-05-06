@@ -19,7 +19,7 @@ import json
 import os
 import re as _re
 import shutil
-import sqlite3
+import sqlcipher3 as sqlite3
 import tempfile
 import uuid as _uuid_mod
 from datetime import datetime
