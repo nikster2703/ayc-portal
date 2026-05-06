@@ -345,7 +345,7 @@ def api_attendance_reset():
 
 
 @bp.route('/api/attendance/history/<int:member_id>')
-@login_required
+@permission_required('members.view')
 def api_attendance_history(member_id):
     db     = get_db()
     scoped = _assigned_session()
@@ -515,7 +515,7 @@ def api_activity_delete(activity_id):
 # ── Session notes ──────────────────────────────────────────────────────────────
 
 @bp.route('/api/register/notes/<session_type>/<date>')
-@login_required
+@permission_required('register.notes')
 def api_notes_get(session_type, date):
     db     = get_db()
     scoped = _assigned_session()

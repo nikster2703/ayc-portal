@@ -477,7 +477,7 @@ def api_alerts_summary():
 # ── Member flags ──────────────────────────────────────────────────────────────
 
 @bp.route('/api/members/<int:member_id>/flags')
-@permission_required('members.view')
+@permission_required('alerts.view')
 def api_member_flags(member_id):
     """Return all flags (active and resolved) for a member."""
     db     = get_db()

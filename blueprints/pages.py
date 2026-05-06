@@ -10,7 +10,7 @@ from flask import Blueprint, redirect, render_template, request, send_from_direc
 
 from config import APP_VERSION, BRANDING_DIR, CLUB_NAME, CLUB_SHORT_NAME
 from helpers import (
-    get_db, login_required, permission_required, has_permission,
+    get_db, login_required, permission_required,
     tpl_ctx, get_brand_settings, get_session_types, get_valid_session_names,
     _is_register_locked, _ensure_qr_tokens_for_today, get_setting,
 )
@@ -51,11 +51,8 @@ def register_page():
 
 
 @bp.route('/register/print')
-@login_required
+@permission_required('register.print')
 def print_register_page():
-    if not has_permission('register.print'):
-        return 'Access denied', 403
-
     session_type = request.args.get('session', '').strip()
     date         = request.args.get('date', '').strip()
     type_slug    = request.args.get('type', 'member').strip() or 'member'
@@ -154,11 +151,8 @@ def print_register_page():
 
 
 @bp.route('/register/export')
-@login_required
+@permission_required('register.export')
 def export_register_page():
-    if not has_permission('register.export'):
-        return 'Access denied', 403
-
     session_type = request.args.get('session', '').strip()
     date         = request.args.get('date', '').strip()
 

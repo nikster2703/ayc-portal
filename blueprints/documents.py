@@ -545,7 +545,7 @@ def api_documents_get_access(doc_id):
 # ── Document metadata ─────────────────────────────────────────────────────────
 
 @bp.route('/api/documents/<int:doc_id>/metadata')
-@login_required
+@permission_required('documents.view')
 def api_documents_get_metadata(doc_id):
     """Return all metadata values for a document, with field definitions."""
     db  = get_db()
@@ -626,7 +626,7 @@ def api_documents_put_metadata(doc_id):
 # ── Document download / view ──────────────────────────────────────────────────
 
 @bp.route('/api/documents/<int:doc_id>/download')
-@login_required
+@permission_required('documents.view')
 def api_documents_download(doc_id):
     db  = get_db()
     doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
@@ -648,7 +648,7 @@ def api_documents_download(doc_id):
 
 
 @bp.route('/api/documents/<int:doc_id>/view')
-@login_required
+@permission_required('documents.view')
 def api_documents_view(doc_id):
     """Serve the document inline so the browser can render it directly."""
     db  = get_db()
