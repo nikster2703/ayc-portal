@@ -13,14 +13,12 @@ venv/
 .venv/
 env/
 
-# Database & data files
-data/*.db
-data/*.sqlite
-data/*.sqlite3
-data/*.db.backup-*
+# Database & all runtime data
+data/
 
-# Uploaded documents (runtime data, not source code)
-data/documents/
+# Stale artefacts — delete these from the repo with: git rm --cached app.py.bak "Portal 9.7.zip"
+*.bak
+*.zip
 
 # Multi-tenant instance data — keep directory structure, exclude secrets & runtime data
 instances/*/.env

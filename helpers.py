@@ -17,7 +17,7 @@ from functools import wraps
 import bcrypt
 import sqlcipher3 as sqlite3
 from cryptography.fernet import Fernet
-from flask import g, jsonify, redirect, request, session, url_for
+from flask import g, has_request_context, jsonify, redirect, request, session, url_for
 
 from config import (
     DATABASE, UPLOAD_DIR, BRANDING_DIR, ALLOWED_EXTENSIONS,
@@ -74,23 +74,38 @@ def close_db(error=None):
         db.close()
 
 
-def log_action(action, table_name=None, record_id=None, details=None):
-    """Write an entry to the audit log.  Never raises."""
+def log_action(action, table_name=None, record_id=None, details=None,
+               user_id=None, ip_address=None):
+    """Write an entry to the audit log.  Never raises.
+
+    Safe to call from both request context (normal use) and background tasks
+    (scheduler, CLI).  When called outside a request context pass user_id and
+    ip_address explicitly, or they will default to None / 'system'.
+    """
     try:
-        db = get_db()
-        db.execute(
-            'INSERT INTO audit_log (user_id, action, table_name, record_id, details, ip_address)'
-            ' VALUES (?,?,?,?,?,?)',
-            (
-                session.get('user_id'),
-                action,
-                table_name,
-                record_id,
-                json.dumps(details) if details else None,
-                request.remote_addr,
+        in_request = has_request_context()
+        uid = user_id if user_id is not None else (session.get('user_id') if in_request else None)
+        ip  = ip_address if ip_address is not None else (request.remote_addr if in_request else 'system')
+
+        db = get_db() if in_request else _connect_db()
+        own_conn = not in_request
+        try:
+            db.execute(
+                'INSERT INTO audit_log (user_id, action, table_name, record_id, details, ip_address)'
+                ' VALUES (?,?,?,?,?,?)',
+                (
+                    uid,
+                    action,
+                    table_name,
+                    record_id,
+                    json.dumps(details) if details else None,
+                    ip,
+                )
             )
-        )
-        db.commit()
+            db.commit()
+        finally:
+            if own_conn:
+                db.close()
     except Exception as _audit_exc:
         import sys
         print(
@@ -102,13 +117,38 @@ def log_action(action, table_name=None, record_id=None, details=None):
 # ── Document encryption ────────────────────────────────────────────────────────
 
 def _doc_fernet():
-    """Return a Fernet instance derived from DB_ENCRYPTION_KEY."""
-    raw_key = os.environ.get('DB_ENCRYPTION_KEY')
-    if not raw_key:
+    """Return a Fernet instance for document encryption.
+
+    Uses DOCUMENT_ENCRYPTION_KEY if set, otherwise falls back to a SHA-256
+    derivation of DB_ENCRYPTION_KEY for backward-compatibility with existing
+    encrypted files.
+
+    IMPORTANT: Set DOCUMENT_ENCRYPTION_KEY to a fresh Fernet key and run the
+    document re-encryption script (scripts/reencrypt_documents.py) to fully
+    decouple document encryption from the database key.
+
+    Generate a new Fernet key:
+        python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    """
+    doc_key = os.environ.get('DOCUMENT_ENCRYPTION_KEY', '').strip()
+    if doc_key:
+        try:
+            return Fernet(doc_key.encode())
+        except Exception:
+            raise RuntimeError(
+                'DOCUMENT_ENCRYPTION_KEY in .env is not a valid Fernet key. '
+                'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+            )
+
+    # Fallback: derive from DB key (legacy behaviour — only used when
+    # DOCUMENT_ENCRYPTION_KEY is not yet configured)
+    db_key = os.environ.get('DB_ENCRYPTION_KEY', '').strip()
+    if not db_key:
         raise RuntimeError(
-            'DB_ENCRYPTION_KEY is not set in .env — cannot encrypt/decrypt documents.'
+            'Neither DOCUMENT_ENCRYPTION_KEY nor DB_ENCRYPTION_KEY is set in .env '
+            '— cannot encrypt/decrypt documents.'
         )
-    derived    = hashlib.sha256(raw_key.encode()).digest()
+    derived    = hashlib.sha256(db_key.encode()).digest()
     fernet_key = base64.urlsafe_b64encode(derived)
     return Fernet(fernet_key)
 
@@ -404,7 +444,8 @@ def resolve_doc_path(doc):
     """Return the filesystem path for a document row."""
     stored = doc['stored_filename'] if 'stored_filename' in doc.keys() else None
     if stored:
-        return os.path.join(UPLOAD_DIR, stored)
+        bucket = doc['bucket'] if 'bucket' in doc.keys() and doc['bucket'] else 'store'
+        return os.path.join(UPLOAD_DIR, bucket, stored)
     return doc['file_path']
 
 

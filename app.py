@@ -57,12 +57,17 @@ if not _secret_key:
     )
     _secret_key = secrets.token_hex(32)
 
-app.secret_key                      = _secret_key
-app.permanent_session_lifetime      = timedelta(hours=8)
-app.config['WTF_CSRF_HEADERS']      = ['X-CSRFToken']
-app.config['WTF_CSRF_TIME_LIMIT']   = None               # bounded by session lifetime
-app.config['MAX_CONTENT_LENGTH']    = 20 * 1024 * 1024   # 20 MB max upload
-app.config['ALLOWED_EXTENSIONS']    = ALLOWED_EXTENSIONS
+app.secret_key                          = _secret_key
+app.permanent_session_lifetime          = timedelta(hours=8)
+app.config['WTF_CSRF_HEADERS']          = ['X-CSRFToken']
+app.config['WTF_CSRF_TIME_LIMIT']       = None               # bounded by session lifetime
+app.config['MAX_CONTENT_LENGTH']        = 20 * 1024 * 1024   # 20 MB max upload
+app.config['ALLOWED_EXTENSIONS']        = ALLOWED_EXTENSIONS
+# ── Session cookie security ───────────────────────────────────────────────────
+app.config['SESSION_COOKIE_HTTPONLY']   = True   # prevent JS access to cookie
+app.config['SESSION_COOKIE_SAMESITE']  = 'Lax'  # CSRF mitigation
+# Set SECURE only in production so local HTTP dev still works
+app.config['SESSION_COOKIE_SECURE']    = os.environ.get('FLASK_DEBUG', '0') != '1'
 
 # Ensure data directories exist
 os.makedirs(UPLOAD_DIR,    exist_ok=True)
@@ -89,6 +94,33 @@ app.logger.setLevel(logging.WARNING)
 
 # ── Request lifecycle ─────────────────────────────────────────────────────────
 
+@app.after_request
+def _add_security_headers(response):
+    """Attach HTTP security headers to every response."""
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'DENY'
+    # Prevent MIME-type sniffing (closes the document-serving XSS vector)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    # Limit referrer information sent to third parties
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # Disable browser features we don't use
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    # Basic CSP: same-origin scripts/styles only; inline is currently required so
+    # unsafe-inline is permitted until scripts are refactored to use nonces.
+    # This still blocks third-party script injection.
+    if 'Content-Security-Policy' not in response.headers:
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
+    return response
+
+
 @app.teardown_appcontext
 def _teardown_db(error):
     close_db(error)
@@ -109,6 +141,16 @@ def enforce_idle_timeout():
             return jsonify({'error': 'Session expired due to inactivity. Please log in again.'}), 401
         return redirect(url_for('auth.login_page'))
     session['last_activity'] = now
+
+
+# ── Health check ─────────────────────────────────────────────────────────────
+
+@app.route('/api/health')
+def health_check():
+    """Lightweight liveness probe for Docker / load-balancer healthchecks.
+    Returns 200 OK with no auth required.  Does NOT touch the DB.
+    """
+    return jsonify({'status': 'ok', 'version': APP_VERSION}), 200
 
 
 # ── Error handlers ────────────────────────────────────────────────────────────

@@ -4,6 +4,8 @@ Routes: /api/approvals/*, /api/registration, /api/staff-roles
 """
 
 import json
+import time
+import threading
 
 import bcrypt
 from flask import Blueprint, jsonify, request, session
@@ -15,6 +17,35 @@ from helpers import (
 )
 
 bp = Blueprint('approvals', __name__)
+
+# ── Simple IP-based rate limiter for the public registration endpoint ──────────
+# Max 5 submissions per IP per hour.  Stored in-process (resets on restart),
+# which is acceptable for a single-worker deployment.  Upgrade to Redis-backed
+# Flask-Limiter if running multiple workers.
+_REG_RATE_LIMIT   = 5          # max requests
+_REG_RATE_WINDOW  = 3600       # per N seconds
+_reg_rl_store: dict = {}
+_reg_rl_lock  = threading.Lock()
+
+
+def _registration_rate_limit(ip: str) -> bool:
+    """Return True if the IP is within limit, False if it should be blocked."""
+    now = time.time()
+    with _reg_rl_lock:
+        # Prune expired entries every time we touch the store
+        expired = [k for k, v in _reg_rl_store.items()
+                   if now - v['window_start'] >= _REG_RATE_WINDOW]
+        for k in expired:
+            del _reg_rl_store[k]
+
+        entry = _reg_rl_store.get(ip)
+        if entry is None or now - entry['window_start'] >= _REG_RATE_WINDOW:
+            _reg_rl_store[ip] = {'window_start': now, 'count': 1}
+            return True
+        if entry['count'] >= _REG_RATE_LIMIT:
+            return False
+        entry['count'] += 1
+        return True
 
 
 # ── Public: staff roles (read-only, used by registration form) ────────────────
@@ -40,6 +71,11 @@ def api_registration():
     Fully field-driven — no hardcoded member/staff branching.
     Supports both legacy (registration_type) and new dynamic (member_type_slug) payloads.
     """
+    # Rate limit: 5 submissions per IP per hour
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    if not _registration_rate_limit(client_ip):
+        return jsonify({'error': 'Too many registration attempts. Please try again later.'}), 429
+
     data = request.get_json() or {}
     db   = get_db()
 

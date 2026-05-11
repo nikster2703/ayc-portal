@@ -333,10 +333,14 @@ def calendar_page():
 
 @bp.route('/display')
 def display_page():
+    brand = get_brand_settings()
+    club  = brand.get('brand_club_name') or CLUB_NAME
+    short = brand.get('brand_short_name') or CLUB_SHORT_NAME
     return render_template('display.html',
                            current_session=session.get('session_assigned', ''),
                            session_types=get_session_types(),
-                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
+                           club_name=club, club_short_name=short,
+                           brand=brand)
 
 
 @bp.route('/quick-session')

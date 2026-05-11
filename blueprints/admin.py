@@ -59,10 +59,27 @@ def api_settings_get():
 @permission_required('admin.settings')
 def api_settings_save():
     """Save one or more settings.
-    v8.0: alert rule thresholds are now per-rule in alert_rules.
-    ALLOWED_KEYS is empty — extend here when new generic settings are needed."""
+    Only keys in ALLOWED_KEYS are persisted — any other key in the POST body
+    is silently ignored.  Add keys here when new configurable settings are introduced.
+    Alert-rule thresholds live in the alert_rules table (since v8.0) — not here.
+    """
     data = request.get_json() or {}
-    ALLOWED_KEYS = set()   # No generic settings require saving via this endpoint post-v8.0
+    ALLOWED_KEYS = {
+        # QR quick sign-in settings (attendance_settings page)
+        'quick_signin_enabled',
+        'quick_signout_enabled',
+        'quick_signin_welcome_msg',
+        'quick_signin_already_msg',
+        'quick_signout_goodbye_msg',
+        'quick_signout_already_msg',
+        # Member ID format
+        'member_id_prefix',
+        'member_id_padding',
+        # Registration settings
+        'require_approval',
+        # Auto sign-out threshold (minutes after session end)
+        'auto_signout_minutes',
+    }
     db   = get_db()
     saved = {}
     for key, value in data.items():

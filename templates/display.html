@@ -13,12 +13,19 @@
     :root {
       --navy:       #1b2d4f;
       --navy-dark:  #111e36;
-      --teal:       #0096b4;
-      --teal-light: #e0f6fb;
       --gold:       #f5c842;
       --green:      #22c55e;
       --orange:     #fb923c;
       --text:       #ffffff;
+      {% if brand %}
+      --accent:       {{ brand._palette.accent }};
+      --accent-dark:  {{ brand._palette.accent_dark }};
+      --accent-light: {{ brand._palette.accent_light }};
+      {% else %}
+      --accent:       #0096b4;
+      --accent-dark:  #007a96;
+      --accent-light: #e0f6fb;
+      {% endif %}
     }
 
     html, body {
@@ -356,7 +363,11 @@
   <div class="hdr">
     <div class="hdr-left">
       <div class="brand">
-        <div class="brand-logo">🏅</div>
+        {% if brand and brand._logo_url %}
+          <img src="{{ brand._logo_url }}" alt="{{ club_name }}" class="brand-logo" style="width:64px;height:64px;object-fit:contain;border-radius:8px;">
+        {% else %}
+          <div class="brand-logo">🏅</div>
+        {% endif %}
         <div class="brand-text">
           <h1>{{ club_name }}</h1>
           <p>Who's here tonight?</p>

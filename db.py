@@ -8,9 +8,12 @@ Imported by:
 """
 
 import json
+import logging
 import os
 
 import sqlcipher3 as sqlite3  # noqa: F401 — Row factory type used implicitly
+
+logger = logging.getLogger(__name__)
 
 from config import (
     BASE_DIR, DATABASE, BRAND_KEYS,
@@ -299,8 +302,8 @@ def ensure_tables():
             )
         ''')
         _fts_db.commit()
-    except Exception:
-        pass  # FTS5 unavailable — search falls back to LIKE queries
+    except Exception as _fts_exc:
+        logger.warning('FTS5 not available — document search will use LIKE fallback: %s', _fts_exc)
     finally:
         _fts_db.close()
 
@@ -335,8 +338,15 @@ def ensure_tables():
     for stmt in alter_stmts:
         try:
             db.execute(stmt)
-        except Exception:
-            pass  # Column already exists — safe to ignore
+        except sqlite3.OperationalError as e:
+            # Swallow "duplicate column name" — that means the migration already ran.
+            # Re-raise anything else (e.g. disk full, schema errors, lock failures).
+            err = str(e).lower()
+            if 'duplicate column name' in err or 'already exists' in err:
+                logger.debug('Migration skipped (already applied): %s', stmt[:80])
+            else:
+                logger.error('Migration failed — stmt: %s — error: %s', stmt, e)
+                raise
 
     # v8.3: unique guard on attendance
     try:

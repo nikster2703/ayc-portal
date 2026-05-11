@@ -60,4 +60,13 @@ USER ayc
 
 EXPOSE 5001
 
-CMD ["python", "app.py"]
+# Gunicorn: 2 worker processes, 4 threads each.
+# Single worker keeps the in-process rate limiters coherent until a shared
+# backend (Redis) is added.  Increase workers then.
+CMD ["gunicorn", \
+     "--workers", "1", \
+     "--threads", "4", \
+     "--bind", "0.0.0.0:5001", \
+     "--timeout", "60", \
+     "--access-logfile", "-", \
+     "app:app"]

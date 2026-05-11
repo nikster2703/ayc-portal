@@ -4,6 +4,7 @@ Routes: /api/alert-rules/*, /api/alerts/*, /api/members/<id>/flags/*, /admin/ale
 Helpers: _run_alert_rule, run_all_alert_rules  (also called by scheduler in app.py)
 """
 
+import re
 import sqlcipher3 as sqlite3
 from collections import defaultdict
 from datetime import datetime
@@ -18,8 +19,19 @@ from helpers import (
 
 bp = Blueprint('alerts', __name__)
 
-# Allowed colour presets (hex) for flag badges — validated on create/update
-ALERT_COLOURS = {'#ef4444', '#f59e0b', '#3b6fde', '#8b5cf6', '#22a06b'}
+# Colour validation: any valid 6-digit CSS hex colour is accepted.
+# The old fixed whitelist of 5 colours was unnecessarily restrictive.
+_HEX_COLOUR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+# Whitelist of column names that may be interpolated into SQL for system fields.
+# This prevents SQL injection if a field_definition row's column_name is ever
+# tampered with — only names on this list can be used directly in queries.
+_SAFE_MEMBER_COLUMNS = frozenset({
+    'first_name', 'surname', 'date_of_birth', 'address', 'postcode',
+    'ethnicity_religion', 'medical_sen', 'gp_contact', 'mobile', 'email',
+    'member_type', 'staff_role', 'status', 'status_note', 'session',
+    'member_id',
+})
 
 
 # ── Alert rule engine ─────────────────────────────────────────────────────────
@@ -102,8 +114,11 @@ def _run_alert_rule(db, rule, today_str):
 
         for m in members:
             if fd and fd['system_field'] and fd['column_name']:
+                col = fd['column_name']
+                if col not in _SAFE_MEMBER_COLUMNS:
+                    continue  # refuse to interpolate unsafe column names
                 row = db.execute(
-                    f'SELECT {fd["column_name"]} AS val FROM members WHERE id = ?',
+                    f'SELECT {col} AS val FROM members WHERE id = ?',
                     (m['id'],)
                 ).fetchone()
                 val = row['val'] if row else None
@@ -143,8 +158,11 @@ def _run_alert_rule(db, rule, today_str):
 
         for m in members:
             if fd and fd['system_field'] and fd['column_name']:
+                col = fd['column_name']
+                if col not in _SAFE_MEMBER_COLUMNS:
+                    continue  # refuse to interpolate unsafe column names
                 row = db.execute(
-                    f'SELECT {fd["column_name"]} AS val FROM members WHERE id = ?',
+                    f'SELECT {col} AS val FROM members WHERE id = ?',
                     (m['id'],)
                 ).fetchone()
                 val = (row['val'] or '').strip() if row else ''
@@ -177,8 +195,11 @@ def _run_alert_rule(db, rule, today_str):
 
         for m in members:
             if fd and fd['system_field'] and fd['column_name']:
+                col = fd['column_name']
+                if col not in _SAFE_MEMBER_COLUMNS:
+                    continue  # refuse to interpolate unsafe column names
                 row = db.execute(
-                    f'SELECT {fd["column_name"]} AS val FROM members WHERE id = ?',
+                    f'SELECT {col} AS val FROM members WHERE id = ?',
                     (m['id'],)
                 ).fetchone()
                 raw = row['val'] if row else None
@@ -317,8 +338,8 @@ def api_alert_rules_create():
         return jsonify({'error': 'Invalid rule_type'}), 400
     if not flag_label:
         return jsonify({'error': 'Flag label is required'}), 400
-    if flag_colour not in ALERT_COLOURS:
-        return jsonify({'error': f'Colour must be one of: {", ".join(ALERT_COLOURS)}'}), 400
+    if not _HEX_COLOUR_RE.match(flag_colour):
+        return jsonify({'error': 'Colour must be a valid 6-digit hex code (e.g. #ef4444)'}), 400
 
     target_field   = (data.get('target_field') or '').strip() or None
     condition      = (data.get('condition') or '').strip() or None
@@ -354,8 +375,8 @@ def api_alert_rules_update(rule_id):
 
     data        = request.get_json() or {}
     flag_colour = (data.get('flag_colour') or rule['flag_colour']).strip()
-    if flag_colour not in ALERT_COLOURS:
-        return jsonify({'error': f'Colour must be one of: {", ".join(ALERT_COLOURS)}'}), 400
+    if not _HEX_COLOUR_RE.match(flag_colour):
+        return jsonify({'error': 'Colour must be a valid 6-digit hex code (e.g. #ef4444)'}), 400
 
     db = get_db()
     db.execute(

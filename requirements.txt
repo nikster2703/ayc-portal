@@ -4,6 +4,7 @@ bcrypt>=4.1
 openpyxl>=3.1
 xlrd>=2.0
 python-dotenv>=1.0
+gunicorn>=22.0
 
 # Document encryption at rest
 cryptography>=42.0

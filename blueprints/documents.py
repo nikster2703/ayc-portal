@@ -22,6 +22,22 @@ from helpers import (
 
 bp = Blueprint('documents', __name__)
 
+# Safe MIME type whitelist for served documents.
+# Anything not in this map is served as application/octet-stream (download only).
+# HTML and SVG are intentionally excluded — they can execute scripts if served inline.
+_SAFE_MIME_TYPES = {
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'text/plain',
+}
+
 
 # ── Document categories API ───────────────────────────────────────────────────
 
@@ -640,9 +656,10 @@ def api_documents_download(doc_id):
             decrypted = decrypt_file(fh.read())
     except FileNotFoundError:
         return jsonify({'error': 'File not found on disk — it may have been lost during a server migration.'}), 404
+    safe_mime = doc['mime_type'] if doc['mime_type'] in _SAFE_MIME_TYPES else 'application/octet-stream'
     return current_app.response_class(
         decrypted,
-        mimetype=doc['mime_type'] or 'application/octet-stream',
+        mimetype=safe_mime,
         headers={'Content-Disposition': f'attachment; filename="{doc["filename"]}"'},
     )
 
@@ -650,7 +667,11 @@ def api_documents_download(doc_id):
 @bp.route('/api/documents/<int:doc_id>/view')
 @permission_required('documents.view')
 def api_documents_view(doc_id):
-    """Serve the document inline so the browser can render it directly."""
+    """Serve the document for browser viewing.
+    Always forces attachment disposition to prevent stored-XSS via HTML uploads.
+    Safe image/PDF types are served with their real MIME; everything else is
+    served as application/octet-stream so the browser downloads rather than renders.
+    """
     db  = get_db()
     doc = db.execute('SELECT * FROM documents WHERE id = ? AND active = 1', (doc_id,)).fetchone()
     if not doc:
@@ -663,10 +684,14 @@ def api_documents_view(doc_id):
             decrypted = decrypt_file(fh.read())
     except FileNotFoundError:
         return jsonify({'error': 'File not found on disk — it may have been lost during a server migration.'}), 404
+    safe_mime = doc['mime_type'] if doc['mime_type'] in _SAFE_MIME_TYPES else 'application/octet-stream'
     return current_app.response_class(
         decrypted,
-        mimetype=doc['mime_type'] or 'application/octet-stream',
-        headers={'Content-Disposition': f'inline; filename="{doc["filename"]}"'},
+        mimetype=safe_mime,
+        # Force attachment — never serve user-uploaded content inline from the portal origin.
+        # This closes the XSS vector where an HTML file with a stored MIME of text/html
+        # would execute scripts in the browser under the portal's session context.
+        headers={'Content-Disposition': f'attachment; filename="{doc["filename"]}"'},
     )
 
 
