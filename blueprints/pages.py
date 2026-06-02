@@ -337,7 +337,7 @@ def display_page():
     club  = brand.get('brand_club_name') or CLUB_NAME
     short = brand.get('brand_short_name') or CLUB_SHORT_NAME
     return render_template('display.html',
-                           current_session=session.get('session_assigned', ''),
+                           current_session=session.get('active_session', ''),
                            session_types=get_session_types(),
                            club_name=club, club_short_name=short,
                            brand=brand)

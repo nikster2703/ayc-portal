@@ -461,7 +461,7 @@ def api_alert_rules_run():
 def api_alerts_summary():
     """Per-rule active flag counts — used by the dashboard widget."""
     db     = get_db()
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None or list
 
     if scoped is None:
         rows = db.execute('''
@@ -473,17 +473,21 @@ def api_alerts_summary():
             GROUP BY ar.id
             ORDER BY flag_count DESC, ar.name
         ''').fetchall()
+    elif not scoped:
+        rows = []
     else:
-        rows = db.execute('''
+        placeholders = ','.join('?' * len(scoped))
+        rows = db.execute(f'''
             SELECT ar.id, ar.name, ar.flag_label, ar.flag_colour,
-                   COUNT(CASE WHEN mf.resolved_at IS NULL AND m.session = ? THEN 1 END) AS flag_count
+                   COUNT(CASE WHEN mf.resolved_at IS NULL AND m.session IN ({placeholders})
+                              THEN 1 END) AS flag_count
             FROM alert_rules ar
             LEFT JOIN member_flags mf ON mf.rule_id = ar.id
             LEFT JOIN members m ON m.id = mf.member_id
             WHERE ar.is_active = 1
             GROUP BY ar.id
             ORDER BY flag_count DESC, ar.name
-        ''', (scoped,)).fetchall()
+        ''', scoped).fetchall()
 
     last_run = db.execute(
         "SELECT value FROM settings WHERE key = 'alerts_last_run'"
@@ -506,7 +510,7 @@ def api_member_flags(member_id):
     member = db.execute('SELECT * FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Not found'}), 404
-    if scoped is not None and (member['session'] or '') != scoped:
+    if scoped is not None and (member['session'] or '') not in (scoped or []):
         return jsonify({'error': 'Forbidden'}), 403
 
     flags = db.execute('''

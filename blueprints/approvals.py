@@ -175,21 +175,27 @@ def api_approvals_list():
     )
 
     if scoped is not None:
-        if status == 'all':
-            rows = db.execute(
-                base_query +
-                ' WHERE (pr.assigned_session = ? OR pr.assigned_session IS NULL OR pr.assigned_session = "")'
-                ' ORDER BY pr.submitted_at DESC',
-                (scoped,)
-            ).fetchall()
+        if not scoped:
+            rows = []
         else:
-            rows = db.execute(
-                base_query +
-                ' WHERE pr.status = ?'
-                ' AND (pr.assigned_session = ? OR pr.assigned_session IS NULL OR pr.assigned_session = "")'
-                ' ORDER BY pr.submitted_at DESC',
-                (status, scoped)
-            ).fetchall()
+            placeholders = ','.join('?' * len(scoped))
+            if status == 'all':
+                rows = db.execute(
+                    base_query +
+                    f' WHERE (pr.assigned_session IN ({placeholders})'
+                    ' OR pr.assigned_session IS NULL OR pr.assigned_session = "")'
+                    ' ORDER BY pr.submitted_at DESC',
+                    scoped
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    base_query +
+                    ' WHERE pr.status = ?'
+                    f' AND (pr.assigned_session IN ({placeholders})'
+                    ' OR pr.assigned_session IS NULL OR pr.assigned_session = "")'
+                    ' ORDER BY pr.submitted_at DESC',
+                    [status] + list(scoped)
+                ).fetchall()
     else:
         if status == 'all':
             rows = db.execute(
@@ -224,8 +230,8 @@ def api_approvals_approve(reg_id):
     if not assigned_session:
         return jsonify({'error': 'Session must be assigned when approving'}), 400
 
-    scoped = _assigned_session()
-    if scoped is not None and assigned_session != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and assigned_session not in (scoped or []):
         return jsonify({'error': 'You can only approve registrations for your own session'}), 403
 
     rtype          = reg['registration_type'] or 'member'
@@ -386,10 +392,10 @@ def api_approvals_reject(reg_id):
     if not reg:
         return jsonify({'error': 'Registration not found or already reviewed'}), 404
 
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None or list
     if scoped is not None:
         reg_session = reg['assigned_session'] or ''
-        if reg_session and reg_session != scoped:
+        if reg_session and reg_session not in (scoped or []):
             return jsonify({'error': 'Access denied for this registration'}), 403
 
     notes = data.get('notes', '').strip()

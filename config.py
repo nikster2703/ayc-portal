@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v10.2'   # v10.2: Fix resolve_doc_path missing bucket subdir; branding (accent + logo) on display board
+APP_VERSION = 'v10.5'   # v10.5: Session switcher — header pill/dropdown, register picker filtered + persists switch, pages.py display fix
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

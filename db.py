@@ -71,12 +71,22 @@ def ensure_tables():
             UNIQUE(session_date, session_type)
         );
         CREATE TABLE IF NOT EXISTS session_types (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT    NOT NULL UNIQUE,
-            weekday    INTEGER NOT NULL,
-            active     INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 0
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            weekday     INTEGER,
+            description TEXT,
+            active      INTEGER NOT NULL DEFAULT 1,
+            sort_order  INTEGER NOT NULL DEFAULT 0
         );
+        -- v10.3: user-to-session junction table (replaces users.session_assigned)
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            session_type_id INTEGER NOT NULL REFERENCES session_types(id) ON DELETE CASCADE,
+            UNIQUE(user_id, session_type_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_user    ON user_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_session ON user_sessions(session_type_id);
         CREATE TABLE IF NOT EXISTS settings (
             key        TEXT PRIMARY KEY,
             value      TEXT NOT NULL,
@@ -334,6 +344,10 @@ def ensure_tables():
         "ALTER TABLE documents ADD COLUMN retention_notes TEXT",
         "ALTER TABLE documents ADD COLUMN file_size INTEGER",
         "ALTER TABLE documents ADD COLUMN file_path TEXT NOT NULL DEFAULT ''",
+        # v10.3: Phase A — session type description
+        "ALTER TABLE session_types ADD COLUMN description TEXT",
+        # v10.3: Phase B — persisted active session selection per user
+        "ALTER TABLE users ADD COLUMN active_session_id INTEGER REFERENCES session_types(id)",
     ]
     for stmt in alter_stmts:
         try:
@@ -347,6 +361,59 @@ def ensure_tables():
             else:
                 logger.error('Migration failed — stmt: %s — error: %s', stmt, e)
                 raise
+
+    # v10.3 Phase A: make session_types.weekday nullable (was NOT NULL in older schemas).
+    # SQLite can't ALTER COLUMN, so we rebuild the table if the schema still has the constraint.
+    try:
+        schema_row = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='session_types'"
+        ).fetchone()
+        schema_sql = schema_row[0] if schema_row else ''
+        if 'weekday' in schema_sql and 'NOT NULL' in schema_sql.split('weekday')[1].split('\n')[0]:
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS session_types_v2 (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        TEXT    NOT NULL UNIQUE,
+                    weekday     INTEGER,
+                    description TEXT,
+                    active      INTEGER NOT NULL DEFAULT 1,
+                    sort_order  INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT OR IGNORE INTO session_types_v2 (id, name, weekday, active, sort_order)
+                    SELECT id, name, weekday, active, sort_order FROM session_types;
+                DROP TABLE session_types;
+                ALTER TABLE session_types_v2 RENAME TO session_types;
+            ''')
+            db.commit()
+            logger.info('Migration: session_types.weekday made nullable (v10.3)')
+    except Exception as _e:
+        logger.warning('session_types weekday migration skipped: %s', _e)
+
+    # v10.3 Phase B: populate user_sessions from legacy users.session_assigned column.
+    # Safe to run repeatedly — INSERT OR IGNORE is idempotent.
+    try:
+        legacy_users = db.execute(
+            "SELECT id, session_assigned FROM users "
+            "WHERE session_assigned IS NOT NULL AND session_assigned != ''"
+        ).fetchall()
+        for _u in legacy_users:
+            _st = db.execute(
+                "SELECT id FROM session_types WHERE name = ?", (_u[1],)
+            ).fetchone()
+            if _st:
+                db.execute(
+                    "INSERT OR IGNORE INTO user_sessions (user_id, session_type_id) VALUES (?,?)",
+                    (_u[0], _st[0])
+                )
+                db.execute(
+                    "UPDATE users SET active_session_id = ? "
+                    "WHERE id = ? AND active_session_id IS NULL",
+                    (_st[0], _u[0])
+                )
+        db.commit()
+        logger.info('Migration: user_sessions populated from session_assigned (v10.3)')
+    except Exception as _e:
+        logger.warning('user_sessions data migration skipped: %s', _e)
 
     # v8.3: unique guard on attendance
     try:
@@ -409,8 +476,8 @@ def ensure_tables():
     for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
         if not tdb.execute('SELECT id FROM session_types WHERE name = ?', (name,)).fetchone():
             tdb.execute(
-                'INSERT INTO session_types (name, weekday, active, sort_order) VALUES (?,?,1,?)',
-                (name, weekday, sort_order),
+                'INSERT INTO session_types (name, weekday, active, sort_order, description) VALUES (?,?,1,?,?)',
+                (name, weekday, sort_order, f'{name} evening session'),
             )
     tdb.commit()
     tdb.close()

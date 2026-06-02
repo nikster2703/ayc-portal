@@ -36,7 +36,7 @@ from extensions import csrf
 from helpers import (
     get_db, log_action, login_required, permission_required, has_permission,
     _assigned_session, _connect_db, _validate_hex_colour, _invalidate_brand_cache,
-    get_brand_settings, get_valid_session_names, validate_password,
+    get_brand_settings, get_valid_session_names, get_session_types, validate_password,
 )
 
 bp = Blueprint('admin', __name__)
@@ -223,31 +223,50 @@ def api_branding_logo_delete():
 @permission_required('users.view')
 def api_users_list():
     db     = get_db()
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None (admin) or list of session names
+
+    # Base query: user rows with their session names aggregated
+    base_q = '''
+        SELECT u.id, u.username, u.email, u.role, u.active,
+               u.created_at, u.last_login,
+               GROUP_CONCAT(st.name, ',') AS session_names_csv
+        FROM users u
+        LEFT JOIN user_sessions us ON us.user_id = u.id
+        LEFT JOIN session_types st ON st.id = us.session_type_id AND st.active = 1
+        {where}
+        GROUP BY u.id
+        ORDER BY u.username
+    '''
+
     if scoped is not None:
-        users = db.execute(
-            'SELECT id, username, email, role, session_assigned, active, '
-            'created_at, last_login FROM users '
-            "WHERE role != 'admin' AND session_assigned = ? ORDER BY username",
-            (scoped,)
+        if not scoped:
+            return jsonify([])
+        placeholders = ','.join('?' * len(scoped))
+        rows = db.execute(
+            base_q.format(where=f"WHERE u.role != 'admin' AND st.name IN ({placeholders})"),
+            scoped
         ).fetchall()
     else:
-        users = db.execute(
-            'SELECT id, username, email, role, session_assigned, active, '
-            'created_at, last_login FROM users ORDER BY username'
-        ).fetchall()
-    return jsonify([dict(u) for u in users])
+        rows = db.execute(base_q.format(where='')).fetchall()
+
+    result = []
+    for u in rows:
+        d = dict(u)
+        csv = d.pop('session_names_csv', None)
+        d['session_names'] = csv.split(',') if csv else []
+        result.append(d)
+    return jsonify(result)
 
 
 @bp.route('/api/admin/users', methods=['POST'])
 @permission_required('users.create')
 def api_users_create():
-    data     = request.get_json() or {}
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    role     = data.get('role', 'readonly')
-    email    = data.get('email', '').strip()
-    sess     = data.get('session_assigned', '')
+    data        = request.get_json() or {}
+    username    = data.get('username', '').strip()
+    password    = data.get('password', '')
+    role        = data.get('role', 'readonly')
+    email       = data.get('email', '').strip()
+    session_ids = data.get('session_ids', [])   # list of session_type IDs
 
     if not username or not password:
         return jsonify({'error': 'Username and password are required'}), 400
@@ -264,25 +283,43 @@ def api_users_create():
     if 'users.create.admin' in target_perms and not has_permission('users.create.admin'):
         return jsonify({'error': 'You do not have permission to assign this role'}), 403
 
-    if 'admin.maintenance' not in target_perms and not sess:
-        return jsonify({'error': 'A session must be assigned for non-admin users'}), 400
-    if sess and sess not in get_valid_session_names():
-        return jsonify({'error': 'Invalid session'}), 400
+    is_admin_role = 'admin.maintenance' in target_perms
+    if not is_admin_role and not session_ids:
+        return jsonify({'error': 'At least one session must be assigned for non-admin users'}), 400
 
+    # Validate that all supplied session IDs exist and are active
+    valid_session_map = {s['id']: s['name'] for s in get_session_types()}
+    for sid in session_ids:
+        if sid not in valid_session_map:
+            return jsonify({'error': f'Invalid or inactive session ID: {sid}'}), 400
+
+    # Scoped (non-admin) creators can only assign sessions they themselves have access to
     scoped = _assigned_session()
-    if scoped is not None and sess != scoped:
-        return jsonify({'error': 'You can only create users for your own session'}), 403
+    if scoped is not None:
+        my_names = set(scoped)
+        for sid in session_ids:
+            if valid_session_map[sid] not in my_names:
+                return jsonify({'error': 'You can only assign sessions you have access to'}), 403
 
-    pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    pw_hash    = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    active_id  = session_ids[0] if session_ids else None
     try:
-        db.execute(
-            'INSERT INTO users (username, email, password_hash, role, role_id, session_assigned)'
+        cur = db.execute(
+            'INSERT INTO users (username, email, password_hash, role, role_id, active_session_id)'
             ' VALUES (?,?,?,?,?,?)',
-            (username, email, pw_hash, role, target_role_row['id'], sess)
+            (username, email, pw_hash, role, target_role_row['id'], active_id)
         )
+        new_user_id = cur.lastrowid
+        for sid in session_ids:
+            db.execute(
+                'INSERT OR IGNORE INTO user_sessions (user_id, session_type_id) VALUES (?,?)',
+                (new_user_id, sid)
+            )
         db.commit()
-        log_action('create_user', 'users', None,
-                   {'username': username, 'role': role, 'created_by': session.get('username')})
+        log_action('create_user', 'users', new_user_id,
+                   {'username': username, 'role': role,
+                    'sessions': [valid_session_map[s] for s in session_ids],
+                    'created_by': session.get('username')})
         return jsonify({'success': True})
     except sqlite3.IntegrityError:
         return jsonify({'error': 'Username already exists'}), 409
@@ -300,9 +337,16 @@ def api_users_update(user_id):
         return jsonify({'error': 'You cannot deactivate your own account'}), 400
 
     before_row = db.execute(
-        'SELECT username, email, role, session_assigned, active FROM users WHERE id = ?', (user_id,)
+        'SELECT u.username, u.email, u.role, u.active, '
+        'GROUP_CONCAT(st.name, ",") AS session_names_csv '
+        'FROM users u '
+        'LEFT JOIN user_sessions us ON us.user_id = u.id '
+        'LEFT JOIN session_types st ON st.id = us.session_type_id '
+        'WHERE u.id = ? GROUP BY u.id',
+        (user_id,)
     ).fetchone()
 
+    target_perms = []
     if 'role' in data:
         target_role_row = db.execute(
             'SELECT id, permissions FROM roles WHERE name = ?', (data['role'],)
@@ -313,15 +357,51 @@ def api_users_update(user_id):
         if 'users.create.admin' in target_perms and not has_permission('users.create.admin'):
             return jsonify({'error': 'You do not have permission to assign this role'}), 403
 
+    # Scoped users can only manage users who share at least one of their sessions
     scoped = _assigned_session()
     if scoped is not None:
-        target = db.execute('SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)).fetchone()
-        if not target or target['role'] == 'admin':
+        target_sess_rows = db.execute(
+            'SELECT st.name FROM user_sessions us '
+            'JOIN session_types st ON st.id = us.session_type_id '
+            'WHERE us.user_id = ?', (user_id,)
+        ).fetchall()
+        target_sess_names = {r['name'] for r in target_sess_rows}
+        target_role = db.execute('SELECT role FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not target_role or target_role['role'] == 'admin':
             return jsonify({'error': 'Forbidden'}), 403
-        if target['session_assigned'] != scoped:
+        if not target_sess_names.intersection(set(scoped)):
             return jsonify({'error': 'You can only manage users in your own session'}), 403
-        if 'session_assigned' in data and data['session_assigned'] != scoped:
-            return jsonify({'error': 'You cannot move a user to a different session'}), 403
+
+    # Validate and apply session_ids change
+    valid_session_map = {s['id']: s['name'] for s in get_session_types()}
+    if 'session_ids' in data:
+        new_ids = data['session_ids']
+        # Scoped creators may not assign sessions outside their own access
+        if scoped is not None:
+            my_names = set(scoped)
+            for sid in new_ids:
+                if valid_session_map.get(sid) not in my_names:
+                    return jsonify({'error': 'You can only assign sessions you have access to'}), 403
+        # Enforce non-admin must have at least one session
+        eff_role_name = data.get('role', before_row['role'] if before_row else '')
+        eff_role_row  = db.execute('SELECT permissions FROM roles WHERE name = ?', (eff_role_name,)).fetchone()
+        eff_perms     = json.loads(eff_role_row['permissions']) if eff_role_row else []
+        if 'admin.maintenance' not in eff_perms and not new_ids:
+            return jsonify({'error': 'At least one session must be assigned for non-admin users'}), 400
+        # Replace junction table entries
+        db.execute('DELETE FROM user_sessions WHERE user_id = ?', (user_id,))
+        for sid in new_ids:
+            if sid not in valid_session_map:
+                return jsonify({'error': f'Invalid session ID: {sid}'}), 400
+            db.execute(
+                'INSERT OR IGNORE INTO user_sessions (user_id, session_type_id) VALUES (?,?)',
+                (user_id, sid)
+            )
+        # Reset active_session_id if it's no longer in the new set
+        if new_ids:
+            updates.append('active_session_id = ?'); params.append(new_ids[0])
+        else:
+            updates.append('active_session_id = NULL')
 
     if 'email' in data:
         updates.append('email = ?'); params.append(data['email'])
@@ -331,9 +411,6 @@ def api_users_update(user_id):
         updates.append('role = ?'); params.append(data['role'])
         if target_role_row:
             updates.append('role_id = ?'); params.append(target_role_row['id'])
-
-    if 'session_assigned' in data:
-        updates.append('session_assigned = ?'); params.append(data['session_assigned'])
 
     if 'active' in data:
         updates.append('active = ?'); params.append(1 if data['active'] else 0)
@@ -348,25 +425,29 @@ def api_users_update(user_id):
     if updates:
         params.append(user_id)
         db.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
-        db.commit()
 
-        if before_row:
-            field_changes = {}
-            if 'email' in data and data.get('email') != before_row['email']:
-                field_changes['email'] = {'from': before_row['email'], 'to': data['email']}
-            if 'role' in data and data['role'] != before_row['role']:
-                field_changes['role'] = {'from': before_row['role'], 'to': data['role']}
-            if 'session_assigned' in data and data.get('session_assigned') != before_row['session_assigned']:
-                field_changes['session_assigned'] = {'from': before_row['session_assigned'], 'to': data['session_assigned']}
-            if 'active' in data:
-                new_active = 1 if data['active'] else 0
-                if new_active != before_row['active']:
-                    field_changes['active'] = {'from': bool(before_row['active']), 'to': bool(new_active)}
-            log_action('update_user', 'users', user_id, {
-                'username':       before_row['username'],
-                'changes':        field_changes,
-                'password_reset': True if ('password' in data and data['password']) else None,
-            })
+    db.commit()
+
+    if before_row:
+        field_changes = {}
+        if 'email' in data and data.get('email') != before_row['email']:
+            field_changes['email'] = {'from': before_row['email'], 'to': data['email']}
+        if 'role' in data and data['role'] != before_row['role']:
+            field_changes['role'] = {'from': before_row['role'], 'to': data['role']}
+        if 'session_ids' in data:
+            before_sess = before_row['session_names_csv'] or ''
+            after_sess  = ','.join(valid_session_map.get(s, str(s)) for s in data['session_ids'])
+            if before_sess != after_sess:
+                field_changes['sessions'] = {'from': before_sess, 'to': after_sess}
+        if 'active' in data:
+            new_active = 1 if data['active'] else 0
+            if new_active != before_row['active']:
+                field_changes['active'] = {'from': bool(before_row['active']), 'to': bool(new_active)}
+        log_action('update_user', 'users', user_id, {
+            'username':       before_row['username'],
+            'changes':        field_changes,
+            'password_reset': True if ('password' in data and data['password']) else None,
+        })
 
     return jsonify({'success': True})
 

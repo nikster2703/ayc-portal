@@ -42,12 +42,13 @@ def api_members():
         conditions.append('m.session = ?')
         params.append(session_filter)
 
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None (admin) or list of session names
     if scoped is not None:
         if not scoped:
             return jsonify([])
-        conditions.append('m.session = ?')
-        params.append(scoped)
+        placeholders = ','.join('?' * len(scoped))
+        conditions.append(f'm.session IN ({placeholders})')
+        params.extend(scoped)
 
     if session.get('role') == 'leader':
         conditions.append("m.member_type IN (SELECT slug FROM member_types WHERE registration_style != 'staff')")
@@ -139,8 +140,8 @@ def api_member_detail(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and (member['session'] or '') != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and (member['session'] or '') not in scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     contacts           = db.execute(
@@ -162,8 +163,8 @@ def api_member_viewed(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and (member['session'] or '') != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and (member['session'] or '') not in scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     log_action('view_member', 'members', member_id, {
@@ -249,8 +250,8 @@ def api_member_update(member_id):
     if not before:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and (before['session'] or '') != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and (before['session'] or '') not in scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
@@ -334,8 +335,8 @@ def api_member_delete(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and (member['session'] or '') != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and (member['session'] or '') not in scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
     db.execute(

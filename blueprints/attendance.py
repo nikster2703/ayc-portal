@@ -24,11 +24,11 @@ bp = Blueprint('attendance', __name__)
 @login_required
 def api_attendance_get(session_type, date):
     db     = get_db()
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None or list
     if scoped is not None:
         if not scoped:
             return jsonify([])
-        if scoped != session_type:
+        if session_type not in scoped:
             return jsonify({'error': 'Access denied for this session'}), 403
 
     rows = db.execute('''
@@ -80,7 +80,7 @@ def api_attendance_staff_get(session_type, date):
         return jsonify({'error': 'Invalid session'}), 400
 
     scoped = _assigned_session()
-    if scoped is not None and scoped != session_type:
+    if scoped is not None and session_type not in (scoped or []):
         return jsonify({'error': 'Access denied for this session'}), 403
 
     db   = get_db()
@@ -121,7 +121,7 @@ def api_attendance_signin():
         return jsonify({'error': 'member_id, session_type and date are required'}), 400
 
     scoped = _assigned_session()
-    if scoped is not None and scoped != sess_type:
+    if scoped is not None and sess_type not in (scoped or []):
         return jsonify({'error': 'Access denied for this session'}), 403
 
     if _is_register_locked(sess_type, sess_date):
@@ -186,7 +186,7 @@ def api_attendance_signout():
         return jsonify({'error': 'member_id, session_type and date are required'}), 400
 
     scoped = _assigned_session()
-    if scoped is not None and scoped != sess_type:
+    if scoped is not None and sess_type not in (scoped or []):
         return jsonify({'error': 'Access denied for this session'}), 403
 
     if _is_register_locked(sess_type, sess_date):
@@ -239,7 +239,7 @@ def api_attendance_complete():
         return jsonify({'error': 'session_type and date are required'}), 400
 
     scoped = _assigned_session()
-    if scoped is not None and scoped != sess_type:
+    if scoped is not None and sess_type not in (scoped or []):
         return jsonify({'error': 'You can only complete your own session register'}), 403
 
     db       = get_db()
@@ -348,10 +348,10 @@ def api_attendance_reset():
 @permission_required('members.view')
 def api_attendance_history(member_id):
     db     = get_db()
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None or list
     if scoped is not None:
         member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
-        if not member or (member['session'] or '') != scoped:
+        if not member or (member['session'] or '') not in (scoped or []):
             return jsonify({'error': 'Forbidden'}), 403
 
     rows = db.execute(
@@ -519,7 +519,7 @@ def api_activity_delete(activity_id):
 def api_notes_get(session_type, date):
     db     = get_db()
     scoped = _assigned_session()
-    if scoped is not None and scoped != session_type:
+    if scoped is not None and session_type not in (scoped or []):
         return jsonify({'error': 'Access denied'}), 403
 
     rows = db.execute('''
@@ -552,7 +552,7 @@ def api_notes_create():
         return jsonify({'error': 'At least a title or details must be provided'}), 400
 
     scoped = _assigned_session()
-    if scoped is not None and scoped != session_type:
+    if scoped is not None and session_type not in (scoped or []):
         return jsonify({'error': 'Access denied for this session'}), 403
 
     db  = get_db()
@@ -589,8 +589,8 @@ def api_notes_delete(note_id):
     if not note:
         return jsonify({'error': 'Note not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and note['session_type'] != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and note['session_type'] not in (scoped or []):
         return jsonify({'error': 'Access denied'}), 403
 
     # Users can only delete their own notes (admin can delete any)

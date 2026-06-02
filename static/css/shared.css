@@ -80,6 +80,67 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 }
 .logout-btn:hover { opacity: 1; border-color: var(--nav-effective-text); }
 
+/* ─── SESSION PILL / SWITCHER ──────────────────── */
+.session-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,.13);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--nav-effective-text);
+  white-space: nowrap;
+}
+.session-pill-dot {
+  width: 8px;
+  height: 8px;
+  background: #4ade80;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(74,222,128,.3);
+}
+.session-pill-btn {
+  border: none;
+  cursor: pointer;
+  font-family: 'Nunito', sans-serif;
+  transition: background .15s;
+}
+.session-pill-btn:hover { background: rgba(255,255,255,.22); }
+
+.session-switcher { position: relative; }
+.session-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #fff;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  min-width: 160px;
+  z-index: 500;
+  overflow: hidden;
+}
+.session-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1b2d4f;
+  cursor: pointer;
+  transition: background .12s;
+}
+.session-menu-item:hover  { background: #f0f7ff; }
+.session-menu-item.active { background: #e0f2fe; color: var(--accent); }
+
 /* ─── NAV ───────────────────────────────────────── */
 .app-nav {
   background: white;

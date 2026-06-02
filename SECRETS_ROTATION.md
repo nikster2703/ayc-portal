@@ -174,6 +174,7 @@ After rotation, your `.env` should contain:
 # Flask
 SECRET_KEY=<rotated value>
 FLASK_DEBUG=0
+SESSION_COOKIE_SECURE=1   # set to 1 only when serving over HTTPS; omit or set to 0 for local HTTP dev
 
 # Database
 DB_ENCRYPTION_KEY=<rotated value>

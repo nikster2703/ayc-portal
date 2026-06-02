@@ -18,7 +18,8 @@ from extensions import csrf
 from flask import render_template
 from helpers import (
     get_db, log_action, login_required, validate_password,
-    get_brand_settings, get_session_types, tpl_ctx,
+    get_brand_settings, get_session_types, get_valid_session_names,
+    _assigned_session, tpl_ctx,
 )
 
 bp = Blueprint('auth', __name__)
@@ -120,13 +121,46 @@ def api_login():
                 except (TypeError, ValueError):
                     perms = []
 
-        session['user_id']          = user['id']
-        session['username']         = user['username']
-        session['role']             = role_name
-        session['role_display']     = role_display
-        session['role_id']          = resolved_role_id
-        session['permissions']      = perms
-        session['session_assigned'] = user['session_assigned'] or ''
+        # Load all sessions this user has access to from the junction table
+        sess_rows = db.execute(
+            'SELECT st.name FROM user_sessions us '
+            'JOIN session_types st ON st.id = us.session_type_id '
+            'WHERE us.user_id = ? AND st.active = 1 '
+            'ORDER BY st.sort_order, st.name',
+            (user['id'],)
+        ).fetchall()
+        session_names = [r['name'] for r in sess_rows]
+
+        # Determine which session is currently active (persisted in users table)
+        active_session = None
+        if user['active_session_id']:
+            act_row = db.execute(
+                'SELECT name FROM session_types WHERE id = ? AND active = 1',
+                (user['active_session_id'],)
+            ).fetchone()
+            if act_row:
+                active_session = act_row['name']
+        # Fall back to first allowed session if active_session_id not set or no longer valid
+        if not active_session and session_names:
+            active_session = session_names[0]
+            # Persist the fallback so subsequent logins are consistent
+            first_id = db.execute(
+                'SELECT id FROM session_types WHERE name = ?', (active_session,)
+            ).fetchone()
+            if first_id:
+                db.execute(
+                    'UPDATE users SET active_session_id = ? WHERE id = ?',
+                    (first_id['id'], user['id'])
+                )
+
+        session['user_id']       = user['id']
+        session['username']      = user['username']
+        session['role']          = role_name
+        session['role_display']  = role_display
+        session['role_id']       = resolved_role_id
+        session['permissions']   = perms
+        session['session_names'] = session_names
+        session['active_session'] = active_session
 
         db.execute('UPDATE users SET last_login = ? WHERE id = ?',
                    (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), user['id']))
@@ -139,9 +173,10 @@ def api_login():
             'success': True,
             'redirect': '/dashboard',
             'user': {
-                'username':         user['username'],
-                'role':             role_name,
-                'session_assigned': user['session_assigned'],
+                'username':       user['username'],
+                'role':           role_name,
+                'session_names':  session_names,
+                'active_session': active_session,
             }
         })
 
@@ -161,12 +196,43 @@ def api_logout():
 @login_required
 def api_me():
     return jsonify({
-        'username':         session['username'],
-        'role':             session['role'],
-        'role_display':     session.get('role_display', session['role']),
-        'session_assigned': session.get('session_assigned', ''),
-        'permissions':      session.get('permissions', []),
+        'username':       session['username'],
+        'role':           session['role'],
+        'role_display':   session.get('role_display', session['role']),
+        'session_names':  session.get('session_names', []),
+        'active_session': session.get('active_session'),
+        'permissions':    session.get('permissions', []),
     })
+
+
+@bp.route('/api/auth/active-session', methods=['POST'])
+@login_required
+def api_set_active_session():
+    """Switch the user's active session. Persists to DB and updates the Flask session."""
+    data         = request.get_json() or {}
+    session_name = (data.get('session_name') or '').strip()
+    if not session_name:
+        return jsonify({'error': 'session_name is required'}), 400
+
+    allowed = session.get('session_names', [])
+    if session.get('role') != 'admin' and session_name not in allowed:
+        return jsonify({'error': 'You do not have access to that session'}), 403
+
+    db      = get_db()
+    st_row  = db.execute(
+        'SELECT id FROM session_types WHERE name = ? AND active = 1', (session_name,)
+    ).fetchone()
+    if not st_row:
+        return jsonify({'error': 'Session not found or inactive'}), 404
+
+    db.execute(
+        'UPDATE users SET active_session_id = ? WHERE id = ?',
+        (st_row['id'], session['user_id'])
+    )
+    db.commit()
+    session['active_session'] = session_name
+    log_action('switch_session', details={'session': session_name})
+    return jsonify({'ok': True, 'active_session': session_name})
 
 
 @bp.route('/api/auth/change-password', methods=['POST'])

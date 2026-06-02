@@ -65,9 +65,10 @@ app.config['MAX_CONTENT_LENGTH']        = 20 * 1024 * 1024   # 20 MB max upload
 app.config['ALLOWED_EXTENSIONS']        = ALLOWED_EXTENSIONS
 # ── Session cookie security ───────────────────────────────────────────────────
 app.config['SESSION_COOKIE_HTTPONLY']   = True   # prevent JS access to cookie
-app.config['SESSION_COOKIE_SAMESITE']  = 'Lax'  # CSRF mitigation
-# Set SECURE only in production so local HTTP dev still works
-app.config['SESSION_COOKIE_SECURE']    = os.environ.get('FLASK_DEBUG', '0') != '1'
+app.config['SESSION_COOKIE_SAMESITE']   = 'Lax'  # CSRF mitigation
+# Opt-in to Secure flag via env var — set SESSION_COOKIE_SECURE=1 in .env when
+# the portal is served over HTTPS in production.  Local HTTP dev leaves it off.
+app.config['SESSION_COOKIE_SECURE']     = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
 
 # Ensure data directories exist
 os.makedirs(UPLOAD_DIR,    exist_ok=True)

@@ -35,6 +35,42 @@
       </a>
     </div>
     <div class="header-right">
+
+      {# ── Session indicator / switcher (non-admin users only) ── #}
+      {% if session_names %}
+        {% if session_names | length == 1 %}
+          {# Single session — non-interactive label #}
+          <div class="session-pill" title="Your assigned session">
+            <span class="session-pill-dot"></span>
+            {{ current_session or session_names[0] }}
+          </div>
+        {% else %}
+          {# Multi-session — clickable dropdown #}
+          <div class="session-switcher" id="session-switcher">
+            <button class="session-pill session-pill-btn"
+                    onclick="toggleSessionMenu(event)"
+                    title="Switch active session">
+              <span class="session-pill-dot"></span>
+              <span id="session-pill-label">{{ current_session or session_names[0] }}</span>
+              <span style="opacity:.55;font-size:10px;margin-left:2px">▾</span>
+            </button>
+            <div class="session-menu" id="session-menu" style="display:none">
+              {% for name in session_names %}
+              <button class="session-menu-item{% if name == current_session %} active{% endif %}"
+                      onclick="switchSession('{{ name }}')">
+                {% if name == current_session %}
+                  <span style="color:var(--accent);font-size:12px">●</span>
+                {% else %}
+                  <span style="color:transparent;font-size:12px">●</span>
+                {% endif %}
+                {{ name }}
+              </button>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      {% endif %}
+
       <div class="user-pill" onclick="openPwModal()" title="Change password" style="cursor:pointer">
         {{ current_user }} <span style="opacity:.6;font-size:11px">▾</span>
       </div>
@@ -599,6 +635,37 @@
       btn.disabled = false;
     }
   }
+  </script>
+  {% endif %}
+
+  {% if session_names and session_names | length > 1 %}
+  <script>
+    function toggleSessionMenu(e) {
+      e.stopPropagation();
+      const menu = document.getElementById('session-menu');
+      menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+    async function switchSession(name) {
+      document.getElementById('session-menu').style.display = 'none';
+      const label = document.getElementById('session-pill-label');
+      if (label) label.textContent = name;
+      try {
+        await apiFetch('/api/auth/active-session', {
+          method: 'POST',
+          body:   JSON.stringify({ session_name: name }),
+        });
+        window.location.reload();
+      } catch(e) {
+        showToast('Could not switch session: ' + e.message, true);
+      }
+    }
+    // Close the menu if user clicks anywhere else
+    document.addEventListener('click', function(e) {
+      const sw = document.getElementById('session-switcher');
+      if (sw && !sw.contains(e.target)) {
+        document.getElementById('session-menu').style.display = 'none';
+      }
+    });
   </script>
   {% endif %}
 

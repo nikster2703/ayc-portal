@@ -46,21 +46,24 @@ def api_admin_session_types_create():
     name    = data.get('name', '').strip()
     weekday = data.get('weekday')
 
+    description = data.get('description', '').strip() or None
+
     if not name:
         return jsonify({'error': 'name is required'}), 400
-    if weekday is None or not isinstance(weekday, int) or weekday < 0 or weekday > 6:
-        return jsonify({'error': 'weekday must be an integer 0–6 (Mon=0)'}), 400
+    # weekday is now optional (Phase A) — validate only if supplied
+    if weekday is not None and (not isinstance(weekday, int) or weekday < 0 or weekday > 6):
+        return jsonify({'error': 'weekday must be an integer 0–6 (Mon=0), or omit for no fixed day'}), 400
 
     db        = get_db()
     max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM session_types').fetchone()[0]
     try:
         cur = db.execute(
-            'INSERT INTO session_types (name, weekday, active, sort_order) VALUES (?,?,1,?)',
-            (name, weekday, max_order + 1)
+            'INSERT INTO session_types (name, weekday, description, active, sort_order) VALUES (?,?,?,1,?)',
+            (name, weekday, description, max_order + 1)
         )
         db.commit()
         log_action('create_session_type', 'session_types', cur.lastrowid,
-                   {'name': name, 'weekday': weekday})
+                   {'name': name, 'weekday': weekday, 'description': description})
         row = db.execute('SELECT * FROM session_types WHERE id = ?', (cur.lastrowid,)).fetchone()
         return jsonify(dict(row)), 201
     except sqlite3.IntegrityError:
@@ -76,14 +79,19 @@ def api_admin_session_types_update(st_id):
     if not current:
         return jsonify({'error': 'Session type not found'}), 404
 
-    name    = data.get('name', current['name']).strip()
-    weekday = data.get('weekday', current['weekday'])
-    active  = int(data.get('active', current['active']))
+    name        = data.get('name', current['name']).strip()
+    description = data.get('description', current['description'] or '').strip() or None
+    active      = int(data.get('active', current['active']))
+    # weekday: None means "clear it"; omitting the key means "keep existing"
+    if 'weekday' in data:
+        weekday = data['weekday']  # may be None (to clear) or int
+    else:
+        weekday = current['weekday']
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
-    if not isinstance(weekday, int) or weekday < 0 or weekday > 6:
-        return jsonify({'error': 'weekday must be an integer 0–6'}), 400
+    if weekday is not None and (not isinstance(weekday, int) or weekday < 0 or weekday > 6):
+        return jsonify({'error': 'weekday must be an integer 0–6, or null to remove'}), 400
 
     if not active:
         active_count = db.execute(
@@ -94,12 +102,12 @@ def api_admin_session_types_update(st_id):
 
     try:
         db.execute(
-            'UPDATE session_types SET name = ?, weekday = ?, active = ? WHERE id = ?',
-            (name, weekday, active, st_id)
+            'UPDATE session_types SET name = ?, weekday = ?, description = ?, active = ? WHERE id = ?',
+            (name, weekday, description, active, st_id)
         )
         db.commit()
         log_action('update_session_type', 'session_types', st_id,
-                   {'name': name, 'weekday': weekday, 'active': active})
+                   {'name': name, 'weekday': weekday, 'description': description, 'active': active})
         return jsonify(dict(db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()))
     except sqlite3.IntegrityError:
         return jsonify({'error': f'A session type named "{name}" already exists'}), 409
@@ -196,9 +204,9 @@ def api_calendar_add():
     if session_type not in get_valid_session_names():
         return jsonify({'error': 'Invalid session type'}), 400
 
-    scoped = _assigned_session()
-    if scoped is not None and session_type != scoped:
-        return jsonify({'error': f'You can only add {scoped} sessions'}), 403
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and session_type not in (scoped or []):
+        return jsonify({'error': 'You can only add sessions you have access to'}), 403
     if status not in VALID_STATUSES:
         return jsonify({'error': 'Invalid status'}), 400
 
@@ -206,9 +214,8 @@ def api_calendar_add():
         d            = dt_date.fromisoformat(session_date)
         wday_map     = session_to_weekday_map()
         expected_day = wday_map.get(session_type)
-        if expected_day is None:
-            return jsonify({'error': 'Unknown session type'}), 400
-        if d.weekday() != expected_day:
+        # Only validate weekday if this session type has one configured
+        if expected_day is not None and d.weekday() != expected_day:
             return jsonify({'error': f'{session_date} is not a {session_type}'}), 400
     except ValueError:
         return jsonify({'error': 'Invalid date format'}), 400
@@ -244,11 +251,14 @@ def api_calendar_bulk():
     if not days:
         return jsonify({'error': 'At least one day must be selected'}), 400
 
-    scoped = _assigned_session()
+    scoped = _assigned_session()  # None or list
     if scoped is not None:
-        if any(d != scoped for d in days):
-            return jsonify({'error': f'You can only generate {scoped} sessions'}), 403
-        days = [scoped]
+        if not scoped:
+            return jsonify({'error': 'No sessions assigned'}), 403
+        # Filter requested days down to only those the user has access to
+        days = [d for d in days if d in scoped]
+        if not days:
+            return jsonify({'error': 'You do not have access to any of the requested session types'}), 403
 
     try:
         start = dt_date.fromisoformat(start_str)
@@ -306,8 +316,8 @@ def api_calendar_update(session_id):
     if not row:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and row['session_type'] != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and row['session_type'] not in (scoped or []):
         return jsonify({'error': 'You can only edit your own session entries'}), 403
 
     updates, params = [], []
@@ -338,8 +348,8 @@ def api_calendar_delete(session_id):
     if not row:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and row['session_type'] != scoped:
+    scoped = _assigned_session()  # None or list
+    if scoped is not None and row['session_type'] not in (scoped or []):
         return jsonify({'error': 'You can only delete your own session entries'}), 403
 
     db.execute('DELETE FROM term_sessions WHERE id = ?', (session_id,))

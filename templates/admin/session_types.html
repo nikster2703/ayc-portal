@@ -8,10 +8,12 @@
   <h1 style="margin-top:10px">📅 Session Types</h1>
 </div>
 
-<div class="form-card" style="max-width:520px">
+<div class="form-card" style="max-width:600px">
   <p style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6">
-    Define which nights the club runs. The name appears throughout the portal
-    and the weekday controls which calendar day is auto-detected on the register.
+    Define the sessions your organisation runs. The name appears throughout the portal.
+    The weekday is <strong>optional</strong> — set it if sessions fall on a fixed day and you want
+    the calendar to auto-detect the correct date; leave it blank for flexible or ad-hoc sessions.
+    The description is shown to admins as a reminder of what the session is for.
   </p>
 
   <div id="session-types-list" style="margin-bottom:20px">
@@ -20,15 +22,51 @@
     </div>
   </div>
 
-  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;
-              border-top:1.5px solid var(--border);padding-top:16px">
+  <!-- Add form -->
+  <div style="border-top:1.5px solid var(--border);padding-top:20px">
+    <p style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
+              letter-spacing:.06em;margin-bottom:14px">Add Session Type</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label class="form-label" style="margin-bottom:4px">Name <span style="color:var(--red)">*</span></label>
+        <input id="st-name" class="form-input" placeholder="e.g. Monday Crew">
+      </div>
+      <div>
+        <label class="form-label" style="margin-bottom:4px">Weekday (optional)</label>
+        <select id="st-weekday" class="form-input">
+          <option value="">— no fixed day —</option>
+          <option value="0">Monday</option>
+          <option value="1">Tuesday</option>
+          <option value="2">Wednesday</option>
+          <option value="3">Thursday</option>
+          <option value="4">Friday</option>
+          <option value="5">Saturday</option>
+          <option value="6">Sunday</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <label class="form-label" style="margin-bottom:4px">Description (optional)</label>
+      <input id="st-description" class="form-input" placeholder="e.g. For members aged 10–14, Tuesday evenings">
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="addSessionType()">+ Add Session Type</button>
+  </div>
+</div>
+
+<!-- Inline edit panel (hidden until Edit clicked) -->
+<div id="st-edit-panel" class="form-card" style="max-width:600px;display:none;margin-top:16px;
+     border:1.5px solid var(--accent);background:var(--surface)">
+  <p style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;
+            letter-spacing:.06em;margin-bottom:14px">Editing Session Type</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
     <div>
-      <label class="form-label" style="margin-bottom:4px">Name</label>
-      <input id="st-name" class="form-input" placeholder="e.g. Monday Crew" style="width:170px">
+      <label class="form-label" style="margin-bottom:4px">Name <span style="color:var(--red)">*</span></label>
+      <input id="edit-name" class="form-input">
     </div>
     <div>
-      <label class="form-label" style="margin-bottom:4px">Weekday</label>
-      <select id="st-weekday" class="form-input" style="width:140px">
+      <label class="form-label" style="margin-bottom:4px">Weekday (optional)</label>
+      <select id="edit-weekday" class="form-input">
+        <option value="">— no fixed day —</option>
         <option value="0">Monday</option>
         <option value="1">Tuesday</option>
         <option value="2">Wednesday</option>
@@ -38,7 +76,14 @@
         <option value="6">Sunday</option>
       </select>
     </div>
-    <button class="btn btn-primary btn-sm" onclick="addSessionType()">+ Add</button>
+  </div>
+  <div style="margin-bottom:14px">
+    <label class="form-label" style="margin-bottom:4px">Description (optional)</label>
+    <input id="edit-description" class="form-input">
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-primary btn-sm" onclick="saveEdit()">Save Changes</button>
+    <button class="btn btn-ghost btn-sm" onclick="cancelEdit()">Cancel</button>
   </div>
 </div>
 {% endblock %}
@@ -46,6 +91,7 @@
 {% block scripts %}
 <script>
   const WDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  let _editingId = null;
 
   async function loadSessionTypes() {
     const el = document.getElementById('session-types-list');
@@ -56,25 +102,35 @@
         return;
       }
       el.innerHTML = types.map(st => `
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;
-                    border-bottom:1px solid var(--border)">
-          <span style="flex:1;font-weight:700;font-size:14px">${esc(st.name)}</span>
-          <span style="font-size:12px;color:var(--muted);min-width:84px">${WDAY_NAMES[st.weekday] || '?'}</span>
-          <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;
-                       background:${st.active ? '#dcfce7' : '#f1f5f9'};
-                       color:${st.active ? '#166534' : '#64748b'}">
-            ${st.active ? 'Active' : 'Inactive'}
-          </span>
-          <button class="btn btn-ghost btn-sm"
-                  onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})"
-                  style="font-size:12px">
-            ${st.active ? 'Deactivate' : 'Activate'}
-          </button>
-          <button class="btn btn-ghost btn-sm"
-                  onclick="deleteSessionType(${st.id}, '${esc(st.name)}')"
-                  style="font-size:12px;color:var(--red)">
-            Delete
-          </button>
+        <div id="st-row-${st.id}" style="display:grid;grid-template-columns:1fr auto;
+             align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-weight:700;font-size:14px;margin-bottom:2px">${esc(st.name)}</div>
+            <div style="font-size:12px;color:var(--muted)">
+              ${st.weekday !== null && st.weekday !== undefined
+                ? '📅 ' + WDAY_NAMES[st.weekday]
+                : '📅 No fixed day'}
+              ${st.description ? ' &nbsp;·&nbsp; ' + esc(st.description) : ''}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;
+                         background:${st.active ? '#dcfce7' : '#f1f5f9'};
+                         color:${st.active ? '#166534' : '#64748b'}">
+              ${st.active ? 'Active' : 'Inactive'}
+            </span>
+            <button class="btn btn-ghost btn-sm"
+                    onclick="openEdit(${JSON.stringify(st).replace(/"/g,'&quot;')})"
+                    style="font-size:12px">Edit</button>
+            <button class="btn btn-ghost btn-sm"
+                    onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})"
+                    style="font-size:12px">
+              ${st.active ? 'Deactivate' : 'Activate'}
+            </button>
+            <button class="btn btn-ghost btn-sm"
+                    onclick="deleteSessionType(${st.id}, '${esc(st.name)}')"
+                    style="font-size:12px;color:var(--red)">Delete</button>
+          </div>
         </div>`).join('');
     } catch (e) {
       el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load session types.</p>`;
@@ -82,16 +138,57 @@
   }
 
   async function addSessionType() {
-    const name    = document.getElementById('st-name').value.trim();
-    const weekday = parseInt(document.getElementById('st-weekday').value);
+    const name        = document.getElementById('st-name').value.trim();
+    const weekdayRaw  = document.getElementById('st-weekday').value;
+    const description = document.getElementById('st-description').value.trim() || null;
+    const weekday     = weekdayRaw !== '' ? parseInt(weekdayRaw) : null;
+
     if (!name) { showToast('Please enter a session name.', true); return; }
     try {
       await apiFetch('/api/admin/session-types', {
         method: 'POST',
-        body:   JSON.stringify({ name, weekday }),
+        body:   JSON.stringify({ name, weekday, description }),
       });
-      document.getElementById('st-name').value = '';
+      document.getElementById('st-name').value        = '';
+      document.getElementById('st-weekday').value     = '';
+      document.getElementById('st-description').value = '';
       showToast(`"${name}" added.`);
+      loadSessionTypes();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  function openEdit(st) {
+    _editingId = st.id;
+    document.getElementById('edit-name').value        = st.name;
+    document.getElementById('edit-weekday').value     = st.weekday !== null && st.weekday !== undefined ? String(st.weekday) : '';
+    document.getElementById('edit-description').value = st.description || '';
+    document.getElementById('st-edit-panel').style.display = '';
+    document.getElementById('edit-name').focus();
+    document.getElementById('st-edit-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function cancelEdit() {
+    _editingId = null;
+    document.getElementById('st-edit-panel').style.display = 'none';
+  }
+
+  async function saveEdit() {
+    if (!_editingId) return;
+    const name        = document.getElementById('edit-name').value.trim();
+    const weekdayRaw  = document.getElementById('edit-weekday').value;
+    const description = document.getElementById('edit-description').value.trim() || null;
+    const weekday     = weekdayRaw !== '' ? parseInt(weekdayRaw) : null;
+
+    if (!name) { showToast('Name is required.', true); return; }
+    try {
+      await apiFetch(`/api/admin/session-types/${_editingId}`, {
+        method: 'PUT',
+        body:   JSON.stringify({ name, weekday, description }),
+      });
+      cancelEdit();
+      showToast('Session type updated.');
       loadSessionTypes();
     } catch (e) {
       showToast(e.message, true);
@@ -114,6 +211,7 @@
     if (!confirm(`Delete session type "${name}"? This cannot be undone.`)) return;
     try {
       await apiFetch(`/api/admin/session-types/${id}`, { method: 'DELETE' });
+      cancelEdit();
       showToast(`"${name}" deleted.`);
       loadSessionTypes();
     } catch (e) {

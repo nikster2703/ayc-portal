@@ -6,7 +6,10 @@
   <h1>✅ Session Register</h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <select class="session-select" id="session-picker" onchange="onSessionChange()">
-      {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+      {% for st in session_types %}
+        {% if not session_names or st.name in session_names %}
+          <option value="{{ st.name }}">{{ st.name }}</option>
+        {% endif %}
       {% endfor %}
     </select>
     <input type="date" id="date-picker" class="session-select"
@@ -551,16 +554,21 @@
 
     // Auto-select the session matching today's day of week
     // JS getDay(): Sun=0…Sat=6 → Python weekday: Mon=0…Sun=6 = (jsDay + 6) % 7
-    const picker    = document.getElementById('session-picker');
-    const pyWeekday = (today.getDay() + 6) % 7;
-    const match     = SESSION_TYPES.find(s => s.weekday === pyWeekday);
+    const picker       = document.getElementById('session-picker');
+    const pyWeekday    = (today.getDay() + 6) % 7;
+    const match        = SESSION_TYPES.find(s => s.weekday === pyWeekday);
     if (match) picker.value = match.name;
     else if (SESSION_TYPES.length) picker.value = SESSION_TYPES[0].name;
 
-    const userSession = "{{ current_session }}";
+    const userSession  = "{{ current_session }}";
+    const sessionNames = {{ session_names | tojson }};
+    const isMulti      = sessionNames.length > 1;
+
     if (userSession) {
       picker.value    = userSession;
-      picker.disabled = true;
+      // Single-session users are locked to their session.
+      // Multi-session users can switch (the picker is already filtered to their sessions).
+      picker.disabled = !isMulti;
     }
 
     if (CAN_COMPLETE) {
@@ -575,7 +583,19 @@
     loadRegister();
   })();
 
-  function onSessionChange() { _reloadActiveTab(); }
+  function onSessionChange() {
+    // For multi-session users, persist the new active session to the DB so it
+    // survives navigation and re-login.  Fire-and-forget — don't block the UI.
+    const sessionNames = {{ session_names | tojson }};
+    if (sessionNames.length > 1) {
+      const chosen = document.getElementById('session-picker').value;
+      apiFetch('/api/auth/active-session', {
+        method: 'POST',
+        body:   JSON.stringify({ session_name: chosen }),
+      }).catch(() => { /* non-fatal */ });
+    }
+    _reloadActiveTab();
+  }
 
   /* ── Load register ──────────────────────────────────── */
   async function loadRegister() {

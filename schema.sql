@@ -8,17 +8,19 @@
 
 -- ── Staff logins ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    username         TEXT    UNIQUE NOT NULL,
-    email            TEXT,
-    password_hash    TEXT    NOT NULL,
-    role             TEXT    NOT NULL DEFAULT 'readonly',
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    username          TEXT    UNIQUE NOT NULL,
+    email             TEXT,
+    password_hash     TEXT    NOT NULL,
+    role              TEXT    NOT NULL DEFAULT 'readonly',
     -- roles: admin | editor | leader | readonly
-    session_assigned TEXT,
-    -- Tuesday | Thursday | Both  (used by 'leader' role to scope their view)
-    active           INTEGER NOT NULL DEFAULT 1,
-    created_at       TEXT    DEFAULT (datetime('now')),
-    last_login       TEXT
+    session_assigned  TEXT,
+    -- DEPRECATED v10.3: superseded by user_sessions; kept for migration reference only
+    active_session_id INTEGER REFERENCES session_types(id),
+    -- which session the user is currently working in (persisted across logins)
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT    DEFAULT (datetime('now')),
+    last_login        TEXT
 );
 
 -- ── Members ───────────────────────────────────────────────
@@ -36,7 +38,7 @@ CREATE TABLE IF NOT EXISTS members (
     unattended_exit   INTEGER NOT NULL DEFAULT 0,  -- 0=No 1=Yes
     gdpr_consent      INTEGER NOT NULL DEFAULT 0,
     status            TEXT    NOT NULL DEFAULT 'Active',  -- Active | Inactive | Leaver
-    session           TEXT,                               -- Tuesday | Thursday | Both
+    session           TEXT,                               -- session type name (matches session_types.name) | Both
     member_type       TEXT    NOT NULL DEFAULT 'member',  -- member | staff
     staff_role        TEXT,                               -- value from staff_roles table (staff only)
     date_registered   TEXT,
@@ -193,7 +195,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id     INTEGER NOT NULL REFERENCES members(id),
     session_date  TEXT    NOT NULL,
-    session_type  TEXT    NOT NULL,   -- Tuesday | Thursday
+    session_type  TEXT    NOT NULL,   -- session type name (matches session_types.name)
     signed_in_at  TEXT,
     signed_out_at TEXT,
     recorded_by   INTEGER REFERENCES users(id)
@@ -210,18 +212,29 @@ CREATE TABLE IF NOT EXISTS staff_roles (
 
 -- ── Session types (configurable) ────────────────────────
 CREATE TABLE IF NOT EXISTS session_types (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL UNIQUE,
-    weekday    INTEGER NOT NULL,  -- Python weekday(): Mon=0 … Sun=6
-    active     INTEGER NOT NULL DEFAULT 1,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    weekday     INTEGER,           -- Optional: Python weekday() Mon=0…Sun=6; NULL = no fixed day
+    description TEXT,              -- Optional human-readable description
+    active      INTEGER NOT NULL DEFAULT 1,
+    sort_order  INTEGER NOT NULL DEFAULT 0
 );
+
+-- ── User-to-session access (v10.3, replaces users.session_assigned) ──────────
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_type_id INTEGER NOT NULL REFERENCES session_types(id) ON DELETE CASCADE,
+    UNIQUE(user_id, session_type_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user    ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_session ON user_sessions(session_type_id);
 
 -- ── Session register completions ────────────────────────
 CREATE TABLE IF NOT EXISTS session_completions (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     session_date       TEXT    NOT NULL,
-    session_type       TEXT    NOT NULL,   -- Tuesday | Thursday
+    session_type       TEXT    NOT NULL,   -- session type name (matches session_types.name)
     completed_by       INTEGER REFERENCES users(id),
     completed_at       TEXT    DEFAULT (datetime('now')),
     auto_signout_count INTEGER DEFAULT 0,
@@ -232,7 +245,7 @@ CREATE TABLE IF NOT EXISTS session_completions (
 CREATE TABLE IF NOT EXISTS term_sessions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     session_date TEXT    NOT NULL,
-    session_type TEXT    NOT NULL,   -- Tuesday | Thursday
+    session_type TEXT    NOT NULL,   -- session type name (matches session_types.name)
     term_name    TEXT,               -- e.g. "Autumn 2026"
     status       TEXT    NOT NULL DEFAULT 'planned',  -- planned | cancelled | special
     notes        TEXT,
@@ -246,7 +259,7 @@ CREATE INDEX IF NOT EXISTS idx_term_sessions_date ON term_sessions(session_date)
 -- ── Session activities board (display screen) ────────────
 CREATE TABLE IF NOT EXISTS session_activities (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_type TEXT    NOT NULL,   -- Tuesday | Thursday
+    session_type TEXT    NOT NULL,   -- session type name (matches session_types.name)
     activity     TEXT    NOT NULL,
     added_by     INTEGER REFERENCES users(id),
     created_at   TEXT    DEFAULT (datetime('now')),

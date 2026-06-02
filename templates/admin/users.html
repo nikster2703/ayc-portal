@@ -78,14 +78,31 @@
         <option value="">Loading roles…</option>
       </select>
     </div>
+
+    <!-- Session access — multi-checkbox, hidden for unscoped (admin) roles -->
     <div class="form-group" id="session-group" style="display:none">
-      <label>Session assigned <span style="color:var(--red)">*</span></label>
-      <select id="f-session">
-        <option value="">— select session —</option>
-        {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+      <label>Session access <span style="color:var(--red)">*</span>
+        <span style="font-weight:400;color:var(--muted);font-size:12px">
+          — select all sessions this user should see
+        </span>
+      </label>
+      <div id="session-checkboxes" style="display:flex;flex-direction:column;gap:8px;
+           margin-top:8px;padding:12px;background:var(--surface-2,#f8fafc);
+           border:1px solid var(--border);border-radius:8px">
+        {% for st in session_types %}
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" class="session-cb" value="{{ st.id }}"
+                 data-name="{{ st.name }}"
+                 style="width:16px;height:16px;accent-color:var(--accent)">
+          <span>
+            <strong>{{ st.name }}</strong>
+            {% if st.description %}<span style="color:var(--muted);font-size:12px"> — {{ st.description }}</span>{% endif %}
+          </span>
+        </label>
         {% endfor %}
-      </select>
+      </div>
     </div>
+
     <div class="form-group">
       <label id="pw-label">Password</label>
       <input id="f-password" type="password" placeholder="Minimum 8 characters" autocomplete="new-password">
@@ -102,15 +119,19 @@
 
 {% block scripts %}
 <script>
-  const USER_ROLE    = "{{ current_role }}";  // kept for display
-  const USER_SESSION = "{{ current_session or '' }}";
-  const USER_PERMS   = new Set({{ user_permissions | tojson }});
-  const IS_ADMIN     = USER_PERMS.has('users.create.admin');
-  const IS_SCOPED    = USER_SESSION !== '';
-  let editingId  = null;
-  let _allRoles  = [];   // [{id, name, is_default, permissions:[...]}, ...]
+  // Session types available in the system (from Jinja context, for ID→name lookup)
+  const ALL_SESSION_TYPES = {{ session_types | tojson }};
 
-  /* ── Load roles and users on boot ─────────────── */
+  // Current user's context
+  const MY_SESSION_NAMES = {{ session_names | tojson }};  // list of names I have access to
+  const IS_ADMIN_USER    = MY_SESSION_NAMES.length === 0; // admins have no session_names
+  const USER_PERMS       = new Set({{ user_permissions | tojson }});
+  const CAN_CREATE_ADMIN = USER_PERMS.has('users.create.admin');
+
+  let editingId = null;
+  let _allRoles = [];
+
+  /* ── Boot ─────────────────────────────────────────── */
   async function boot() {
     await loadRoles();
     await loadUsers();
@@ -125,27 +146,20 @@
     }
   }
 
-  /**
-   * Populate a <select> element with available roles.
-   * Filters out roles requiring users.create.admin if current user lacks that permission.
-   * @param {string} selectId - element id
-   * @param {string|null} currentValue - pre-select this role name (null = first option)
-   */
   function populateRoleSelect(selectId, currentValue) {
     const el = document.getElementById(selectId);
     if (!el) return;
     el.innerHTML = _allRoles
       .filter(r => {
-        // Hide roles that carry users.create.admin unless the current user has it
         const perms = Array.isArray(r.permissions) ? r.permissions : [];
-        return IS_ADMIN || !perms.includes('users.create.admin');
+        return CAN_CREATE_ADMIN || !perms.includes('users.create.admin');
       })
       .map(r => `<option value="${esc(r.name)}"${r.name === currentValue ? ' selected' : ''}>${esc(r.name)}</option>`)
       .join('');
     handleRoleChange();
   }
 
-  /* ── Load users ───────────────────────────────── */
+  /* ── Load users ───────────────────────────────────── */
   async function loadUsers() {
     try {
       const users = await apiFetch('/api/admin/users');
@@ -168,6 +182,15 @@
     return map[role] || esc(role);
   }
 
+  function sessionTags(names) {
+    if (!names || !names.length) return '<span style="color:var(--muted)">—</span>';
+    return names.map(n =>
+      `<span style="display:inline-block;font-size:11px;padding:2px 7px;border-radius:12px;
+                    background:var(--accent-light,#e0f2fe);color:var(--accent);
+                    font-weight:600;margin:1px 2px">${esc(n)}</span>`
+    ).join('');
+  }
+
   function renderTable(users) {
     if (!users.length) {
       document.getElementById('users-container').innerHTML =
@@ -175,11 +198,11 @@
       return;
     }
     const rows = users.map(u => `
-      <tr class="${u.active ? '' : 'opacity-50'}" style="opacity:${u.active ? 1 : .45}">
+      <tr style="opacity:${u.active ? 1 : .45}">
         <td>${esc(u.username)}</td>
         <td>${esc(u.email || '—')}</td>
         <td>${roleBadge(u.role)}</td>
-        <td>${esc(u.session_assigned || '—')}</td>
+        <td>${sessionTags(u.session_names)}</td>
         <td>${u.last_login ? fmtDate(u.last_login.slice(0,10)) : '—'}</td>
         <td>
           <span class="badge ${u.active ? 'badge-active' : 'badge-leaver'}">
@@ -193,7 +216,7 @@
                     onclick="toggleActive(${u.id}, ${u.active})">
               ${u.active ? 'Deactivate' : 'Reactivate'}
             </button>
-            ${IS_ADMIN ? `<button class="btn btn-ghost btn-sm"
+            ${CAN_CREATE_ADMIN ? `<button class="btn btn-ghost btn-sm"
                     style="color:var(--red);opacity:.7;font-size:11px"
                     onclick="openPermDeleteUserModal(${u.id}, '${esc(u.username)}')">
               🗑 Delete
@@ -208,36 +231,50 @@
         <thead>
           <tr>
             <th>Username</th><th>Email</th><th>Role</th>
-            <th>Session</th><th>Last Login</th><th>Status</th><th>Actions</th>
+            <th>Sessions</th><th>Last Login</th><th>Status</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
   }
 
-  /* ── Modal helpers ─────────────────────────────── */
+  /* ── Session checkbox helpers ──────────────────────── */
+  function getCheckedSessionIds() {
+    return [...document.querySelectorAll('.session-cb:checked')].map(cb => parseInt(cb.value));
+  }
+
+  function setSessionCheckboxes(names) {
+    document.querySelectorAll('.session-cb').forEach(cb => {
+      cb.checked = names.includes(cb.dataset.name);
+      // Non-admin creators can only assign sessions they have access to
+      if (!IS_ADMIN_USER) {
+        cb.disabled = !MY_SESSION_NAMES.includes(cb.dataset.name);
+      }
+    });
+  }
+
+  /* ── Modal helpers ─────────────────────────────────── */
   function openAddModal() {
     editingId = null;
-    document.getElementById('modal-title').textContent = 'Add User';
-    document.getElementById('modal-save-btn').textContent = 'Create User';
-    document.getElementById('f-username').value    = '';
-    document.getElementById('f-username').disabled = false;
-    document.getElementById('f-email').value       = '';
-    // Default to the first role that requires a session (non-admin), so the
-    // session field is visible when the modal opens.
+    document.getElementById('modal-title').textContent       = 'Add User';
+    document.getElementById('modal-save-btn').textContent    = 'Create User';
+    document.getElementById('f-username').value              = '';
+    document.getElementById('f-username').disabled           = false;
+    document.getElementById('f-email').value                 = '';
+    document.getElementById('f-password').value              = '';
+    document.getElementById('pw-label').textContent          = 'Password';
+    document.getElementById('pw-hint').textContent           = '';
+
     const firstScopedRole = _allRoles.find(r => {
       const perms = Array.isArray(r.permissions) ? r.permissions : [];
-      const visible = IS_ADMIN || !perms.includes('users.create.admin');
+      const visible = CAN_CREATE_ADMIN || !perms.includes('users.create.admin');
       return visible && !perms.includes('admin.maintenance');
     });
     populateRoleSelect('f-role', firstScopedRole ? firstScopedRole.name : null);
-    // Scoped editors can only create users for their own session
-    const sessEl = document.getElementById('f-session');
-    sessEl.value    = IS_SCOPED ? USER_SESSION : '';
-    sessEl.disabled = IS_SCOPED;
-    document.getElementById('f-password').value  = '';
-    document.getElementById('pw-label').textContent = 'Password';
-    document.getElementById('pw-hint').textContent  = '';
+
+    // Pre-tick the creator's own sessions (scoped) or nothing (admin)
+    setSessionCheckboxes(IS_ADMIN_USER ? [] : MY_SESSION_NAMES);
+
     handleRoleChange();
     document.getElementById('user-modal').classList.add('open');
     document.getElementById('f-username').focus();
@@ -245,19 +282,18 @@
 
   function openEditModal(u) {
     editingId = u.id;
-    document.getElementById('modal-title').textContent = `Edit — ${u.username}`;
-    document.getElementById('modal-save-btn').textContent = 'Save Changes';
-    document.getElementById('f-username').value    = u.username;
-    document.getElementById('f-username').disabled = true;  // username is immutable
-    document.getElementById('f-email').value       = u.email || '';
-    // Populate role list and pre-select the user's current role
+    document.getElementById('modal-title').textContent       = `Edit — ${u.username}`;
+    document.getElementById('modal-save-btn').textContent    = 'Save Changes';
+    document.getElementById('f-username').value              = u.username;
+    document.getElementById('f-username').disabled           = true;
+    document.getElementById('f-email').value                 = u.email || '';
+    document.getElementById('f-password').value              = '';
+    document.getElementById('pw-label').textContent          = 'New Password';
+    document.getElementById('pw-hint').textContent           = 'Leave blank to keep current password.';
+
     populateRoleSelect('f-role', u.role);
-    const sessEl2 = document.getElementById('f-session');
-    sessEl2.value    = u.session_assigned || '';
-    sessEl2.disabled = IS_SCOPED;  // editors cannot change session assignment
-    document.getElementById('f-password').value   = '';
-    document.getElementById('pw-label').textContent = 'New Password';
-    document.getElementById('pw-hint').textContent  = 'Leave blank to keep current password.';
+    setSessionCheckboxes(u.session_names || []);
+
     handleRoleChange();
     document.getElementById('user-modal').classList.add('open');
   }
@@ -267,49 +303,49 @@
   }
 
   function handleRoleChange() {
-    const roleName = document.getElementById('f-role').value;
-    const sessGrp  = document.getElementById('session-group');
+    const roleName  = document.getElementById('f-role').value;
+    const sessGrp   = document.getElementById('session-group');
     if (!roleName) { sessGrp.style.display = 'none'; return; }
-    // Roles that have admin.maintenance are unscoped — no session required.
-    // All other roles must have a session assigned to scope their data access.
     const roleObj   = _allRoles.find(r => r.name === roleName);
     const perms     = roleObj ? (Array.isArray(roleObj.permissions) ? roleObj.permissions : []) : [];
     const isUnscoped = perms.includes('admin.maintenance');
     sessGrp.style.display = isUnscoped ? 'none' : 'block';
   }
 
-  /* ── Save ─────────────────────────────────────── */
+  /* ── Save ──────────────────────────────────────────── */
   async function saveUser() {
     const btn      = document.getElementById('modal-save-btn');
     const username = document.getElementById('f-username').value.trim();
     const email    = document.getElementById('f-email').value.trim();
     const role     = document.getElementById('f-role').value;
-    const sess     = document.getElementById('f-session').value;
     const password = document.getElementById('f-password').value;
 
     if (!editingId && !username) { showToast('Username is required.', true); return; }
     if (!editingId && !password) { showToast('Password is required for new users.', true); return; }
-    // Check if session is required: roles with admin.maintenance are unscoped
+
     const roleObj    = _allRoles.find(r => r.name === role);
     const rolePerms  = roleObj ? (Array.isArray(roleObj.permissions) ? roleObj.permissions : []) : [];
     const isUnscoped = rolePerms.includes('admin.maintenance');
-    if (!isUnscoped && !sess) { showToast('A session must be selected for this role.', true); return; }
+    const sessionIds = isUnscoped ? [] : getCheckedSessionIds();
+
+    if (!isUnscoped && sessionIds.length === 0) {
+      showToast('Please select at least one session for this user.', true); return;
+    }
 
     btn.disabled = true;
-
     try {
       if (editingId) {
-        const payload = { email, role, session_assigned: sess };
+        const payload = { email, role, session_ids: sessionIds };
         if (password) payload.password = password;
         await apiFetch(`/api/admin/users/${editingId}`, {
           method: 'PUT',
-          body: JSON.stringify(payload),
+          body:   JSON.stringify(payload),
         });
         showToast('User updated.');
       } else {
         await apiFetch('/api/admin/users', {
           method: 'POST',
-          body: JSON.stringify({ username, email, role, session_assigned: sess, password }),
+          body:   JSON.stringify({ username, email, role, session_ids: sessionIds, password }),
         });
         showToast('User created.');
       }
@@ -322,14 +358,14 @@
     }
   }
 
-  /* ── Toggle active ─────────────────────────────── */
+  /* ── Toggle active ─────────────────────────────────── */
   async function toggleActive(id, currentlyActive) {
     const action = currentlyActive ? 'deactivate' : 'reactivate';
     if (!confirm(`Are you sure you want to ${action} this user?`)) return;
     try {
       await apiFetch(`/api/admin/users/${id}`, {
         method: 'PUT',
-        body: JSON.stringify({ active: !currentlyActive }),
+        body:   JSON.stringify({ active: !currentlyActive }),
       });
       showToast(`User ${action}d.`);
       loadUsers();
@@ -338,12 +374,11 @@
     }
   }
 
-  /* Close modal on backdrop click */
   document.getElementById('user-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
   });
 
-  /* ── Permanent delete user ──────────────────────── */
+  /* ── Permanent delete user ─────────────────────────── */
   let _udelId   = null;
   let _udelName = null;
 

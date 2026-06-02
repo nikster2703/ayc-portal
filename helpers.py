@@ -325,7 +325,8 @@ def tpl_ctx():
         'current_user':         session.get('username', ''),
         'current_role':         session.get('role', ''),
         'current_role_display': session.get('role_display', session.get('role', '')),
-        'current_session':      session.get('session_assigned', ''),
+        'current_session':      session.get('active_session', ''),
+        'session_names':        session.get('session_names', []),
         'app_version':          APP_VERSION,
         'session_types':        get_session_types(),
         'user_permissions':     session.get('permissions', []),
@@ -351,7 +352,8 @@ def get_session_types():
     if 'session_types' not in g:
         db   = get_db()
         rows = db.execute(
-            'SELECT id, name, weekday FROM session_types WHERE active = 1 ORDER BY sort_order, name'
+            'SELECT id, name, weekday, description FROM session_types '
+            'WHERE active = 1 ORDER BY sort_order, name'
         ).fetchall()
         g.session_types = [dict(r) for r in rows]
     return g.session_types
@@ -362,11 +364,13 @@ def get_valid_session_names():
 
 
 def weekday_to_session_map():
-    return {s['weekday']: s['name'] for s in get_session_types()}
+    """Return {weekday_int: session_name} — only includes sessions that have a weekday set."""
+    return {s['weekday']: s['name'] for s in get_session_types() if s['weekday'] is not None}
 
 
 def session_to_weekday_map():
-    return {s['name']: s['weekday'] for s in get_session_types()}
+    """Return {session_name: weekday_int} — only includes sessions that have a weekday set."""
+    return {s['name']: s['weekday'] for s in get_session_types() if s['weekday'] is not None}
 
 
 # ── Register helpers ───────────────────────────────────────────────────────────
@@ -381,10 +385,29 @@ def _is_register_locked(sess_type, sess_date):
 
 
 def _assigned_session():
-    """Return the session this user is scoped to, or None for unscoped admin."""
+    """Return the list of session names this user can access, or None for unscoped admin.
+
+    Return values:
+        None         — admin, no filter (sees all sessions)
+        ['Tuesday']  — non-admin scoped to one or more specific sessions
+        []           — non-admin with no sessions assigned (locked out; should not happen
+                       after v10.3 validation but handled defensively)
+    """
     if session.get('role') == ROLE_ADMIN:
         return None
-    return session.get('session_assigned') or ''
+    return session.get('session_names', [])
+
+
+def get_active_session():
+    """Return the session name the user is currently working in, or None for admin.
+
+    For admins there is no active session concept — they see all data unfiltered.
+    For non-admins this is the session they last selected (or their only session),
+    persisted to users.active_session_id and loaded into the Flask cookie session at login.
+    """
+    if session.get('role') == ROLE_ADMIN:
+        return None
+    return session.get('active_session') or None
 
 
 def _touch_attendance():
