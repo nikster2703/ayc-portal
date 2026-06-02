@@ -133,6 +133,30 @@ def api_admin_session_types_delete(st_id):
     if row['active'] and active_count == 0:
         return jsonify({'error': 'Cannot delete the only active session type'}), 400
 
+    # Block deletion if any user would be left with no sessions at all.
+    # (user_sessions rows for this type will be cascade-deleted, so we check
+    # for users whose ONLY session_type_id entry is this one.)
+    stranded = db.execute(
+        '''SELECT COUNT(*) FROM users u
+           WHERE EXISTS (
+               SELECT 1 FROM user_sessions us WHERE us.user_id = u.id AND us.session_type_id = ?
+           )
+           AND (
+               SELECT COUNT(*) FROM user_sessions us2 WHERE us2.user_id = u.id
+           ) = 1''',
+        (st_id,)
+    ).fetchone()[0]
+    if stranded:
+        return jsonify({
+            'error': f'Cannot delete — {stranded} user(s) would be left with no session access. '
+                     f'Reassign them first.'
+        }), 400
+
+    # NULL out active_session_id for any users pointing at this session type.
+    # The user_sessions rows are handled by ON DELETE CASCADE on the junction table.
+    db.execute(
+        'UPDATE users SET active_session_id = NULL WHERE active_session_id = ?', (st_id,)
+    )
     db.execute('DELETE FROM session_types WHERE id = ?', (st_id,))
     db.commit()
     log_action('delete_session_type', 'session_types', st_id, {'name': row['name']})
