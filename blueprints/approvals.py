@@ -289,12 +289,22 @@ def api_approvals_approve(reg_id):
             if existing:
                 return jsonify({'error': f'Username "{username}" is already taken'}), 409
             pw_hash = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
+            # Resolve session_type_id for the assigned session
+            _st_row = db.execute(
+                'SELECT id FROM session_types WHERE name = ?', (assigned_session,)
+            ).fetchone()
+            _st_id = _st_row['id'] if _st_row else None
             cur = db.execute(
-                'INSERT INTO users (username, email, password_hash, role, role_id, session_assigned, active)'
+                'INSERT INTO users (username, email, password_hash, role, role_id, active_session_id, active)'
                 ' VALUES (?,?,?,?,?,?,1)',
-                (username, reg['email'] or '', pw_hash, portal_role, role_row['id'], assigned_session)
+                (username, reg['email'] or '', pw_hash, portal_role, role_row['id'], _st_id)
             )
             portal_user_id = cur.lastrowid
+            if _st_id:
+                db.execute(
+                    'INSERT OR IGNORE INTO user_sessions (user_id, session_type_id) VALUES (?,?)',
+                    (portal_user_id, _st_id)
+                )
             log_action('create_user', 'users', portal_user_id, {
                 'username': username, 'role': portal_role,
                 'created_by': session.get('username'),
@@ -303,20 +313,24 @@ def api_approvals_approve(reg_id):
 
     else:
         # ── Standard member approval ──────────────────────────────
+        # Use the member type slug from the registration — never hardcode 'member'
+        member_type_slug = (reg['member_type_slug'] or 'member').strip()
         db.execute('''
             INSERT INTO members
                 (member_id, first_name, surname, date_of_birth, address, postcode,
                  ethnicity_religion, medical_sen, gp_contact,
-                 unattended_exit, gdpr_consent, status, session,
-                 member_type, date_registered)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,"Active",?,"member",date("now"))
+                 unattended_exit, gdpr_consent, mobile, email,
+                 status, session, member_type, date_registered)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,"Active",?,?,date("now"))
         ''', (
             mid,
             reg['first_name'], reg['surname'], reg['date_of_birth'],
             reg['address'], reg['postcode'],
             reg['ethnicity_religion'], reg['medical_sen'], reg['gp_contact'],
             reg['unattended_exit'], reg['gdpr_consent'],
+            reg['mobile'], reg['email'],
             assigned_session,
+            member_type_slug,
         ))
         member_db_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
 

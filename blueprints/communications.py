@@ -88,33 +88,69 @@ def api_email_templates_delete(tmpl_id):
 
 # ── Mailshots ─────────────────────────────────────────────────────────────────
 
-def _get_recipients(session_filter, status_filter):
+def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_type_filter=None):
     """
     Return a deduplicated list of {email, name} dicts from member_contacts
     (contact_order=1) matching the given filters.
     Editors are automatically scoped to their own session.
+
+    member_type_filter : slug string | 'all'  (default: all types)
+    status_filter      : 'Active' | 'Inactive' | 'Leaver' | 'all'  (default: Active only)
+    flag_rule_ids      : list of int alert-rule IDs — when provided, only members
+                        with at least one active flag for ANY of those rules are included.
     """
     db         = get_db()
-    conditions = ["m.status != 'Leaver'"]
+    conditions = []
     params     = []
 
-    if status_filter and status_filter != 'all':
+    # Member type filter
+    if member_type_filter and member_type_filter != 'all':
+        conditions.append('m.member_type = ?')
+        params.append(member_type_filter)
+
+    # Status — default to active-only; explicit 'all' lifts the restriction
+    if not status_filter or status_filter == 'Active':
+        conditions.append("m.status = 'Active'")
+    elif status_filter != 'all':
         conditions.append('m.status = ?')
         params.append(status_filter)
 
     scoped = _assigned_session()
     if scoped is not None:
-        conditions.append('m.session = ?')
-        params.append(scoped)
+        # scoped is a list of session names; non-admin users are restricted to their sessions.
+        # Also include members with no session assigned (session IS NULL / '') so that
+        # unassigned members are always reachable.
+        if scoped:
+            ph = ','.join('?' * len(scoped))
+            conditions.append(f"(m.session IN ({ph}) OR m.session IS NULL OR m.session = '')")
+            params.extend(scoped)
+        # empty scoped list means the user has no sessions — return nothing
+        else:
+            conditions.append('1=0')
     elif session_filter and session_filter != 'all':
-        conditions.append('m.session = ?')
+        # Include members explicitly assigned to this session, plus those with no session
+        # set (NULL / empty) — unassigned members are treated as belonging to all sessions.
+        conditions.append("(m.session = ? OR m.session IS NULL OR m.session = '')")
         params.append(session_filter)
 
-    where = ' AND '.join(conditions)
+    # Flag filter — member must have an unresolved flag for one of the selected rules
+    flag_join = ''
+    if flag_rule_ids:
+        valid_ids = [int(r) for r in flag_rule_ids if str(r).isdigit()]
+        if valid_ids:
+            placeholders = ','.join('?' * len(valid_ids))
+            flag_join = (
+                f'JOIN member_flags mf ON mf.member_id = m.id '
+                f'AND mf.rule_id IN ({placeholders}) AND mf.resolved_at IS NULL'
+            )
+            params = valid_ids + params   # flag params come before WHERE params
+
+    where = ' AND '.join(conditions) if conditions else '1=1'
     rows  = db.execute(f'''
         SELECT  DISTINCT c.contact_email,
                 m.first_name || " " || m.surname AS member_name
         FROM    members m
+        {flag_join}
         JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
         WHERE   {where}
           AND   c.contact_email IS NOT NULL
@@ -129,7 +165,12 @@ def _get_recipients(session_filter, status_filter):
 def api_mailshots_preview():
     """Return how many unique recipient emails a mailshot would reach."""
     data       = request.get_json() or {}
-    recipients = _get_recipients(data.get('session_filter'), data.get('status_filter'))
+    recipients = _get_recipients(
+        data.get('session_filter'),
+        data.get('status_filter'),
+        data.get('flag_rule_ids'),
+        data.get('member_type_filter'),
+    )
     return jsonify({'count': len(recipients), 'recipients': recipients})
 
 

@@ -82,23 +82,58 @@
     <div class="comms-panel">
       <div class="comms-panel-title">Recipients</div>
 
+      <!-- Member type filter -->
+      <div class="form-group">
+        <label>Member type</label>
+        <select id="s-member-type" onchange="previewRecipients()">
+          <option value="all">All types</option>
+          {% for mt in member_types %}
+          <option value="{{ mt.slug }}">{{ mt.icon or '' }} {{ mt.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Session filter -->
       <div class="form-group">
         <label>Session</label>
         {% if not current_session %}
-        {# Unscoped (admin-level): can choose any session #}
         <select id="s-session" onchange="previewRecipients()">
           <option value="all">All sessions</option>
           {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }} only</option>
           {% endfor %}
         </select>
         {% else %}
-        {# Scoped users are automatically restricted to their session server-side #}
         <input type="hidden" id="s-session" value="{{ current_session }}">
         <div style="padding:8px 12px;background:#f0f9ff;border:2px solid #bae6fd;
                     border-radius:8px;font-size:14px;font-weight:700;color:#0369a1">
           📍 {{ current_session }} session only
         </div>
         {% endif %}
+      </div>
+
+      <!-- Status filter -->
+      <div class="form-group">
+        <label>Status</label>
+        <select id="s-status" onchange="previewRecipients()">
+          <option value="Active">Active members only</option>
+          <option value="Inactive">Inactive members only</option>
+          <option value="Leaver">Leavers only</option>
+          <option value="all">All statuses</option>
+        </select>
+      </div>
+
+      <!-- Alert flag filter -->
+      <div class="form-group" id="s-flags-group">
+        <label>Alert flags <span style="color:var(--muted);font-weight:600">(optional — filter to flagged members)</span></label>
+        <div id="s-flags-list"
+             style="border:1.5px solid var(--border);border-radius:8px;
+                    background:white;max-height:140px;overflow-y:auto;
+                    font-size:13px">
+          <div style="padding:10px;color:var(--muted)">Loading flags…</div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          Tick one or more flags to send only to members with those flags raised. Leave all unticked to ignore flags.
+        </div>
       </div>
 
       <div id="recipient-preview"
@@ -254,9 +289,34 @@
 
   /* ── Init ────────────────────────────────────────── */
   (async function init() {
-    await Promise.all([loadTemplateDropdown(), loadDocumentPicker()]);
+    await Promise.all([loadTemplateDropdown(), loadDocumentPicker(), loadAlertFlags()]);
     previewRecipients();
   })();
+
+  /* ── Alert flag checkboxes ───────────────────────── */
+  async function loadAlertFlags() {
+    const container = document.getElementById('s-flags-list');
+    try {
+      const rules = await apiFetch('/api/alert-rules');
+      const active = (rules || []).filter(r => r.active !== false);
+      if (!active.length) {
+        container.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">No alert rules configured.</div>`;
+        return;
+      }
+      container.innerHTML = active.map(r => `
+        <label class="flag-chk-row" for="flag-chk-${r.id}">
+          <input type="checkbox" class="flag-chk" id="flag-chk-${r.id}"
+                 value="${r.id}" onchange="previewRecipients()">
+          <span class="flag-chip" style="background:${esc(r.flag_colour)}">${esc(r.flag_label)}</span>
+        </label>`).join('');
+    } catch (_) {
+      container.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">Could not load flags.</div>`;
+    }
+  }
+
+  function getSelectedFlagIds() {
+    return [...document.querySelectorAll('.flag-chk:checked')].map(c => parseInt(c.value));
+  }
 
   async function loadTemplateDropdown() {
     try {
@@ -294,14 +354,22 @@
   function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c => c.checked = false); updateCount(); }
 
   async function previewRecipients() {
-    const sess = document.getElementById('s-session').value;
-    const listEl = document.getElementById('recipient-list');
+    const memberType = document.getElementById('s-member-type').value;
+    const sess       = document.getElementById('s-session').value;
+    const status     = document.getElementById('s-status').value;
+    const flagIds    = getSelectedFlagIds();
+    const listEl     = document.getElementById('recipient-list');
     listEl.innerHTML = '<div style="padding:12px;color:var(--muted)">Loading…</div>';
     document.getElementById('recipient-count').textContent = '—';
     try {
       const res = await apiFetch('/api/mailshots/preview', {
         method: 'POST',
-        body:   JSON.stringify({ session_filter: sess, status_filter: 'Active' }),
+        body:   JSON.stringify({
+          member_type_filter: memberType,
+          session_filter:     sess,
+          status_filter:      status,
+          flag_rule_ids:      flagIds.length ? flagIds : null,
+        }),
       });
       allRecipients = res.recipients;
       if (!allRecipients.length) {
@@ -570,6 +638,29 @@
   .recip-chk { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
   .recip-name { font-weight: 700; flex-shrink: 0; }
   .recip-email { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Alert flag checkboxes */
+  .flag-chk-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .flag-chk-row:last-child { border-bottom: none; }
+  .flag-chk-row:hover { background: var(--accent-light); }
+  .flag-chk { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+  .flag-chip {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .2px;
+  }
 
   /* Attachment chips — compose panel */
   .attachment-chip {

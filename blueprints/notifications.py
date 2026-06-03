@@ -18,11 +18,7 @@ def get_notifications():
     """Return notifications relevant to the current user, newest first."""
     user_id = session.get('user_id')
     db      = get_db()
-    user    = db.execute(
-        'SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)
-    ).fetchone()
-    user_role    = user['role']             if user else None
-    user_session = user['session_assigned'] if user else None
+    user_role = session.get('role')
 
     notifs = db.execute('''
         SELECT n.*,
@@ -34,14 +30,17 @@ def get_notifications():
         LEFT JOIN users u ON u.id = n.sender_id
         WHERE n.target_type = 'all'
            OR (n.target_type = 'role'    AND n.target_value = ?)
-           OR (n.target_type = 'session' AND n.target_value = ?)
+           OR (n.target_type = 'session' AND n.target_value IN (
+                   SELECT st.name FROM user_sessions us
+                   JOIN session_types st ON st.id = us.session_type_id
+                   WHERE us.user_id = ?))
            OR (n.target_type = 'users'   AND EXISTS (
                SELECT 1 FROM json_each(n.target_value)
                WHERE CAST(json_each.value AS INTEGER) = ?
            ))
         ORDER BY n.created_at DESC
         LIMIT 100
-    ''', (user_id, user_role, user_session, user_id)).fetchall()
+    ''', (user_id, user_role, user_id, user_id)).fetchall()
 
     unread = sum(1 for n in notifs if not n['is_read'])
     return jsonify({
@@ -56,11 +55,7 @@ def get_notifications_unread_count():
     """Lightweight endpoint for badge polling — returns just the unread count."""
     user_id = session.get('user_id')
     db      = get_db()
-    user    = db.execute(
-        'SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)
-    ).fetchone()
-    user_role    = user['role']             if user else None
-    user_session = user['session_assigned'] if user else None
+    user_role = session.get('role')
 
     count = db.execute('''
         SELECT COUNT(*) AS n
@@ -68,7 +63,10 @@ def get_notifications_unread_count():
         WHERE (
             n.target_type = 'all'
             OR (n.target_type = 'role'    AND n.target_value = ?)
-            OR (n.target_type = 'session' AND n.target_value = ?)
+            OR (n.target_type = 'session' AND n.target_value IN (
+                   SELECT st.name FROM user_sessions us
+                   JOIN session_types st ON st.id = us.session_type_id
+                   WHERE us.user_id = ?))
             OR (n.target_type = 'users'   AND EXISTS (
                 SELECT 1 FROM json_each(n.target_value)
                 WHERE CAST(json_each.value AS INTEGER) = ?
@@ -78,7 +76,7 @@ def get_notifications_unread_count():
             SELECT 1 FROM notification_reads nr
             WHERE nr.notification_id = n.id AND nr.user_id = ?
         )
-    ''', (user_role, user_session, user_id, user_id)).fetchone()['n']
+    ''', (user_role, user_id, user_id, user_id)).fetchone()['n']
 
     return jsonify({'unread_count': count})
 
@@ -109,11 +107,7 @@ def mark_all_notifications_read():
     """Mark every unread notification visible to the current user as read."""
     user_id = session['user_id']
     db      = get_db()
-    user    = db.execute(
-        'SELECT role, session_assigned FROM users WHERE id = ?', (user_id,)
-    ).fetchone()
-    user_role    = user['role']             if user else None
-    user_session = user['session_assigned'] if user else None
+    user_role = session.get('role')
 
     unread_ids = db.execute('''
         SELECT n.id
@@ -121,7 +115,10 @@ def mark_all_notifications_read():
         WHERE (
             n.target_type = 'all'
             OR (n.target_type = 'role'    AND n.target_value = ?)
-            OR (n.target_type = 'session' AND n.target_value = ?)
+            OR (n.target_type = 'session' AND n.target_value IN (
+                   SELECT st.name FROM user_sessions us
+                   JOIN session_types st ON st.id = us.session_type_id
+                   WHERE us.user_id = ?))
             OR (n.target_type = 'users'   AND EXISTS (
                 SELECT 1 FROM json_each(n.target_value)
                 WHERE CAST(json_each.value AS INTEGER) = ?
@@ -131,7 +128,7 @@ def mark_all_notifications_read():
             SELECT 1 FROM notification_reads nr
             WHERE nr.notification_id = n.id AND nr.user_id = ?
         )
-    ''', (user_role, user_session, user_id, user_id)).fetchall()
+    ''', (user_role, user_id, user_id, user_id)).fetchall()
 
     for row in unread_ids:
         db.execute(

@@ -118,10 +118,11 @@
 {% block scripts %}
 <script>
   const USER_ROLE    = "{{ current_role }}";  // kept for display
-  const USER_SESSION = "{{ current_session or '' }}";
-  const USER_PERMS   = new Set({{ user_permissions | tojson }});
-  // IS_SCOPED: true when the user has a session assigned (i.e. not an unscoped admin)
-  const IS_SCOPED    = USER_SESSION !== '';
+  const USER_SESSION  = "{{ current_session or '' }}";
+  const SESSION_NAMES = {{ session_names | tojson }};  // all sessions this user can access
+  const USER_PERMS    = new Set({{ user_permissions | tojson }});
+  // IS_SCOPED: true for non-admin users who have at least one session assigned
+  const IS_SCOPED     = SESSION_NAMES.length > 0;
 
   const ACTION_LABELS = {
     login:                { icon: '🔑', label: 'Logged in'           },
@@ -187,10 +188,10 @@
     const m  = d.members;
     const sc = d.session_counts || {};  // {session_name: {members, staff}}
 
-    // Staff count: per-session for scoped roles, global for admin
-    const staffCount = IS_SCOPED && USER_SESSION
-      ? (sc[USER_SESSION]?.staff ?? 0)
-      : (m.staff_active ?? 0);
+    // Staff count: global for admin, global for multi-session users, per-session for single-session
+    const staffCount = (!IS_SCOPED || SESSION_NAMES.length > 1)
+      ? (m.staff_active ?? 0)
+      : (sc[USER_SESSION]?.staff ?? 0);
 
     const stats = [];
 
@@ -199,7 +200,7 @@
 
     // Session tiles — generated from SESSION_TYPES, scoped where applicable
     for (const st of SESSION_TYPES) {
-      if (!IS_SCOPED || USER_SESSION === st.name) {
+      if (!IS_SCOPED || SESSION_NAMES.includes(st.name)) {
         const val = sc[st.name]?.members ?? 0;
         stats.push({ icon: '📅', value: val, label: st.name + ' Session', href: '/register', colour: 'var(--navy)' });
       }

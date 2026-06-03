@@ -57,7 +57,9 @@ def api_dashboard():
             ORDER BY flag_count DESC, ar.name
         ''').fetchall()
     else:
-        counts = db.execute('''
+        # scoped is a non-empty list of session names — build IN placeholders
+        ph = ','.join('?' * len(scoped))
+        counts = db.execute(f'''
             SELECT
                 SUM(CASE WHEN mt.registration_style != 'staff'                                          THEN 1 ELSE 0 END) AS total,
                 SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'active'    THEN 1 ELSE 0 END) AS active,
@@ -65,32 +67,32 @@ def api_dashboard():
                 SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver'   THEN 1 ELSE 0 END) AS staff_active
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
-            WHERE m.session = ?
-        ''', (scoped,)).fetchone()
-        session_rows = db.execute('''
+            WHERE m.session IN ({ph})
+        ''', scoped).fetchone()
+        session_rows = db.execute(f'''
             SELECT m.session,
                    SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS members,
                    SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS staff
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
-            WHERE m.session = ?
+            WHERE m.session IN ({ph})
             GROUP BY m.session
-        ''', (scoped,)).fetchall()
+        ''', scoped).fetchall()
         pending = db.execute(
-            'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
-            ' AND (assigned_session = ? OR assigned_session IS NULL OR assigned_session = "")',
-            (scoped,)
+            f'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
+            f' AND (assigned_session IN ({ph}) OR assigned_session IS NULL OR assigned_session = "")',
+            scoped
         ).fetchone()['n']
-        alert_rows = db.execute('''
+        alert_rows = db.execute(f'''
             SELECT ar.id, ar.flag_label, ar.flag_colour,
                    COUNT(mf.id) AS flag_count
             FROM alert_rules ar
             LEFT JOIN member_flags mf ON mf.rule_id = ar.id AND mf.resolved_at IS NULL
-            LEFT JOIN members m ON m.id = mf.member_id AND m.session = ?
+            LEFT JOIN members m ON m.id = mf.member_id AND m.session IN ({ph})
             WHERE ar.is_active = 1
             GROUP BY ar.id
             ORDER BY flag_count DESC, ar.name
-        ''', (scoped,)).fetchall()
+        ''', scoped).fetchall()
 
     session_counts = {r['session']: {'members': r['members'], 'staff': r['staff']}
                       for r in session_rows if r['session'] is not None}
@@ -105,14 +107,14 @@ def api_dashboard():
             GROUP BY session_type
         ''', (today,)).fetchall()
     else:
-        today_att = db.execute('''
+        today_att = db.execute(f'''
             SELECT COUNT(*) AS total_signed_in,
                    SUM(CASE WHEN signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
                    session_type
             FROM attendance
-            WHERE session_date = ? AND session_type = ?
+            WHERE session_date = ? AND session_type IN ({ph})
             GROUP BY session_type
-        ''', (today, scoped)).fetchall()
+        ''', [today] + list(scoped)).fetchall()
 
     recent = db.execute('''
         SELECT a.action, a.details, a.timestamp, u.username
@@ -132,7 +134,7 @@ def api_dashboard():
         'pending_approvals': pending,
         'today_attendance':  [dict(r) for r in today_att],
         'recent_activity':   [dict(r) for r in recent],
-        'scoped_session':    scoped,
+        'scoped_sessions':   scoped,  # list or None (admin)
         'alert_flags':       [dict(r) for r in alert_rows],
         'alerts_last_run':   alerts_last_run['value'] if alerts_last_run else '',
     })

@@ -344,6 +344,9 @@ def ensure_tables():
         "ALTER TABLE documents ADD COLUMN retention_notes TEXT",
         "ALTER TABLE documents ADD COLUMN file_size INTEGER",
         "ALTER TABLE documents ADD COLUMN file_path TEXT NOT NULL DEFAULT ''",
+        # v10.13: mobile + email as first-class columns on members (mirroring field_definitions)
+        "ALTER TABLE members ADD COLUMN mobile TEXT",
+        "ALTER TABLE members ADD COLUMN email TEXT",
         # v10.3: Phase A — session type description
         "ALTER TABLE session_types ADD COLUMN description TEXT",
         # v10.3: Phase B — persisted active session selection per user
@@ -471,15 +474,17 @@ def ensure_tables():
     sdb.commit()
     sdb.close()
 
-    # ── Seed default session types ─────────────────────────────────────────────
+    # ── Seed default session types (fresh install only) ───────────────────────
+    # Only runs when the table is completely empty — never overwrites deliberate deletions.
     tdb = _connect_db()
-    for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
-        if not tdb.execute('SELECT id FROM session_types WHERE name = ?', (name,)).fetchone():
+    if not tdb.execute('SELECT id FROM session_types LIMIT 1').fetchone():
+        for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
             tdb.execute(
                 'INSERT INTO session_types (name, weekday, active, sort_order, description) VALUES (?,?,1,?,?)',
                 (name, weekday, sort_order, f'{name} evening session'),
             )
-    tdb.commit()
+        tdb.commit()
+        logger.info('Seeded default session types (fresh install)')
     tdb.close()
 
     # ── Seed default document categories ──────────────────────────────────────

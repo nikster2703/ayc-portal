@@ -313,7 +313,8 @@
   const USER_PERMS    = new Set({{ user_permissions | tojson }});
   const CAN_EDIT      = USER_PERMS.has('calendar.create') || USER_PERMS.has('calendar.edit') || USER_PERMS.has('calendar.delete');
   const USER_SESSION  = "{{ current_session or '' }}";
-  const IS_SCOPED     = USER_SESSION !== '';
+  const SESSION_NAMES = {{ session_names | tojson }};
+  const IS_SCOPED     = SESSION_NAMES.length > 0;
   const SESSION_TYPES = {{ session_types | tojson }};
   // weekday (Python 0=Mon…6=Sun) → session name
   const WDAY_TO_SESSION = Object.fromEntries(SESSION_TYPES.map(s => [s.weekday, s.name]));
@@ -333,18 +334,23 @@
     loadMonth();
     if (CAN_EDIT) loadTermSuggestions();
 
-    // Lock session type selectors for scoped users (Core Leaders)
-    if (IS_SCOPED && USER_SESSION) {
-      // Add modal — fix to their session
+    // Restrict session type selectors for scoped (non-admin) users
+    if (IS_SCOPED) {
+      const isSingle = SESSION_NAMES.length === 1;
+      // Add modal — pre-fill with active session; lock if single-session
       const addType = document.getElementById('add-type');
-      addType.value    = USER_SESSION;
-      addType.disabled = true;
+      if (USER_SESSION) addType.value = USER_SESSION;
+      addType.disabled = isSingle;
+      // Hide session options not in this user's allowed list
+      addType.querySelectorAll('option').forEach(opt => {
+        if (!SESSION_NAMES.includes(opt.value)) opt.style.display = 'none';
+      });
 
-      // Bulk modal — check only their day, disable all others
+      // Bulk modal — check allowed sessions, disable others
       document.querySelectorAll('.bulk-day-chk').forEach(chk => {
-        if (chk.value === USER_SESSION) {
-          chk.checked  = true;
-          chk.disabled = true;
+        if (SESSION_NAMES.includes(chk.value)) {
+          chk.checked  = (chk.value === USER_SESSION);
+          chk.disabled = isSingle;
         } else {
           chk.checked  = false;
           chk.disabled = true;
@@ -487,7 +493,7 @@
     document.getElementById('add-status').value = 'planned';
     document.getElementById('add-term').value   = '';
     document.getElementById('add-notes').value  = '';
-    // Scoped users are always locked to their own session type
+    // Scoped users: pre-fill active session (single-session users are already locked by init)
     if (IS_SCOPED && USER_SESSION) {
       document.getElementById('add-type').value = USER_SESSION;
     } else {

@@ -144,14 +144,16 @@
 </style>
 <script>
   const USER_ROLE    = "{{ current_role }}";  // kept for display
-  const USER_SESSION = "{{ current_session or '' }}";
-  const USER_PERMS   = new Set({{ user_permissions | tojson }});
-  const IS_SCOPED    = USER_SESSION !== '';
+  const USER_SESSION  = "{{ current_session or '' }}";
+  const SESSION_NAMES = {{ session_names | tojson }};
+  const USER_PERMS    = new Set({{ user_permissions | tojson }});
+  const IS_SCOPED     = SESSION_NAMES.length > 0;
 
-  let currentTab   = 'pending';
-  let pendingRegId = null;
+  let currentTab     = 'pending';
+  let pendingRegId   = null;
   let pendingRegType = 'member';
   let _approvalRoles = [];  // [{id, name, permissions:[...]}, ...]
+  let _fieldConfigs  = {};  // {slug: [field_definitions]} — lazy-loaded per member type
 
   /* ── Load roles for portal-login dropdown ─────────── */
   async function loadApprovalRoles() {
@@ -172,6 +174,19 @@
   }
 
   loadApprovalRoles();
+
+  /* ── Field config cache (loaded per member type slug) ─ */
+  async function loadFieldConfig(slug) {
+    if (!slug || _fieldConfigs[slug] !== undefined) return;
+    _fieldConfigs[slug] = null; // mark as in-flight to avoid duplicate fetches
+    try {
+      const data = await fetch(`/api/public/field-config/${encodeURIComponent(slug)}`)
+        .then(r => r.ok ? r.json() : null);
+      _fieldConfigs[slug] = data?.fields || [];
+    } catch (_) {
+      _fieldConfigs[slug] = [];
+    }
+  }
 
   /* ── Tab switching ────────────────────────────────── */
   function switchTab(tab) {
@@ -194,6 +209,9 @@
       } else {
         pill.style.display = 'none';
       }
+      // Prefetch field configs for every member type slug present in results
+      const slugs = [...new Set(data.map(r => r.member_type_slug).filter(Boolean))];
+      await Promise.all(slugs.map(loadFieldConfig));
       renderApprovals(data);
     } catch (e) {
       document.getElementById('approvals-container').innerHTML =
@@ -214,7 +232,10 @@
     container.innerHTML = items.map(r => {
       const isStaff  = (r.registration_type || 'member') === 'staff';
       const name     = `${esc(r.first_name)} ${esc(r.surname)}`;
-      const dob      = r.date_of_birth ? fmtDate(r.date_of_birth) : '—';
+      // Only show DOB if date_of_birth is actually part of this member type's form
+      const _fldCfg  = _fieldConfigs[r.member_type_slug] || [];
+      const _showDob = !_fldCfg.length || _fldCfg.some(f => f.key === 'date_of_birth');
+      const dob      = (_showDob && r.date_of_birth) ? fmtDate(r.date_of_birth) : null;
       const subDate  = r.submitted_at
         ? new Date(r.submitted_at + 'Z').toLocaleString('en-GB',
             { dateStyle:'short', timeStyle:'short' })
@@ -261,52 +282,7 @@
             <div class="detail-value">${esc(r.assigned_session || '—')}</div>
           </div>`;
       } else {
-        const contact1 = r.contact1_name
-          ? `${esc(r.contact1_name)}${r.contact1_phone ? ' · ' + esc(r.contact1_phone) : ''}${r.contact1_email ? ' · ' + esc(r.contact1_email) : ''}`
-          : '—';
-        const contact2 = r.contact2_name
-          ? `${esc(r.contact2_name)}${r.contact2_phone ? ' · ' + esc(r.contact2_phone) : ''}${r.contact2_email ? ' · ' + esc(r.contact2_email) : ''}`
-          : '—';
-        const medicalFlag    = r.medical_sen
-          ? `<span class="flag-badge flag-medical">⚕ ${esc(r.medical_sen)}</span>` : '';
-        const unattendedFlag = r.unattended_exit
-          ? `<span class="flag-badge flag-unattended">🚪 Unattended exit</span>` : '';
-        detailRows = `
-          <div style="grid-column:1/-1">
-            ${medicalFlag}${unattendedFlag}
-          </div>
-          <div>
-            <div class="detail-label">Address</div>
-            <div class="detail-value">${esc(r.address || '—')}${r.postcode ? ', ' + esc(r.postcode) : ''}</div>
-          </div>
-          <div>
-            <div class="detail-label">Ethnicity / Religion</div>
-            <div class="detail-value">${esc(r.ethnicity_religion || '—')}</div>
-          </div>
-          <div>
-            <div class="detail-label">Medical / SEN</div>
-            <div class="detail-value">${esc(r.medical_sen || '—')}</div>
-          </div>
-          <div>
-            <div class="detail-label">GP Contact</div>
-            <div class="detail-value">${esc(r.gp_contact || '—')}</div>
-          </div>
-          <div>
-            <div class="detail-label">Contact 1</div>
-            <div class="detail-value">${contact1}</div>
-          </div>
-          <div>
-            <div class="detail-label">Contact 2</div>
-            <div class="detail-value">${contact2}</div>
-          </div>
-          <div>
-            <div class="detail-label">GDPR Consent</div>
-            <div class="detail-value">${r.gdpr_consent ? '✅ Yes' : '❌ No'}</div>
-          </div>
-          <div>
-            <div class="detail-label">Comms Consent</div>
-            <div class="detail-value">${r.comms_consent ? '✅ Yes' : '❌ No'}</div>
-          </div>`;
+        detailRows = buildMemberDetailRows(r, _fieldConfigs[r.member_type_slug] || []);
       }
 
       const actions = currentTab === 'pending'
@@ -329,7 +305,7 @@
                align-items:flex-start;flex-wrap:wrap;gap:8px">
             <div>
               <span class="member-name">${name}</span>
-              <span style="font-size:13px;color:var(--muted);margin-left:8px">DOB: ${dob}</span>
+              ${dob ? `<span style="font-size:13px;color:var(--muted);margin-left:8px">DOB: ${dob}</span>` : ''}
               ${staffBadge}
             </div>
             <div style="text-align:right">
@@ -367,10 +343,14 @@
     const memberSessSel = document.getElementById('approve-session');
     const staffSessSel  = document.getElementById('approve-staff-session');
 
+    const _isSingle = IS_SCOPED && SESSION_NAMES.length === 1;
     if (isStaff) {
       staffSessSel.value    = IS_SCOPED ? USER_SESSION : (sessionPref || '');
-      staffSessSel.disabled = IS_SCOPED;
-      // Keep the portal session label in sync when the admin changes the session
+      staffSessSel.disabled = _isSingle;
+      // Hide options not in this user's allowed sessions
+      if (IS_SCOPED) staffSessSel.querySelectorAll('option').forEach(
+        opt => { opt.style.display = SESSION_NAMES.includes(opt.value) || !opt.value ? '' : 'none'; }
+      );
       staffSessSel.onchange = () => updatePortalSessionLabel(staffSessSel.value);
       document.getElementById('approve-staff-role').value   = applicantRole || '';
       document.getElementById('create-login-cb').checked    = false;
@@ -381,7 +361,10 @@
       updatePortalSessionLabel(staffSessSel.value);
     } else {
       memberSessSel.value    = IS_SCOPED ? USER_SESSION : '';
-      memberSessSel.disabled = IS_SCOPED;
+      memberSessSel.disabled = _isSingle;
+      if (IS_SCOPED) memberSessSel.querySelectorAll('option').forEach(
+        opt => { opt.style.display = SESSION_NAMES.includes(opt.value) || !opt.value ? '' : 'none'; }
+      );
     }
 
     document.getElementById('approve-modal').classList.add('open');
@@ -479,6 +462,107 @@
 
   document.querySelectorAll('.modal-overlay').forEach(el =>
     el.addEventListener('click', e => { if (e.target === el) closeApprovalModals(); }));
+
+  /* ── Dynamic member registration detail rendering ──────────────── */
+
+  // Keys always shown in the card header — skip in the detail body
+  const _HEADER_KEYS = new Set(['first_name', 'surname', 'date_of_birth']);
+  // Keys not relevant in an approvals context
+  const _HIDDEN_KEYS = new Set(['session', 'status', 'date_registered', 'staff_role',
+                                 'comments', 'guardian_confirmation', 'member_id']);
+  // Contact sub-fields — grouped into two combined rows
+  const _C1_KEYS = new Set(['contact1_name', 'contact1_phone', 'contact1_email']);
+  const _C2_KEYS = new Set(['contact2_name', 'contact2_phone', 'contact2_email']);
+
+  function fmtFieldValue(value, fieldType) {
+    if (value === null || value === undefined || value === '') return '—';
+    switch (fieldType) {
+      case 'boolean':
+      case 'declaration': return value ? '✅ Yes' : '❌ No';
+      case 'date':        return fmtDate(String(value));
+      default:            return esc(String(value));
+    }
+  }
+
+  function detailRow(label, valueHtml) {
+    return `<div>
+      <div class="detail-label">${esc(label)}</div>
+      <div class="detail-value">${valueHtml}</div>
+    </div>`;
+  }
+
+  function buildContactRow(label, name, phone, email) {
+    if (!name) return '';
+    const val = esc(name)
+      + (phone ? ' · ' + esc(phone) : '')
+      + (email ? ' · ' + esc(email) : '');
+    return detailRow(label, val);
+  }
+
+  function buildMemberDetailRows(r, fieldConfig) {
+    // Parse stored JSON blobs
+    let custom = {};
+    let decls  = {};
+    try { custom = r.custom_fields  ? JSON.parse(r.custom_fields)  : {}; } catch(_) {}
+    try { decls  = r.declarations   ? JSON.parse(r.declarations)   : {}; } catch(_) {}
+
+    // Flag badges (medical / unattended exit shown prominently if present)
+    const medFlag  = r.medical_sen     ? `<span class="flag-badge flag-medical">⚕ ${esc(r.medical_sen)}</span>` : '';
+    const unFlag   = r.unattended_exit ? `<span class="flag-badge flag-unattended">🚪 Unattended exit</span>`   : '';
+    const flagsRow = (medFlag || unFlag) ? `<div style="grid-column:1/-1">${medFlag}${unFlag}</div>` : '';
+
+    // If no field config available yet, render a sensible fallback
+    if (!fieldConfig || !fieldConfig.length) {
+      let fb = flagsRow;
+      if (r.address || r.postcode)
+        fb += detailRow('Address', esc(r.address || '') + (r.postcode ? (r.address ? ', ' : '') + esc(r.postcode) : ''));
+      if (r.mobile)  fb += detailRow('Mobile',  esc(r.mobile));
+      if (r.email)   fb += detailRow('Email',   esc(r.email));
+      fb += buildContactRow('Primary Contact',   r.contact1_name, r.contact1_phone, r.contact1_email);
+      fb += buildContactRow('Secondary Contact', r.contact2_name, r.contact2_phone, r.contact2_email);
+      return fb;
+    }
+
+    // Walk the field config in sort_order, building rows for whatever was on this form
+    let rows = flagsRow;
+    let contactsDone = false;
+
+    for (const field of fieldConfig) {
+      if (_HEADER_KEYS.has(field.key) || _HIDDEN_KEYS.has(field.key)) continue;
+
+      // Contact fields: collapse all six sub-fields into two combined rows
+      if (_C1_KEYS.has(field.key) || _C2_KEYS.has(field.key)) {
+        if (!contactsDone) {
+          rows += buildContactRow('Primary Contact',   r.contact1_name, r.contact1_phone, r.contact1_email);
+          rows += buildContactRow('Secondary Contact', r.contact2_name, r.contact2_phone, r.contact2_email);
+          contactsDone = true;
+        }
+        continue;
+      }
+
+      // Flag fields already shown as badges — suppress their text row
+      if (field.key === 'medical_sen' || field.key === 'unattended_exit') continue;
+
+      // Determine value: system fields from columns, custom fields from JSON blob,
+      // declaration fields from declarations JSON
+      let value;
+      if (field.field_type === 'declaration') {
+        value = decls[field.key];
+      } else if (field.column_name) {
+        value = r[field.column_name];
+      } else {
+        value = custom[field.key];
+      }
+
+      // Skip genuinely empty values (but keep boolean false)
+      if ((value === null || value === undefined || value === '') &&
+          field.field_type !== 'boolean' && field.field_type !== 'declaration') continue;
+
+      rows += detailRow(field.label, fmtFieldValue(value, field.field_type));
+    }
+
+    return rows;
+  }
 
   /* ── Populate staff role dropdown from DB ─────────────────────── */
   (async function loadStaffRoles() {

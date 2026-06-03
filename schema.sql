@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS members (
     session           TEXT,                               -- session type name (matches session_types.name) | Both
     member_type       TEXT    NOT NULL DEFAULT 'member',  -- member | staff
     staff_role        TEXT,                               -- value from staff_roles table (staff only)
+    mobile            TEXT,
+    email             TEXT,
     date_registered   TEXT,
     comments          TEXT,
     created_at        TEXT    DEFAULT (datetime('now')),

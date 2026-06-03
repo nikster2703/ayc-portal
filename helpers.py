@@ -329,6 +329,7 @@ def tpl_ctx():
         'session_names':        session.get('session_names', []),
         'app_version':          APP_VERSION,
         'session_types':        get_session_types(),
+        'member_types':         get_member_types(),
         'user_permissions':     session.get('permissions', []),
         'club_name':            club,
         'club_short_name':      short,
@@ -357,6 +358,18 @@ def get_session_types():
         ).fetchall()
         g.session_types = [dict(r) for r in rows]
     return g.session_types
+
+
+def get_member_types():
+    """Return active member types from the DB, cached per request in Flask g."""
+    if 'member_types' not in g:
+        db   = get_db()
+        rows = db.execute(
+            'SELECT slug, name, icon, registration_style FROM member_types '
+            'WHERE active = 1 ORDER BY sort_order, name'
+        ).fetchall()
+        g.member_types = [dict(r) for r in rows]
+    return g.member_types
 
 
 def get_valid_session_names():

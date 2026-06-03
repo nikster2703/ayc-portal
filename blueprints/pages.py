@@ -464,3 +464,9 @@ def session_types_page():
 @permission_required('admin.maintenance')
 def maintenance_page():
     return render_template('admin/maintenance.html', active_page='settings', **tpl_ctx())
+
+
+@bp.route('/admin/settings/import')
+@permission_required('admin.maintenance')
+def import_page():
+    return render_template('admin/import.html', active_page='settings', **tpl_ctx())

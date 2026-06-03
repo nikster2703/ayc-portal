@@ -473,7 +473,8 @@ def api_users_permanent_delete(user_id):
     username = user['username']
     try:
         db.execute('BEGIN')
-        db.execute('UPDATE members               SET updated_by = NULL WHERE updated_by = ?', (user_id,))
+        # NULL out every nullable FK that references users(id)
+        db.execute('UPDATE members               SET updated_by  = NULL WHERE updated_by  = ?', (user_id,))
         db.execute('UPDATE pending_registrations SET reviewed_by = NULL WHERE reviewed_by = ?', (user_id,))
         db.execute('UPDATE documents             SET uploaded_by = NULL WHERE uploaded_by = ?', (user_id,))
         db.execute('UPDATE email_templates       SET created_by  = NULL WHERE created_by  = ?', (user_id,))
@@ -482,6 +483,16 @@ def api_users_permanent_delete(user_id):
         db.execute('UPDATE term_sessions         SET created_by  = NULL WHERE created_by  = ?', (user_id,))
         db.execute('UPDATE session_activities    SET added_by    = NULL WHERE added_by    = ?', (user_id,))
         db.execute('UPDATE audit_log             SET user_id     = NULL WHERE user_id     = ?', (user_id,))
+        db.execute('UPDATE session_completions   SET completed_by = NULL WHERE completed_by = ?', (user_id,))
+        db.execute('UPDATE session_completions   SET exported_by  = NULL WHERE exported_by  = ?', (user_id,))
+        db.execute('UPDATE session_notes         SET added_by     = NULL WHERE added_by     = ?', (user_id,))
+        db.execute('UPDATE alert_rules           SET created_by   = NULL WHERE created_by   = ?', (user_id,))
+        db.execute('UPDATE notifications         SET sender_id    = NULL WHERE sender_id    = ?', (user_id,))
+        db.execute('UPDATE settings              SET updated_by   = NULL WHERE updated_by   = ?', (user_id,))
+        # notification_reads.user_id is NOT NULL — must DELETE rows, not NULL them
+        db.execute('DELETE FROM notification_reads WHERE user_id = ?', (user_id,))
+        # user_sessions has ON DELETE CASCADE so it handles itself, but being explicit is safe
+        db.execute('DELETE FROM user_sessions WHERE user_id = ?', (user_id,))
         db.execute('DELETE FROM users WHERE id = ?', (user_id,))
         db.execute(
             'INSERT INTO audit_log (user_id, action, table_name, record_id, details, ip_address)'
@@ -1693,7 +1704,7 @@ def api_import_run():
 
     custom_fields = {}
     for fd in db.execute('''
-        SELECT fd.id, fd.key, fd.field_type
+        SELECT fd.id, fd.key, fd.field_type, fd.column_name, fd.system_field
         FROM   member_type_fields mtf
         JOIN   field_definitions  fd ON fd.id = mtf.field_id
         WHERE  mtf.member_type_id = ?
@@ -1714,8 +1725,10 @@ def api_import_run():
         'unattended_exit', 'gdpr_consent', 'staff_role',
         'date_registered', 'comments', 'status',
     }
+    # email and mobile are first-class columns on members (added v10.13).
+    # They are also kept in SPECIAL_KEYS so they bypass the custom_vals path.
     SPECIAL_KEYS = {
-        'email', 'member_id',
+        'email', 'mobile', 'member_id',
         'contact1_name', 'contact1_phone', 'contact1_email',
         'contact2_name', 'contact2_phone', 'contact2_email',
     }
@@ -1732,6 +1745,7 @@ def api_import_run():
             custom_vals = {}
             contacts    = {}
             email_val   = None
+            mobile_val  = None
             provided_id = None
 
             for col_str, field_key in mapping.items():
@@ -1743,7 +1757,9 @@ def api_import_run():
                     continue
 
                 if field_key == 'email':
-                    email_val = val
+                    email_val = str(val).strip()
+                elif field_key == 'mobile':
+                    mobile_val = str(val).strip()
                 elif field_key == 'member_id':
                     provided_id = str(val).strip()
                 elif field_key in (
@@ -1797,8 +1813,9 @@ def api_import_run():
                     (member_id, first_name, surname, date_of_birth, address,
                      postcode, session, ethnicity_religion, medical_sen,
                      gp_contact, unattended_exit, gdpr_consent, staff_role,
-                     date_registered, comments, status, member_type)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     date_registered, comments, status, member_type,
+                     email, mobile)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ''', (
                 member_id,
                 core.get('first_name', ''), core.get('surname', ''),
@@ -1810,11 +1827,9 @@ def api_import_run():
                 core.get('staff_role') or None, core.get('date_registered') or None,
                 core.get('comments') or None, core.get('status', 'Active'),
                 mt['slug'],
+                email_val or None, mobile_val or None,
             ))
             new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-
-            if email_val and 'contact1_email' not in contacts:
-                contacts['contact1_email'] = email_val
 
             for order, prefix in ((1, 'contact1'), (2, 'contact2')):
                 name  = contacts.get(f'{prefix}_name',  '').strip()
@@ -1828,12 +1843,26 @@ def api_import_run():
                         (new_id, order, name or None, phone or None, email or None)
                     )
 
+            # Columns on members that can be written via UPDATE (beyond the INSERT set)
+            _MEMBER_COLUMNS = {
+                'first_name', 'surname', 'date_of_birth', 'address', 'postcode',
+                'ethnicity_religion', 'medical_sen', 'gp_contact', 'session',
+                'unattended_exit', 'gdpr_consent', 'staff_role', 'status',
+                'date_registered', 'comments', 'mobile', 'email',
+            }
             for fkey, fval in custom_vals.items():
                 fd = custom_fields[fkey]
-                db.execute(
-                    'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
-                    (new_id, fd['id'], str(fval))
-                )
+                col = fd.get('column_name')
+                if col and col in _MEMBER_COLUMNS:
+                    # System field that maps to a named column — write directly
+                    db.execute(f'UPDATE members SET {col} = ? WHERE id = ?',
+                               (str(fval), new_id))
+                else:
+                    # Custom/EAV field — write to member_field_values
+                    db.execute(
+                        'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
+                        (new_id, fd['id'], str(fval))
+                    )
 
             db.commit()
             imported += 1
@@ -1878,6 +1907,47 @@ def api_import_run():
         'skipped':   skipped,
         'errors':    errors,
         'report_id': report_id,
+    })
+
+
+@bp.route('/api/admin/maintenance/resync-sessions', methods=['POST'])
+@permission_required('admin.maintenance')
+def api_resync_sessions():
+    """
+    Diagnostic: reports how many active members have a session value that
+    matches (or doesn't match) the current session types.
+    From v10.17 onwards, renaming a session type cascades automatically.
+    To fix existing mismatches, simply rename the session type to its correct
+    name via Admin → Session Types — the cascade will update all member records.
+    """
+    db          = get_db()
+    type_rows   = db.execute('SELECT name FROM session_types WHERE active = 1').fetchall()
+    valid_names = [r['name'] for r in type_rows]
+    if valid_names:
+        ph      = ','.join('?' * len(valid_names))
+        matched = db.execute(
+            f'SELECT COUNT(*) FROM members WHERE session IN ({ph}) AND status != "Leaver"',
+            valid_names).fetchone()[0]
+        total   = db.execute(
+            'SELECT COUNT(*) FROM members WHERE status != "Leaver"').fetchone()[0]
+        unset   = total - matched
+        samples = db.execute(
+            f'SELECT DISTINCT session FROM members '
+            f'WHERE (session IS NULL OR session = "" OR session NOT IN ({ph})) '
+            f'AND status != "Leaver" LIMIT 10',
+            valid_names).fetchall()
+        sample_vals = [r['session'] for r in samples]
+    else:
+        matched, total, unset, sample_vals = 0, 0, 0, []
+
+    log_action('resync_sessions_check', 'session_types', None,
+               {'valid': valid_names, 'matched': matched, 'unset': unset})
+    return jsonify({
+        'session_types':   valid_names,
+        'members_matched': matched,
+        'members_total':   total,
+        'members_unset':   unset,
+        'unset_values':    sample_vals,
     })
 
 

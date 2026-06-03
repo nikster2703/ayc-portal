@@ -285,8 +285,13 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 /* ─── MEMBER CARDS ───────────────────────────────── */
 .members-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* Below desktop: fill with 280px minimum cards */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
+}
+/* Desktop and above: exactly 4 columns, cards grow with viewport */
+@media (min-width: 1200px) {
+  .members-grid { grid-template-columns: repeat(4, 1fr); }
 }
 .member-card {
   background: white;
@@ -302,7 +307,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 .card-head {
   padding: 12px 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   user-select: none;
 }
@@ -316,14 +321,25 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   font-weight: 900;
   font-size: 13px;
   flex-shrink: 0;
+  margin-top: 1px;  /* optically align with text */
 }
 .card-name-wrap { flex: 1; min-width: 0; }
 .card-name-wrap h3 {
   font-size: 14px; font-weight: 800; color: var(--navy);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.3;
+  /* Allow name to wrap — no truncation */
+  white-space: normal; overflow: visible; word-break: break-word;
 }
-.card-name-wrap p { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
-.chevron { color: var(--muted); font-size: 12px; transition: transform .2s; flex-shrink: 0; }
+/* Member ID pill — sits below the name on its own line */
+.card-member-id {
+  display: inline-block;
+  font-family: monospace; font-size: 11px; font-weight: 600;
+  color: var(--muted); background: #f1f5f9;
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 6px; margin-top: 3px;
+}
+.card-name-wrap p { font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.chevron { color: var(--muted); font-size: 12px; transition: transform .2s; flex-shrink: 0; margin-top: 4px; }
 .member-card.expanded .chevron { transform: rotate(180deg); }
 
 .card-body { display: none; border-top: 2px solid var(--border); }

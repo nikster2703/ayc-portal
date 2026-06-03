@@ -12,21 +12,31 @@
   </div>
 
   {% if not current_session %}
-  {# Unscoped (admin): can switch between all sessions #}
+  {# Admin — unscoped: show all sessions #}
   <select class="session-select" id="session-filter" onchange="filterMembers()">
     <option value="all">All Sessions</option>
-    {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
-    {% endfor %}
+    {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>{% endfor %}
     <option value="__staff__">Staff / Volunteers</option>
   </select>
-  {% elif 'members.edit' in user_permissions %}
-  {# Scoped editor: locked to their own session, but can switch to Staff / Volunteers view #}
+  {% elif session_names | length > 1 %}
+  {# Multi-session user: dropdown of their allowed sessions #}
   <select class="session-select" id="session-filter" onchange="filterMembers()">
-    <option value="{{ current_session }}">{{ current_session }} Session</option>
+    <option value="all">All My Sessions</option>
+    {% for st in session_types %}
+      {% if st.name in session_names %}
+        <option value="{{ st.name }}"{% if st.name == current_session %} selected{% endif %}>{{ st.name }}</option>
+      {% endif %}
+    {% endfor %}
+    {% if 'members.edit' in user_permissions %}<option value="__staff__">Staff / Volunteers</option>{% endif %}
+  </select>
+  {% elif 'members.edit' in user_permissions %}
+  {# Single-session editor: locked to their session, can also view staff #}
+  <select class="session-select" id="session-filter" onchange="filterMembers()">
+    <option value="{{ current_session }}">{{ current_session }}</option>
     <option value="__staff__">Staff / Volunteers</option>
   </select>
   {% else %}
-  {# Scoped read-only: fixed label #}
+  {# Single-session read-only: fixed label #}
   <span class="session-select" style="display:inline-flex;align-items:center;
         padding:0 14px;background:var(--navy);color:white;border-radius:8px;
         font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
@@ -500,8 +510,12 @@
         ${(CAN_DELETE && !isLeaver) ? `<button class="btn btn-danger btn-sm" onclick="softDelete(${m.id},'${esc(full)}')">Mark Leaver</button>` : ''}
       </div>` : '';
 
-    // ── Dynamic detail fields ────────────────────────────────────────────────────
-    const detailFields = (typeConf.detail || []).filter(f => !HEADER_KEYS.has(f.key));
+    // ── Dynamic detail fields (show_on_card controls the card body) ─────────────
+    // The field builder has separate "Show on Card" and "Show on Detail" toggles.
+    // The card view uses show_on_card fields; fall back to show_on_detail if none configured.
+    const _cardFields   = (typeConf.card   || []).filter(f => !HEADER_KEYS.has(f.key));
+    const _detailFields = (typeConf.detail || []).filter(f => !HEADER_KEYS.has(f.key));
+    const detailFields  = _cardFields.length ? _cardFields : _detailFields;
 
     // Decide which fields are "wide" (full-width)
     const WIDE_TYPES = new Set(['textarea']);
@@ -522,9 +536,12 @@
          </div>`
       : '';
 
-    // ── Contacts ─────────────────────────────────────────────────────────────────
-    const hasC2 = m.contact2_name || m.contact2_phone;
-    const contactsHtml = `
+    // ── Contacts — shown only when the member actually has contact data filled in ──
+    // Each contact block is independently shown only if at least one field has a value.
+    // No type-level gate: contact data is always shown when present, regardless of field config.
+    const hasC1        = m.contact1_name || m.contact1_phone || m.contact1_email;
+    const hasC2        = m.contact2_name || m.contact2_phone || m.contact2_email;
+    const contactsHtml = hasC1 ? `
       <div class="detail-section">
         <div class="sec-title">📞 Contact 1</div>
         <div class="dg">
@@ -541,7 +558,7 @@
           <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact2_phone))}</div></div>
           <div class="di full"><div class="lbl">Email</div><div class="val">${esc(v(m.contact2_email))}</div></div>
         </div>
-      </div>` : ''}`;
+      </div>` : ''}` : '';
 
     // ── Tags section ─────────────────────────────────────────────────────────────
     const tagsHtml = `
@@ -594,12 +611,7 @@
       </div>` : '';
 
     const memberIdBadge = m.member_id
-      ? `<span style="font-family:monospace;font-size:11px;font-weight:600;
-                      color:var(--muted);background:#f1f5f9;
-                      border:1px solid var(--border);border-radius:4px;
-                      padding:1px 6px;margin-left:6px;vertical-align:middle">
-           ${esc(m.member_id)}
-         </span>`
+      ? `<span class="card-member-id">${esc(m.member_id)}</span>`
       : '';
 
     return `
@@ -607,7 +619,8 @@
   <div class="card-head">
     <div class="avatar" style="background:${colour}">${esc(init)}</div>
     <div class="card-name-wrap">
-      <h3>${esc(full)}${typeBadge}${memberIdBadge}</h3>
+      <h3>${esc(full)}${typeBadge}</h3>
+      ${memberIdBadge}
       <p>${sessionLabel} · ${statusBadge}${flagBadgesHtml}</p>
       ${listInfoHtml}
     </div>

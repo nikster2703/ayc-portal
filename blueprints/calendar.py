@@ -46,7 +46,7 @@ def api_admin_session_types_create():
     name    = data.get('name', '').strip()
     weekday = data.get('weekday')
 
-    description = data.get('description', '').strip() or None
+    description = (data.get('description') or '').strip() or None
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
@@ -80,7 +80,8 @@ def api_admin_session_types_update(st_id):
         return jsonify({'error': 'Session type not found'}), 404
 
     name        = data.get('name', current['name']).strip()
-    description = data.get('description', current['description'] or '').strip() or None
+    description = (data.get('description') if 'description' in data else (current['description'] or ''))
+    description = (description or '').strip() or None
     active      = int(data.get('active', current['active']))
     # weekday: None means "clear it"; omitting the key means "keep existing"
     if 'weekday' in data:
@@ -100,14 +101,23 @@ def api_admin_session_types_update(st_id):
         if active_count == 0:
             return jsonify({'error': 'Cannot deactivate the only active session type'}), 400
 
+    old_name = current['name']
     try:
         db.execute(
             'UPDATE session_types SET name = ?, weekday = ?, description = ?, active = ? WHERE id = ?',
             (name, weekday, description, active, st_id)
         )
+        # Cascade the name change to every table that stores session name as text
+        if name != old_name:
+            db.execute('UPDATE members              SET session      = ? WHERE session      = ?', (name, old_name))
+            db.execute('UPDATE attendance           SET session_type = ? WHERE session_type = ?', (name, old_name))
+            db.execute('UPDATE session_completions  SET session_type = ? WHERE session_type = ?', (name, old_name))
+            db.execute('UPDATE term_sessions        SET session_type = ? WHERE session_type = ?', (name, old_name))
+            db.execute('UPDATE session_activities   SET session_type = ? WHERE session_type = ?', (name, old_name))
         db.commit()
         log_action('update_session_type', 'session_types', st_id,
-                   {'name': name, 'weekday': weekday, 'description': description, 'active': active})
+                   {'name': name, 'old_name': old_name, 'weekday': weekday,
+                    'description': description, 'active': active})
         return jsonify(dict(db.execute('SELECT * FROM session_types WHERE id = ?', (st_id,)).fetchone()))
     except sqlite3.IntegrityError:
         return jsonify({'error': f'A session type named "{name}" already exists'}), 409

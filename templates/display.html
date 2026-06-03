@@ -451,7 +451,7 @@
     // Admin / no assignment — fall back to day of week
     const pyWeekday = (new Date().getDay() + 6) % 7;
     const match = SESSION_TYPES.find(s => s.weekday === pyWeekday);
-    return match ? match.name : (SESSION_TYPES[0]?.name || 'Tuesday');
+    return match ? match.name : (SESSION_TYPES[0]?.name || '');
   })();
 
   // Set the session label once on load

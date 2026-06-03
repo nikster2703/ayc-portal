@@ -6,10 +6,7 @@
   <h1>✅ Session Register</h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <select class="session-select" id="session-picker" onchange="onSessionChange()">
-      {% for st in session_types %}
-        {% if not session_names or st.name in session_names %}
-          <option value="{{ st.name }}">{{ st.name }}</option>
-        {% endif %}
+      {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
       {% endfor %}
     </select>
     <input type="date" id="date-picker" class="session-select"
@@ -565,10 +562,14 @@
     const isMulti      = sessionNames.length > 1;
 
     if (userSession) {
-      picker.value    = userSession;
+      picker.value = userSession;
+      // If the stored session no longer exists as a picker option (e.g. it was deleted
+      // since the last login), picker.value silently becomes "". Fall back to the first
+      // available session so the register doesn't break mid-session.
+      if (!picker.value && SESSION_TYPES.length) picker.value = SESSION_TYPES[0].name;
       // Single-session users are locked to their session.
       // Multi-session users can switch (the picker is already filtered to their sessions).
-      picker.disabled = !isMulti;
+      picker.disabled = !isMulti && !!picker.value;
     }
 
     if (CAN_COMPLETE) {
@@ -606,9 +607,8 @@
     // Guard: no session types configured (e.g. DB migration hasn't run yet)
     if (!sess) {
       document.getElementById('register-container').innerHTML =
-        `<div class="alert-box err"><strong>⚠️ No session types found.</strong>
-         Please restart the portal so the database migration can run, then go to
-         ⚙️ Settings → Session Types to verify Tuesday and Thursday are listed.</div>`;
+        `<div class="alert-box err"><strong>⚠️ No session types configured.</strong>
+         Go to ⚙️ Settings → Session Types to add at least one active session type.</div>`;
       return;
     }
 
