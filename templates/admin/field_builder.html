@@ -26,10 +26,23 @@
   .system-lock { font-size:11px;margin-left:4px;opacity:.7;cursor:default; }
   .toggle-pill { font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;
                  border:1.5px solid var(--border);background:white;color:var(--muted);
-                 cursor:pointer;transition:background .12s,color .12s,border-color .12s;white-space:nowrap; }
+                 cursor:pointer;transition:background .12s,color .12s,border-color .12s;white-space:nowrap;
+                 position:relative; }
   .toggle-pill.on { background:var(--accent);color:white;border-color:var(--accent); }
   .toggle-pill:hover:not(.on) { border-color:var(--accent);color:var(--accent); }
   .toggle-group { display:flex;gap:4px;flex-wrap:wrap; }
+  /* Pill tooltips */
+  .toggle-pill[data-tip]:hover::after {
+    content: attr(data-tip);
+    position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:#1e293b;color:white;font-size:10px;font-weight:600;line-height:1.4;
+    padding:5px 9px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:99;
+    box-shadow:0 2px 8px rgba(0,0,0,.25);
+  }
+  .toggle-pill[data-tip]:hover::before {
+    content:'';position:absolute;bottom:calc(100% + 1px);left:50%;transform:translateX(-50%);
+    border:5px solid transparent;border-top-color:#1e293b;pointer-events:none;z-index:99;
+  }
   .order-btns { display:flex;flex-direction:column;gap:2px; }
   .order-btn { font-size:12px;width:22px;height:20px;border:1px solid var(--border);border-radius:4px;
                background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s; }
@@ -305,9 +318,10 @@
         : `<button class="btn btn-ghost btn-sm" style="color:var(--red)"
                    onclick="removeField(${f.field_id})" title="Remove from type">✕</button>`;
 
-      function pill(key, label, val) {
+      function pill(key, label, val, tip) {
         return `<button class="toggle-pill ${val ? 'on' : ''}"
-                        onclick="togglePill(this,${f.field_id},'${key}',${val ? 0 : 1})">
+                        onclick="togglePill(this,${f.field_id},'${key}',${val ? 0 : 1})"
+                        data-tip="${tip}">
                   ${label}
                 </button>`;
       }
@@ -337,12 +351,12 @@
         </td>
         <td>
           <div class="toggle-group">
-            ${pill('show_on_registration','Reg',   f.show_on_registration)}
-            ${pill('show_on_list',        'List',  f.show_on_list)}
-            ${pill('show_on_card',        'Card',  f.show_on_card)}
-            ${pill('show_on_detail',      'Detail',f.show_on_detail)}
-            ${pill('show_on_print',       'Print', f.show_on_print)}
-            ${pill('show_on_export',      'Export',f.show_on_export)}
+            ${pill('show_on_registration','Sign-up Form',   f.show_on_registration, 'Shown on the public member registration form')}
+            ${pill('show_on_list',        'Member List',    f.show_on_list,         'Shown as extra info below the name in the member search list')}
+            ${pill('show_on_attendance',  'Attendance Card',f.show_on_attendance,   'Shown on compact sign-in cards during a session — keep minimal')}
+            ${pill('show_on_card',        'Member Profile', f.show_on_card,         'Shown in the full member detail panel for staff')}
+            ${pill('show_on_print',       'Print',          f.show_on_print,        'Included as a column on the printed session register')}
+            ${pill('show_on_export',      'Export',         f.show_on_export,       'Included as a column in CSV exports of completed sessions')}
           </div>
         </td>
         <td style="width:72px;text-align:right;white-space:nowrap">
@@ -359,7 +373,7 @@
             <th>Field</th>
             <th>Type</th>
             <th title="Required">Req.</th>
-            <th>Show on…</th>
+            <th>Where to show <span style="font-weight:500;opacity:.6">(hover for details)</span></th>
             <th></th>
           </tr>
         </thead>

@@ -199,7 +199,8 @@ def api_field_config():
                     fd.placeholder, fd.help_text, fd.options, fd.use_lookup,
                     mtf.required,
                     mtf.show_on_registration, mtf.show_on_list,
-                    mtf.show_on_card, mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                    mtf.show_on_attendance, mtf.show_on_card,
+                    mtf.show_on_print, mtf.show_on_export,
                     mtf.sort_order
             FROM    member_type_fields mtf
             JOIN    field_definitions fd ON fd.id = mtf.field_id
@@ -212,8 +213,8 @@ def api_field_config():
             'type':         dict(mtype),
             'all':          all_fields,
             'list':         [f for f in all_fields if f['show_on_list']],
+            'attendance':   [f for f in all_fields if f['show_on_attendance']],
             'card':         [f for f in all_fields if f['show_on_card']],
-            'detail':       [f for f in all_fields if f['show_on_detail']],
             'print':        [f for f in all_fields if f['show_on_print']],
             'export':       [f for f in all_fields if f['show_on_export']],
             'registration': [f for f in all_fields if f['show_on_registration']],

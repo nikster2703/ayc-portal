@@ -1222,8 +1222,8 @@ def api_admin_type_fields_list(type_id):
         return jsonify({'error': 'Member type not found'}), 404
     rows = db.execute('''
         SELECT  mtf.id AS assignment_id, mtf.sort_order, mtf.required,
-                mtf.show_on_registration, mtf.show_on_list, mtf.show_on_card,
-                mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                mtf.show_on_registration, mtf.show_on_list, mtf.show_on_attendance,
+                mtf.show_on_card, mtf.show_on_print, mtf.show_on_export,
                 fd.id AS field_id, fd.key, fd.label, fd.field_type,
                 fd.options, fd.help_text, fd.placeholder,
                 fd.system_field, fd.column_name, fd.active
@@ -1257,8 +1257,9 @@ def api_admin_type_fields_assign(type_id):
         cur = db.execute(
             '''INSERT INTO member_type_fields
                (member_type_id, field_id, sort_order, required,
-                show_on_registration, show_on_list, show_on_card, show_on_detail, show_on_print, show_on_export)
-               VALUES (?,?,?,0,1,0,0,1,1,0)''',
+                show_on_registration, show_on_list, show_on_attendance,
+                show_on_card, show_on_print, show_on_export)
+               VALUES (?,?,?,0,1,0,0,0,1,0)''',
             (type_id, field_id, max_order + 1),
         )
         db.commit()
@@ -1266,8 +1267,8 @@ def api_admin_type_fields_assign(type_id):
                    {'member_type_id': type_id, 'field_id': field_id})
         row = db.execute('''
             SELECT  mtf.id AS assignment_id, mtf.sort_order, mtf.required,
-                    mtf.show_on_registration, mtf.show_on_list, mtf.show_on_card,
-                    mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                    mtf.show_on_registration, mtf.show_on_list, mtf.show_on_attendance,
+                    mtf.show_on_card, mtf.show_on_print, mtf.show_on_export,
                     fd.id AS field_id, fd.key, fd.label, fd.field_type,
                     fd.options, fd.help_text, fd.placeholder,
                     fd.system_field, fd.column_name, fd.active
@@ -1294,7 +1295,7 @@ def api_admin_type_fields_update(type_id, field_id):
     data    = request.get_json() or {}
     updates = {}
     for col in ('required', 'show_on_registration', 'show_on_list',
-                'show_on_card', 'show_on_detail', 'show_on_print', 'show_on_export'):
+                'show_on_attendance', 'show_on_card', 'show_on_print', 'show_on_export'):
         if col in data:
             updates[col] = int(data[col])
 
@@ -1310,8 +1311,8 @@ def api_admin_type_fields_update(type_id, field_id):
 
     updated = db.execute('''
         SELECT  mtf.id AS assignment_id, mtf.sort_order, mtf.required,
-                mtf.show_on_registration, mtf.show_on_list, mtf.show_on_card,
-                mtf.show_on_detail, mtf.show_on_print, mtf.show_on_export,
+                mtf.show_on_registration, mtf.show_on_list, mtf.show_on_attendance,
+                mtf.show_on_card, mtf.show_on_print, mtf.show_on_export,
                 fd.id AS field_id, fd.key, fd.label, fd.field_type,
                 fd.options, fd.help_text, fd.placeholder,
                 fd.system_field, fd.column_name, fd.active

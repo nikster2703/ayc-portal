@@ -601,7 +601,7 @@
     const isLeaver  = statusMs.behaviour === 'leaver';
     const isInactive = statusMs.behaviour === 'inactive';
     const typeSlug = m.member_type || 'member';
-    const typeConf = fieldConfig[typeSlug] || fieldConfig['member'] || { list: [], detail: [] };
+    const typeConf = fieldConfig[typeSlug] || fieldConfig['member'] || { list: [], card: [] };
 
     // Fields that belong in the header are always excluded from the body sections
     const HEADER_KEYS = new Set(['first_name', 'surname']);
@@ -655,12 +655,8 @@
          </span>`
       : '';
 
-    // ── Dynamic detail fields (show_on_card controls the card body) ─────────────
-    // The field builder has separate "Show on Card" and "Show on Detail" toggles.
-    // The card view uses show_on_card fields; fall back to show_on_detail if none configured.
-    const _cardFields   = (typeConf.card   || []).filter(f => !HEADER_KEYS.has(f.key));
-    const _detailFields = (typeConf.detail || []).filter(f => !HEADER_KEYS.has(f.key));
-    const detailFields  = _cardFields.length ? _cardFields : _detailFields;
+    // ── Dynamic detail fields (show_on_card = "Member Profile" in field builder) ──
+    const detailFields = (typeConf.card || []).filter(f => !HEADER_KEYS.has(f.key));
 
     // Decide which fields are "wide" (full-width)
     const WIDE_TYPES = new Set(['textarea']);

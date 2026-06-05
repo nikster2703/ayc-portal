@@ -252,20 +252,46 @@
   </div>
 </div>
 
-<!-- ── Register search filter ─────────────────────────────────── -->
-<div id="reg-search-wrap" style="display:none;position:relative;margin-bottom:14px;max-width:300px">
-  <svg style="position:absolute;left:11px;top:50%;transform:translateY(-50%);
-              color:var(--muted);pointer-events:none"
-       width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-  </svg>
-  <input id="reg-search" type="search" placeholder="Filter by name…"
-         oninput="filterRegister()"
-         style="width:100%;padding:8px 14px 8px 34px;border:2px solid var(--border);
-                border-radius:10px;font-family:'Nunito',sans-serif;font-size:14px;
-                outline:none;background:white;transition:border-color .18s;box-sizing:border-box"
-         onfocus="this.style.borderColor='var(--accent)'"
-         onblur="this.style.borderColor='var(--border)'">
+<!-- ── Register search + sort controls ──────────────────────── -->
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+
+  <div id="reg-search-wrap" style="display:none;position:relative;flex:1;min-width:180px;max-width:280px">
+    <svg style="position:absolute;left:11px;top:50%;transform:translateY(-50%);
+                color:var(--muted);pointer-events:none"
+         width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input id="reg-search" type="search" placeholder="Filter by name…"
+           oninput="filterRegister()"
+           style="width:100%;padding:8px 14px 8px 34px;border:2px solid var(--border);
+                  border-radius:10px;font-family:'Nunito',sans-serif;font-size:14px;
+                  outline:none;background:white;transition:border-color .18s;box-sizing:border-box"
+           onfocus="this.style.borderColor='var(--accent)'"
+           onblur="this.style.borderColor='var(--border)'">
+  </div>
+
+  <div id="reg-sort-wrap" style="display:none;align-items:center;gap:6px;flex-shrink:0">
+    <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+                 color:var(--muted);white-space:nowrap">Sort:</span>
+    <div style="display:flex;gap:3px">
+      <button class="sort-btn" data-sort="surname"
+              onclick="setSort('surname')"
+              style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
+                     border:1.5px solid var(--border);background:white;color:var(--muted);
+                     cursor:pointer;transition:all .12s;white-space:nowrap">Surname</button>
+      <button class="sort-btn" data-sort="first_name"
+              onclick="setSort('first_name')"
+              style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
+                     border:1.5px solid var(--border);background:white;color:var(--muted);
+                     cursor:pointer;transition:all .12s;white-space:nowrap">First Name</button>
+      <button class="sort-btn" data-sort="member_id"
+              onclick="setSort('member_id')"
+              style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
+                     border:1.5px solid var(--border);background:white;color:var(--muted);
+                     cursor:pointer;transition:all .12s;white-space:nowrap">Member ID</button>
+    </div>
+  </div>
+
 </div>
 
 <!-- ── Register grid ──────────────────────────────────────────── -->
@@ -407,9 +433,11 @@
     font-weight: 900;
     color: var(--navy);
     line-height: 1.3;
+    height: 2.6em;       /* exactly 2 lines — wraps without growing the card */
+    overflow: hidden;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     gap: 4px;
   }
 
@@ -560,6 +588,14 @@
   // Field config for card rendering — loaded once at startup
   let _fieldConfig = {};
 
+  // Sort order for the register grid; persisted across reloads within the session
+  let _sortOrder = 'surname';
+
+  // Last fetched register data — lets us re-sort without a network round-trip
+  let _lastRegisterMembers = null;
+  let _lastRegisterSess    = null;
+  let _lastRegisterDate    = null;
+
   /* ── Initialise ─────────────────────────────────────── */
   (async function init() {
     const today = new Date();
@@ -682,6 +718,11 @@
 
   /* ── Render grid ────────────────────────────────────── */
   function renderRegister(members, sess, date) {
+    // Cache for re-sorting without a network round-trip
+    _lastRegisterMembers = members;
+    _lastRegisterSess    = sess;
+    _lastRegisterDate    = date;
+
     const container = document.getElementById('register-container');
 
     // Reset search on every render
@@ -693,6 +734,7 @@
       container.innerHTML =
         `<div class="empty-state">No members found for the ${esc(sess)} session.</div>`;
       document.getElementById('reg-summary').style.display = 'none';
+      document.getElementById('reg-sort-wrap').style.display = 'none';
       return;
     }
 
@@ -701,12 +743,16 @@
     const groupWaiting = members.filter(m => !m.signed_in_at);
     const groupOut     = members.filter(m => m.signed_out_at);
 
-    // Sort each group alphabetically
-    const alpha = (a, b) =>
-      `${a.first_name} ${a.surname}`.localeCompare(`${b.first_name} ${b.surname}`);
-    groupIn.sort(alpha);
-    groupWaiting.sort(alpha);
-    groupOut.sort(alpha);
+    // Sort each group by the current sort order
+    const sorters = {
+      'first_name': (a, b) => `${a.first_name} ${a.surname}`.localeCompare(`${b.first_name} ${b.surname}`),
+      'surname':    (a, b) => `${a.surname} ${a.first_name}`.localeCompare(`${b.surname} ${b.first_name}`),
+      'member_id':  (a, b) => (a.member_id || '').localeCompare(b.member_id || '', undefined, { numeric: true }),
+    };
+    const sortFn = sorters[_sortOrder] || sorters['surname'];
+    groupIn.sort(sortFn);
+    groupWaiting.sort(sortFn);
+    groupOut.sort(sortFn);
 
     // Update summary strip
     document.getElementById('sum-in').textContent      = groupIn.length;
@@ -736,6 +782,26 @@
     html += '</div>';
     container.innerHTML = html;
     document.getElementById('reg-search-wrap').style.display = '';
+    document.getElementById('reg-sort-wrap').style.display   = 'flex';
+    _updateSortButtons();
+  }
+
+  /* ── Sort control ───────────────────────────────────────── */
+  function setSort(order) {
+    _sortOrder = order;
+    if (_lastRegisterMembers) {
+      renderRegister(_lastRegisterMembers, _lastRegisterSess, _lastRegisterDate);
+    }
+  }
+
+  function _updateSortButtons() {
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+      const active = btn.dataset.sort === _sortOrder;
+      btn.style.background   = active ? 'var(--accent)' : 'white';
+      btn.style.color        = active ? 'white' : 'var(--muted)';
+      btn.style.borderColor  = active ? 'var(--accent)' : 'var(--border)';
+      btn.style.fontWeight   = active ? '800' : '700';
+    });
   }
 
   /* ── Register name filter ───────────────────────────────────── */
@@ -843,14 +909,14 @@
 
     const unaShade = m.unattended_exit ? 'reg-card--unattended' : '';
 
-    // Build configured card-detail fields (show_on_card), skipping name fields
+    // Build configured card-detail fields (show_on_attendance), skipping name fields
     // and the unattended_exit which is already shown as the overlay icon.
     const SKIP_CARD_KEYS = new Set(['first_name','surname','unattended_exit']);
     const typeSlug = (m.member_type || 'member').toLowerCase();
     const typeConf = _fieldConfig[typeSlug];
     let cardDetailsHtml = '';
-    if (typeConf && typeConf.card && typeConf.card.length) {
-      const detailPairs = typeConf.card
+    if (typeConf && typeConf.attendance && typeConf.attendance.length) {
+      const detailPairs = typeConf.attendance
         .filter(f => !SKIP_CARD_KEYS.has(f.key))
         .map(f => {
           const val = _cardFieldVal(f, m);

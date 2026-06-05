@@ -176,6 +176,7 @@ def ensure_tables():
             required             INTEGER NOT NULL DEFAULT 0,
             show_on_registration INTEGER NOT NULL DEFAULT 1,
             show_on_list         INTEGER NOT NULL DEFAULT 0,
+            show_on_attendance   INTEGER NOT NULL DEFAULT 0,
             show_on_card         INTEGER NOT NULL DEFAULT 0,
             show_on_detail       INTEGER NOT NULL DEFAULT 1,
             show_on_print        INTEGER NOT NULL DEFAULT 1,
@@ -346,6 +347,8 @@ def ensure_tables():
         "ALTER TABLE session_completions ADD COLUMN exported_at TEXT",
         "ALTER TABLE session_completions ADD COLUMN exported_by INTEGER REFERENCES users(id)",
         "ALTER TABLE member_type_fields ADD COLUMN show_on_export INTEGER NOT NULL DEFAULT 0",
+        # v11.2: split show_on_card into show_on_attendance (register page) and show_on_card (member profile)
+        "ALTER TABLE member_type_fields ADD COLUMN show_on_attendance INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE attendance ADD COLUMN source TEXT NOT NULL DEFAULT 'web'",
         "ALTER TABLE field_definitions ADD COLUMN use_lookup INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE documents ADD COLUMN stored_filename TEXT",
@@ -459,6 +462,20 @@ def ensure_tables():
             )
     except Exception:
         pass
+
+    # v11.2: split show_on_card into show_on_attendance + show_on_card (member profile).
+    # Run once: copy old show_on_card → show_on_attendance, then set show_on_card = OR(card, detail).
+    # Idempotent: once attendance is set the condition won't fire again on already-migrated rows.
+    try:
+        db.execute('''
+            UPDATE member_type_fields
+            SET    show_on_attendance = show_on_card,
+                   show_on_card      = MAX(show_on_card, show_on_detail)
+            WHERE  show_on_attendance = 0 AND (show_on_card = 1 OR show_on_detail = 1)
+        ''')
+        logger.info('Migration: show_on_attendance populated from show_on_card (v11.2)')
+    except Exception as _e:
+        logger.warning('show_on_attendance data migration skipped: %s', _e)
 
     db.commit()
     db.close()
