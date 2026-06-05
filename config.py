@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v10.22'  # v10.22: Phase B — admin CRUD for member_statuses, Member Statuses settings page, CSV import uses DB status lookup
+APP_VERSION = 'v10.23'  # v10.23: Alert rules colour picker — expanded presets + native OS colour palette input
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

@@ -170,13 +170,25 @@
         </div>
         <div>
           <label class="form-label">Badge Colour</label>
-          <div id="colour-picker" style="display:flex;gap:8px;align-items:center;height:40px">
-            <button type="button" class="colour-swatch selected" data-colour="#ef4444" style="background:#ef4444" title="Red" onclick="pickColour(this)"></button>
-            <button type="button" class="colour-swatch" data-colour="#f59e0b" style="background:#f59e0b" title="Amber" onclick="pickColour(this)"></button>
-            <button type="button" class="colour-swatch" data-colour="#3b6fde" style="background:#3b6fde" title="Blue" onclick="pickColour(this)"></button>
-            <button type="button" class="colour-swatch" data-colour="#8b5cf6" style="background:#8b5cf6" title="Purple" onclick="pickColour(this)"></button>
-            <button type="button" class="colour-swatch" data-colour="#22a06b" style="background:#22a06b" title="Green" onclick="pickColour(this)"></button>
-            <span id="badge-preview" class="flag-badge" style="margin-left:4px"></span>
+          <div id="colour-picker" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-top:4px">
+            <!-- Preset swatches -->
+            <button type="button" class="colour-swatch selected" data-colour="#ef4444" style="background:#ef4444" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#f97316" style="background:#f97316" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#f59e0b" style="background:#f59e0b" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#22c55e" style="background:#22c55e" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#14b8a6" style="background:#14b8a6" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#3b82f6" style="background:#3b82f6" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#3b6fde" style="background:#3b6fde" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#8b5cf6" style="background:#8b5cf6" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#ec4899" style="background:#ec4899" onclick="pickColour(this)"></button>
+            <button type="button" class="colour-swatch" data-colour="#64748b" style="background:#64748b" onclick="pickColour(this)"></button>
+            <!-- Custom colour input — clicking opens the OS palette -->
+            <input type="color" id="f-colour-input" value="#ef4444"
+                   oninput="pickColourFromInput(this.value)"
+                   style="width:28px;height:28px;border:2px solid var(--border);
+                          border-radius:50%;cursor:pointer;padding:1px;background:none"
+                   title="Custom colour">
+            <span id="badge-preview" class="flag-badge" style="margin-left:2px"></span>
           </div>
         </div>
       </div>
@@ -387,8 +399,8 @@
       showRuleOpts(ruleType, rule);
     }
 
-    // Colour
-    pickColour(document.querySelector(`.colour-swatch[data-colour="${rule ? rule.flag_colour : '#ef4444'}"]`));
+    // Colour — use the hex value directly so custom colours work too
+    setAlertColour(rule ? rule.flag_colour : '#ef4444');
 
     // Pre-fill type-specific fields
     if (rule) {
@@ -480,19 +492,33 @@
   }
 
   // ── Colour picker ───────────────────────────────────────────────────────────
-  function pickColour(el) {
-    if (!el) return;
-    document.querySelectorAll('.colour-swatch').forEach(s => s.classList.remove('selected'));
-    el.classList.add('selected');
-    selectedColour = el.dataset.colour;
+  function setAlertColour(hex) {
+    selectedColour = hex;
+    // Sync native picker
+    document.getElementById('f-colour-input').value = hex;
+    // Highlight matching swatch (if any), clear others
+    document.querySelectorAll('.colour-swatch').forEach(s => {
+      s.classList.toggle('selected', s.dataset.colour === hex);
+    });
+    // Update badge preview
     const label = document.getElementById('f-label').value.trim() || 'Flag';
     const prev  = document.getElementById('badge-preview');
     prev.textContent      = label;
-    prev.style.background = selectedColour;
+    prev.style.background = hex;
   }
+
+  function pickColour(el) {
+    if (!el) return;
+    setAlertColour(el.dataset.colour);
+  }
+
+  function pickColourFromInput(hex) {
+    setAlertColour(hex);
+  }
+
   document.getElementById('f-label').addEventListener('input', () => {
     const prev = document.getElementById('badge-preview');
-    prev.textContent = document.getElementById('f-label').value.trim() || 'Flag';
+    prev.textContent      = document.getElementById('f-label').value.trim() || 'Flag';
     prev.style.background = selectedColour;
   });
 
