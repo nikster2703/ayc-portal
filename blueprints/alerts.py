@@ -52,8 +52,10 @@ def _run_alert_rule(db, rule, today_str):
     scoped_sess = rule['applies_to_session']   # None → all sessions
 
     # ── Fetch eligible members ────────────────────────────────────────────────
-    member_cond = ("m.status = 'Active' AND m.member_type IN "
-                   "(SELECT slug FROM member_types WHERE registration_style != 'staff')")
+    member_cond = (
+        "EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active') "
+        "AND m.member_type IN (SELECT slug FROM member_types WHERE registration_style != 'staff')"
+    )
     params_base = []
     if scoped_sess:
         member_cond += ' AND m.session = ?'

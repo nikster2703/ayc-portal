@@ -42,7 +42,7 @@ def api_attendance_get(session_type, date):
                ON  a.member_id   = m.id
                AND a.session_date = ?
                AND a.session_type = ?
-        WHERE   m.status      != "Leaver"
+        WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   mt.registration_style != "staff"
           AND   m.session      = ?
         ORDER   BY m.first_name, m.surname
@@ -93,7 +93,7 @@ def api_attendance_staff_get(session_type, date):
                ON  a.member_id    = m.id
                AND a.session_date = ?
                AND a.session_type = ?
-        WHERE   m.status      != "Leaver"
+        WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   m.member_type  = "staff"
           AND   m.session      = ?
         ORDER   BY m.first_name, m.surname

@@ -203,6 +203,17 @@ CREATE TABLE IF NOT EXISTS attendance (
     recorded_by   INTEGER REFERENCES users(id)
 );
 
+-- ── Member statuses (configurable) ──────────────────────
+CREATE TABLE IF NOT EXISTS member_statuses (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL UNIQUE,       -- display label, e.g. "Active"
+    behaviour    TEXT    NOT NULL DEFAULT 'active',  -- active | inactive | leaver
+    colour       TEXT    NOT NULL DEFAULT '#22c55e',
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    is_default   INTEGER NOT NULL DEFAULT 0,    -- 1 = assigned to new members
+    is_protected INTEGER NOT NULL DEFAULT 0     -- 1 = cannot be deleted
+);
+
 -- ── Staff roles (configurable) ──────────────────────────
 CREATE TABLE IF NOT EXISTS staff_roles (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,7 +321,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 -- ── Indexes ───────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_members_status   ON members(status);
+CREATE INDEX IF NOT EXISTS idx_members_status        ON members(status);
+CREATE INDEX IF NOT EXISTS idx_member_statuses_name  ON member_statuses(name);
+CREATE INDEX IF NOT EXISTS idx_member_statuses_beh   ON member_statuses(behaviour);
 CREATE INDEX IF NOT EXISTS idx_members_session  ON members(session);
 CREATE INDEX IF NOT EXISTS idx_contacts_member  ON member_contacts(member_id);
 CREATE INDEX IF NOT EXISTS idx_pending_status   ON pending_registrations(status);

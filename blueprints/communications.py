@@ -108,10 +108,18 @@ def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_ty
         conditions.append('m.member_type = ?')
         params.append(member_type_filter)
 
-    # Status — default to active-only; explicit 'all' lifts the restriction
-    if not status_filter or status_filter == 'Active':
-        conditions.append("m.status = 'Active'")
-    elif status_filter != 'all':
+    # Status — use behaviour-based query throughout for consistency with dashboard
+    if not status_filter or status_filter == 'all':
+        pass  # no status restriction
+    elif status_filter in ('Active', 'Inactive', 'Leaver'):
+        # Map legacy display names to behaviour values
+        _beh_map = {'Active': 'active', 'Inactive': 'inactive', 'Leaver': 'leaver'}
+        conditions.append(
+            "EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = ?)"
+        )
+        params.append(_beh_map[status_filter])
+    else:
+        # Exact status name (custom statuses, future use)
         conditions.append('m.status = ?')
         params.append(status_filter)
 
@@ -195,7 +203,7 @@ def api_mailshots_send():
         recipients = [r for r in explicit_recip if r.get('email')]
     else:
         session_filter = data.get('session_filter', 'all')
-        recipients = _get_recipients(session_filter, 'Active')
+        recipients = _get_recipients(session_filter, status_filter=None)  # defaults to active behaviour
 
     if not recipients:
         return jsonify({'error': 'No recipients selected'}), 400

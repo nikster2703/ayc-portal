@@ -93,7 +93,7 @@ def print_register_page():
     members_raw = db.execute('''
         SELECT  m.*
         FROM    members m
-        WHERE   m.status      != "Leaver"
+        WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   m.member_type = ?
           AND   m.session     = ?
         ORDER   BY m.first_name, m.surname
@@ -203,7 +203,7 @@ def export_register_page():
                ON  a.member_id   = m.id
                AND a.session_date = ?
                AND a.session_type = ?
-        WHERE   m.status     != 'Leaver'
+        WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   mt.registration_style != 'staff'
           AND   m.session     = ?
         ORDER   BY m.surname, m.first_name
@@ -244,7 +244,7 @@ def export_register_page():
                ON  a.member_id   = m.id
                AND a.session_date = ?
                AND a.session_type = ?
-        WHERE   m.status     != 'Leaver'
+        WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   m.member_type = 'staff'
           AND   m.session     = ?
         ORDER   BY m.surname, m.first_name

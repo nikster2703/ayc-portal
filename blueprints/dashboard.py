@@ -29,19 +29,22 @@ def api_dashboard():
     if scoped is None:
         counts = db.execute('''
             SELECT
-                SUM(CASE WHEN mt.registration_style != 'staff'                                          THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'active'    THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'leaver'    THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver'   THEN 1 ELSE 0 END) AS staff_active
+                SUM(CASE WHEN mt.registration_style != 'staff'                                       THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'active'           THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'inactive'         THEN 1 ELSE 0 END) AS inactive,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'leaver'           THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = 'staff' AND ms.behaviour != 'leaver'          THEN 1 ELSE 0 END) AS staff_active
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
+            LEFT JOIN member_statuses ms ON ms.name = m.status
         ''').fetchone()
         session_rows = db.execute('''
             SELECT m.session,
-                   SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS staff
+                   SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS staff
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
+            LEFT JOIN member_statuses ms ON ms.name = m.status
             GROUP BY m.session
         ''').fetchall()
         pending = db.execute(
@@ -61,20 +64,23 @@ def api_dashboard():
         ph = ','.join('?' * len(scoped))
         counts = db.execute(f'''
             SELECT
-                SUM(CASE WHEN mt.registration_style != 'staff'                                          THEN 1 ELSE 0 END) AS total,
-                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'active'    THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) = 'leaver'    THEN 1 ELSE 0 END) AS leavers,
-                SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver'   THEN 1 ELSE 0 END) AS staff_active
+                SUM(CASE WHEN mt.registration_style != 'staff'                                       THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'active'           THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'inactive'         THEN 1 ELSE 0 END) AS inactive,
+                SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'leaver'           THEN 1 ELSE 0 END) AS leavers,
+                SUM(CASE WHEN mt.registration_style  = 'staff' AND ms.behaviour != 'leaver'          THEN 1 ELSE 0 END) AS staff_active
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
+            LEFT JOIN member_statuses ms ON ms.name = m.status
             WHERE m.session IN ({ph})
         ''', scoped).fetchone()
         session_rows = db.execute(f'''
             SELECT m.session,
-                   SUM(CASE WHEN mt.registration_style != 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS members,
-                   SUM(CASE WHEN mt.registration_style  = 'staff' AND LOWER(TRIM(m.status)) != 'leaver' THEN 1 ELSE 0 END) AS staff
+                   SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS members,
+                   SUM(CASE WHEN mt.registration_style  = 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS staff
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
+            LEFT JOIN member_statuses ms ON ms.name = m.status
             WHERE m.session IN ({ph})
             GROUP BY m.session
         ''', scoped).fetchall()

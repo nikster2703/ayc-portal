@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v10.19'  # v10.19: Comms recipients — member type filter added; session filter fixed for NULL-session members; session rename cascades to all tables
+APP_VERSION = 'v10.21'  # v10.21: Member activity timeline on card; comms status filter dynamic from API; flag filter dropdown on members page
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

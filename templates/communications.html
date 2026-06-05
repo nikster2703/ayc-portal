@@ -111,14 +111,11 @@
         {% endif %}
       </div>
 
-      <!-- Status filter -->
+      <!-- Status filter — populated dynamically from member_statuses -->
       <div class="form-group">
         <label>Status</label>
         <select id="s-status" onchange="previewRecipients()">
           <option value="Active">Active members only</option>
-          <option value="Inactive">Inactive members only</option>
-          <option value="Leaver">Leavers only</option>
-          <option value="all">All statuses</option>
         </select>
       </div>
 
@@ -289,9 +286,24 @@
 
   /* ── Init ────────────────────────────────────────── */
   (async function init() {
-    await Promise.all([loadTemplateDropdown(), loadDocumentPicker(), loadAlertFlags()]);
+    await Promise.all([loadTemplateDropdown(), loadDocumentPicker(), loadAlertFlags(), loadStatusFilter()]);
     previewRecipients();
   })();
+
+  async function loadStatusFilter() {
+    try {
+      const statuses = await apiFetch('/api/member-statuses');
+      const sel = document.getElementById('s-status');
+      if (!sel || !statuses.length) return;
+      sel.innerHTML =
+        statuses.map(s =>
+          `<option value="${esc(s.name)}">${esc(s.name)} members only</option>`
+        ).join('') +
+        `<option value="all">All statuses</option>`;
+    } catch (e) {
+      // Fall back to the single default option already in the DOM
+    }
+  }
 
   /* ── Alert flag checkboxes ───────────────────────── */
   async function loadAlertFlags() {

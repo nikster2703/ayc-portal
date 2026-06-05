@@ -33,10 +33,19 @@ def api_members():
     conditions = ['1=1']
     params     = []
 
-    if status_filter == 'active':
-        conditions.append("m.status = 'Active'")
-    elif status_filter == 'leaver':
-        conditions.append("m.status = 'Leaver'")
+    if status_filter == 'all':
+        pass  # no status restriction
+    elif status_filter in ('active', 'inactive', 'leaver'):
+        # behaviour-based filter — works regardless of what the status name is called
+        conditions.append(
+            "EXISTS (SELECT 1 FROM member_statuses ms "
+            "WHERE ms.name = m.status AND ms.behaviour = ?)"
+        )
+        params.append(status_filter)
+    elif status_filter not in ('flagged',):
+        # exact status name (for future custom statuses passed by name)
+        conditions.append('m.status = ?')
+        params.append(status_filter)
 
     if session_filter != 'all':
         conditions.append('m.session = ?')
@@ -255,8 +264,9 @@ def api_member_update(member_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
-                   'ethnicity_religion', 'medical_sen', 'gp_contact', 'status',
+                   'ethnicity_religion', 'medical_sen', 'gp_contact',
                    'session', 'comments', 'date_registered', 'staff_role']
+    # NOTE: status is intentionally excluded — use POST /api/members/<id>/status
     bool_fields = ['unattended_exit', 'gdpr_consent']
 
     updates, params = [], []
@@ -322,35 +332,87 @@ def api_member_update(member_id):
     return jsonify({'success': True})
 
 
-@bp.route('/api/members/<int:member_id>', methods=['DELETE'])
-@permission_required('members.delete')
-def api_member_delete(member_id):
-    data   = request.get_json() or {}
-    reason = data.get('reason', '').strip()
-    if not reason:
-        return jsonify({'error': 'A reason is required when marking a member as Leaver'}), 400
+@bp.route('/api/member-statuses')
+@permission_required('members.view')
+def api_member_statuses():
+    """Return all configured member statuses, ordered for UI display."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT * FROM member_statuses ORDER BY sort_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
 
-    db     = get_db()
+
+@bp.route('/api/members/<int:member_id>/status', methods=['POST'])
+@permission_required('members.edit')
+def api_member_status_change(member_id):
+    """Change a member's status. Requires a mandatory reason.
+    Auto-resolves all open alert flags when transitioning to inactive or leaver behaviour."""
+    data       = request.get_json() or {}
+    new_status = (data.get('status') or '').strip()
+    reason     = (data.get('reason') or '').strip()
+
+    if not new_status:
+        return jsonify({'error': 'status is required'}), 400
+    if not reason:
+        return jsonify({'error': 'A reason is required for all status changes'}), 400
+
+    db = get_db()
+
+    # Validate against the member_statuses table
+    status_row = db.execute(
+        'SELECT id, behaviour FROM member_statuses WHERE name = ?', (new_status,)
+    ).fetchone()
+    if not status_row:
+        return jsonify({'error': f'"{new_status}" is not a valid status'}), 400
+
     member = db.execute('SELECT * FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()  # None or list
+    scoped = _assigned_session()
     if scoped is not None and (member['session'] or '') not in scoped:
         return jsonify({'error': 'Forbidden'}), 403
 
+    old_status    = member['status']
+    new_behaviour = status_row['behaviour']
+
+    if old_status == new_status:
+        return jsonify({'error': f'Member already has status "{new_status}"'}), 400
+
     db.execute(
-        "UPDATE members SET status = 'Leaver', status_note = ?, "
+        "UPDATE members SET status = ?, status_note = ?, "
         "updated_at = datetime('now'), updated_by = ? WHERE id = ?",
-        (reason, session['user_id'], member_id)
+        (new_status, reason, session['user_id'], member_id)
     )
+
+    # Auto-resolve all open flags when moving to inactive or leaver behaviour
+    resolved_flags = 0
+    if new_behaviour in ('inactive', 'leaver'):
+        open_flags = db.execute(
+            'SELECT id FROM member_flags WHERE member_id = ? AND resolved_at IS NULL',
+            (member_id,)
+        ).fetchall()
+        for flag in open_flags:
+            db.execute(
+                "UPDATE member_flags SET resolved_at = datetime('now'), resolved_by = ? "
+                "WHERE id = ?",
+                (f'status_change:{session["username"]}', flag['id'])
+            )
+        resolved_flags = len(open_flags)
+
     db.commit()
-    log_action('soft_delete_member', 'members', member_id, {
-        'member': f"{member['first_name'] or ''} {member['surname'] or ''}".strip(),
-        'reason': reason,
-        'by':     session['username'],
+
+    full_name = f"{member['first_name'] or ''} {member['surname'] or ''}".strip()
+    log_action('status_change', 'members', member_id, {
+        'member':         full_name,
+        'from':           old_status,
+        'to':             new_status,
+        'reason':         reason,
+        'by':             session['username'],
+        'flags_resolved': resolved_flags,
     })
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'flags_resolved': resolved_flags})
 
 
 @bp.route('/api/members/<int:member_id>/permanent', methods=['DELETE'])
@@ -455,6 +517,33 @@ def api_postcode_lookup(postcode):
 
 
 # ── Member tags ────────────────────────────────────────────────────────────────
+
+@bp.route('/api/members/<int:member_id>/activity')
+@permission_required('members.view')
+def api_member_activity(member_id):
+    """Return audit log entries for a specific member, excluding noisy view events."""
+    db     = get_db()
+    scoped = _assigned_session()
+    member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
+    if not member:
+        return jsonify({'error': 'Not found'}), 404
+    if scoped is not None and (member['session'] or '') not in scoped:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    rows = db.execute('''
+        SELECT  al.id, al.action, al.details, al.timestamp,
+                u.username AS performed_by
+        FROM    audit_log al
+        LEFT JOIN users u ON u.id = al.user_id
+        WHERE   al.table_name = 'members'
+          AND   al.record_id  = ?
+          AND   al.action    != 'view_member'
+        ORDER   BY al.timestamp DESC
+        LIMIT   100
+    ''', (member_id,)).fetchall()
+
+    return jsonify([dict(r) for r in rows])
+
 
 @bp.route('/api/members/<int:member_id>/tags')
 @permission_required('members.view')

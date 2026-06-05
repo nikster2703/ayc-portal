@@ -209,8 +209,13 @@
     // Staff tile — visible to all roles
     stats.push({ icon: '🧑‍🤝‍🧑', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', colour: '#7c3aed' });
 
-    // Leavers tile — hidden from readonly users
-    if (USER_ROLE !== 'readonly') {
+    // Inactive tile — hidden from readonly users
+    if (USER_ROLE !== 'readonly' && (m.inactive ?? 0) > 0) {
+      stats.push({ icon: '⏸️', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', colour: '#f59e0b' });
+    }
+
+    // Leavers tile — hidden from readonly users and when count is 0
+    if (USER_ROLE !== 'readonly' && (m.leavers ?? 0) > 0) {
       stats.push({ icon: '👤', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', colour: 'var(--muted)' });
     }
 

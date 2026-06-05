@@ -45,23 +45,19 @@
   <input type="hidden" id="session-filter" value="{{ current_session }}">
   {% endif %}
 
-  {% if 'members.delete' in user_permissions %}
-  <label class="leaver-toggle" id="leaver-toggle" onclick="toggleLeavers()">
-    <input type="checkbox" id="show-leavers">
-    <span>👤 Leavers only</span>
-  </label>
-  {% else %}
-  {# Hidden placeholder so JS references to show-leavers don't break #}
-  <input type="hidden" id="show-leavers" value="">
-  {% endif %}
+  <select class="session-select" id="status-filter" onchange="onStatusFilterChange()">
+    <option value="active">Active</option>
+    <option value="inactive">Inactive</option>
+    <option value="leaver">Leaver</option>
+    <option value="all">All Members</option>
+  </select>
 
   {% if 'alerts.view' in user_permissions %}
-  <label class="leaver-toggle" id="flagged-toggle" onclick="toggleFlagged()" title="Show only flagged members">
-    <input type="checkbox" id="show-flagged">
-    <span>🚨 Flagged only</span>
-  </label>
-  {% else %}
-  <input type="hidden" id="show-flagged" value="">
+  <select class="session-select" id="flag-filter" onchange="onFlagFilterChange()"
+          style="display:none">
+    <option value="">— No flag filter —</option>
+    <option value="any">🚨 Any flagged member</option>
+  </select>
   {% endif %}
 
   <div class="count-pill" id="count-pill" onclick="showAll()">Loading…</div>
@@ -102,11 +98,15 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div class="form-group">
         <label class="form-label">Status</label>
-        <select id="e-status" class="form-input">
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
-          <option value="Leaver">Leaver</option>
-        </select>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0 2px">
+          <span id="e-status-badge" style="display:inline-block;padding:3px 12px;border-radius:20px;
+                font-size:13px;font-weight:700;border:1.5px solid transparent"></span>
+          {% if 'members.edit' in user_permissions %}
+          <button type="button" class="btn btn-ghost btn-sm"
+                  onclick="openStatusModal()"
+                  style="font-size:12px;padding:3px 10px">Change…</button>
+          {% endif %}
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Session</label>
@@ -219,6 +219,36 @@
   </div>
 </div>
 {% endif %}
+
+<!-- ── Status change modal ───────────────────────────────────── -->
+{% if 'members.edit' in user_permissions %}
+<div class="modal-overlay" id="status-modal">
+  <div class="modal" style="max-width:440px">
+    <h2>🔄 Change Status</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      Changing status for <strong id="status-modal-name"></strong>.
+      Current status: <span id="status-modal-current" style="font-weight:700"></span>
+    </p>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">New Status</label>
+      <select id="status-modal-select" class="form-input"></select>
+    </div>
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Reason <span style="color:var(--red)">*</span></label>
+      <textarea id="status-modal-reason" class="form-input" rows="3"
+                placeholder="Required — enter the reason for this status change…"
+                style="resize:vertical"></textarea>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:14px">
+      This will be recorded in the audit trail.
+    </p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeStatusModal()">Cancel</button>
+      <button class="btn btn-primary" id="status-modal-save" onclick="submitStatusChange()">Save</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -227,28 +257,46 @@
   const USER_ROLE    = "{{ current_role }}";  // kept for any legacy checks
   const USER_PERMS   = new Set({{ user_permissions | tojson }});
   const CAN_EDIT     = USER_PERMS.has('members.edit');
-  const CAN_DELETE   = USER_PERMS.has('members.delete');
   const IS_ADMIN     = USER_PERMS.has('members.hard_delete');
 
   /* ── Data ──────────────────────────────────────────── */
-  let allMembers  = [];
-  let fieldConfig = {};
-  let editingId   = null;
+  let allMembers    = [];
+  let fieldConfig   = {};
+  let memberStatuses = [];   // [{id, name, behaviour, colour, sort_order, ...}]
+  let editingId     = null;
+
+  function getStatusMeta(statusName) {
+    return memberStatuses.find(s => s.name === statusName) || { colour: '#64748b', behaviour: 'active' };
+  }
 
   async function loadMembers() {
     try {
-      [allMembers, fieldConfig] = await Promise.all([
+      [allMembers, fieldConfig, memberStatuses] = await Promise.all([
         apiFetch('/api/members?status=all'),
         apiFetch('/api/field-config'),
+        apiFetch('/api/member-statuses'),
       ]);
+
+      // Populate status filter dropdown dynamically
+      const sel = document.getElementById('status-filter');
+      const current = sel ? sel.value : 'active';
+      if (sel && memberStatuses.length) {
+        sel.innerHTML =
+          memberStatuses.map(s =>
+            `<option value="${esc(s.behaviour)}"${s.behaviour === current ? ' selected' : ''}>${esc(s.name)}</option>`
+          ).join('') +
+          `<option value="all"${current === 'all' ? ' selected' : ''}>All Members</option>`;
+      }
+
+      updateFlagDropdown();
+
       const pool = getPool();
       document.getElementById('count-pill').textContent =
         `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
 
-      // Auto-render if a filter was pre-applied from URL params or toggle state
-      const flaggedOn = document.getElementById('show-flagged').checked;
-      const leaversOn = document.getElementById('show-leavers').checked;
-      if (flaggedOn || leaversOn) {
+      // Auto-render if a flag filter was pre-applied from URL params
+      const flagSel = document.getElementById('flag-filter');
+      if (flagSel && flagSel.value) {
         document.getElementById('count-pill').classList.add('showing-all');
         renderMembers(pool);
       } else {
@@ -263,7 +311,7 @@
   }
 
   // ── URL params — handle ?view=staff and ?status=flagged&flag_rule_id=N ────────
-  let activeFlagRuleId = null;   // null = show all flagged; N = specific rule
+  let _pendingFlagParam = null;  // rule_id or 'any', applied after members load
   (function applyViewParam() {
     const params = new URLSearchParams(window.location.search);
     const view   = params.get('view');
@@ -275,10 +323,7 @@
       sel.value = '__staff__';
     }
     if (status === 'flagged') {
-      const cb = document.getElementById('show-flagged');
-      const tg = document.getElementById('flagged-toggle');
-      if (cb) { cb.checked = true; if (tg) tg.classList.add('active'); }
-      if (ruleId) activeFlagRuleId = parseInt(ruleId);
+      _pendingFlagParam = ruleId ? ruleId : 'any';
     }
     history.replaceState(null, '', window.location.pathname);
   })();
@@ -287,19 +332,26 @@
 
   /* ── Filters ───────────────────────────────────────── */
   function getPool() {
-    const sessionVal = document.getElementById('session-filter').value;
-    const leaversOn  = document.getElementById('show-leavers').checked;
-    const flaggedOn  = document.getElementById('show-flagged').checked;
-    return allMembers.filter(m => {
-      const status   = (m.status || '').toLowerCase();
-      const sess     = (m.session || '').trim();
-      const mtype    = (m.member_type || 'member');
+    const sessionVal   = document.getElementById('session-filter').value;
+    const statusFilter = (document.getElementById('status-filter') || {}).value || 'active';
+    const flagFilter   = ((document.getElementById('flag-filter') || {}).value || '');
 
-      // Status filter — leavers, flagged, and normal active are mutually exclusive
+    return allMembers.filter(m => {
+      const sess  = (m.session || '').trim();
+      const mtype = (m.member_type || 'member');
+      const ms    = getStatusMeta(m.status);
+
+      // Flag filter takes precedence over status filter when active
       let statusOk;
-      if (leaversOn)       statusOk = status === 'leaver';
-      else if (flaggedOn)  statusOk = status !== 'leaver' && hasActiveFlag(m, activeFlagRuleId);
-      else                 statusOk = status !== 'leaver';
+      if (flagFilter === 'any') {
+        statusOk = ms.behaviour !== 'leaver' && hasActiveFlag(m, null);
+      } else if (flagFilter) {
+        statusOk = ms.behaviour !== 'leaver' && hasActiveFlag(m, parseInt(flagFilter));
+      } else if (statusFilter === 'all') {
+        statusOk = true;
+      } else {
+        statusOk = ms.behaviour === statusFilter;
+      }
 
       let sessOk;
       if (sessionVal === 'all') {
@@ -313,51 +365,73 @@
     });
   }
 
+  function updateFlagDropdown() {
+    const sel = document.getElementById('flag-filter');
+    if (!sel) return;
+
+    // Derive active flag rules from loaded member data — no extra API call needed
+    const rulesMap = new Map();
+    for (const m of allMembers) {
+      for (const f of (m.flags || [])) {
+        if (!rulesMap.has(f.rule_id)) {
+          rulesMap.set(f.rule_id, { rule_id: f.rule_id, label: f.flag_label, count: 0 });
+        }
+        rulesMap.get(f.rule_id).count++;
+      }
+    }
+    const rules = [...rulesMap.values()].sort((a, b) => b.count - a.count);
+
+    if (!rules.length) {
+      sel.style.display = 'none';
+      sel.value = '';
+      return;
+    }
+
+    // Preserve current selection if still valid after reload
+    const prev = sel.value;
+    sel.innerHTML =
+      '<option value="">— No flag filter —</option>' +
+      '<option value="any">🚨 Any flagged member</option>' +
+      rules.map(r =>
+        `<option value="${r.rule_id}">${esc(r.label)} (${r.count})</option>`
+      ).join('');
+
+    // Apply pending URL param (from dashboard link) or restore previous selection
+    if (_pendingFlagParam) {
+      sel.value = _pendingFlagParam;
+      _pendingFlagParam = null;
+    } else if (prev && [...sel.options].some(o => o.value === prev)) {
+      sel.value = prev;
+    }
+
+    sel.style.display = '';
+  }
+
+  function onStatusFilterChange() {
+    // Clear flag filter when status filter changes
+    const flagSel = document.getElementById('flag-filter');
+    if (flagSel) flagSel.value = '';
+    _recount();
+  }
+
+  function onFlagFilterChange() {
+    _recount();
+  }
+
+  function _recount() {
+    document.getElementById('count-pill').classList.remove('showing-all');
+    const pool = getPool();
+    document.getElementById('count-pill').textContent =
+      `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
+    document.getElementById('search').value = '';
+    showSearchPrompt();
+  }
+
   function hasActiveFlag(m, ruleId) {
     const flags = m.flags || [];
     if (!flags.length) return false;
     if (!ruleId) return true;
     return flags.some(f => f.rule_id === ruleId);
-  }
-
-  function toggleLeavers() {
-    const cb     = document.getElementById('show-leavers');
-    const toggle = document.getElementById('leaver-toggle');
-    cb.checked   = !cb.checked;
-    toggle.classList.toggle('active', cb.checked);
-    // Leavers and Flagged are mutually exclusive
-    if (cb.checked) {
-      const fcb = document.getElementById('show-flagged');
-      const ftg = document.getElementById('flagged-toggle');
-      if (fcb) { fcb.checked = false; if (ftg) ftg.classList.remove('active'); }
-      activeFlagRuleId = null;
-    }
-    document.getElementById('count-pill').classList.remove('showing-all');
-    const pool = getPool();
-    document.getElementById('count-pill').textContent =
-      `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
-    showSearchPrompt();
-    document.getElementById('search').value = '';
-  }
-
-  function toggleFlagged() {
-    const cb     = document.getElementById('show-flagged');
-    const toggle = document.getElementById('flagged-toggle');
-    cb.checked   = !cb.checked;
-    toggle.classList.toggle('active', cb.checked);
-    activeFlagRuleId = null;
-    // Leavers and Flagged are mutually exclusive
-    if (cb.checked) {
-      const lcb = document.getElementById('show-leavers');
-      const ltg = document.getElementById('leaver-toggle');
-      if (lcb) { lcb.checked = false; if (ltg) ltg.classList.remove('active'); }
-    }
-    document.getElementById('count-pill').classList.remove('showing-all');
-    const pool = getPool();
-    document.getElementById('count-pill').textContent =
-      `${pool.length} member${pool.length !== 1 ? 's' : ''}`;
-    showSearchPrompt();
-    document.getElementById('search').value = '';
   }
 
   function filterMembers() {
@@ -448,7 +522,9 @@
     const full     = `${fn} ${sn}`.trim() || 'Unknown';
     const init     = ((fn[0] || '?') + (sn[0] || '?')).toUpperCase();
     const colour   = COLOURS[init.charCodeAt(0) % COLOURS.length];
-    const isLeaver = (m.status || '').toLowerCase() === 'leaver';
+    const statusMs  = getStatusMeta(m.status);
+    const isLeaver  = statusMs.behaviour === 'leaver';
+    const isInactive = statusMs.behaviour === 'inactive';
     const typeSlug = m.member_type || 'member';
     const typeConf = fieldConfig[typeSlug] || fieldConfig['member'] || { list: [], detail: [] };
 
@@ -485,7 +561,11 @@
     const sessionLabel = isStaff
       ? (esc(v(m.session)) + ' sessions')
       : esc(v(m.session));
-    const statusBadge  = `<span class="badge ${isLeaver ? 'badge-leaver' : 'badge-active'}" style="font-size:11px">${esc(m.status || 'Active')}</span>`;
+    const sBadgeCol    = statusMs.colour || '#64748b';
+    const statusBadge  = `<span style="display:inline-block;padding:1px 9px;border-radius:20px;
+                                font-size:11px;font-weight:700;
+                                background:${sBadgeCol}22;color:${sBadgeCol};
+                                border:1.5px solid ${sBadgeCol}55">${esc(m.status || 'Active')}</span>`;
 
     // ── Alert flag badges ────────────────────────────────────────────────────────
     const activeFlags  = (m.flags || []);
@@ -507,7 +587,8 @@
     const actionBtns = CAN_EDIT ? `
       <div class="card-actions" onclick="event.stopPropagation()">
         <button class="btn btn-ghost btn-sm" onclick="openEditModal(${m.id})">✏️ Edit</button>
-        ${(CAN_DELETE && !isLeaver) ? `<button class="btn btn-danger btn-sm" onclick="softDelete(${m.id},'${esc(full)}')">Mark Leaver</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="openStatusModal(${m.id},'${esc(full)}','${esc(m.status || 'Active')}')"
+                style="color:var(--muted)">⇄ Status</button>
       </div>` : '';
 
     // ── Dynamic detail fields (show_on_card controls the card body) ─────────────
@@ -599,6 +680,14 @@
         </div>
       </div>`;
 
+    const activityHtml = `
+      <div class="detail-section">
+        <div class="sec-title">🕓 Activity</div>
+        <div id="activity-${m.id}">
+          <span style="font-size:13px;color:var(--muted)">Loading…</span>
+        </div>
+      </div>`;
+
     // ── Admin delete button ───────────────────────────────────────────────────────
     const permDeleteHtml = IS_ADMIN ? `
       <div style="border-top:1px dashed var(--border);margin-top:18px;padding-top:12px;
@@ -615,7 +704,7 @@
       : '';
 
     return `
-<div class="member-card${isLeaver ? ' leaver-card' : ''}" id="mc${idx}" onclick="toggleCard(${idx})">
+<div class="member-card${isLeaver ? ' leaver-card' : isInactive ? ' inactive-card' : ''}" id="mc${idx}" onclick="toggleCard(${idx})">
   <div class="card-head">
     <div class="avatar" style="background:${colour}">${esc(init)}</div>
     <div class="card-name-wrap">
@@ -633,6 +722,7 @@
     ${flagsPanelHtml}
     ${tagsHtml}
     ${attHtml}
+    ${activityHtml}
     ${permDeleteHtml}
   </div>
 </div>`;
@@ -656,6 +746,11 @@
         const tagsEl = document.getElementById('member-tags-detail-' + memberId);
         if (tagsEl && !tagsEl.dataset.loaded) {
           loadDetailCardTags(memberId, tagsEl);
+        }
+        // Lazy-load activity on first open only
+        const actEl = document.getElementById('activity-' + memberId);
+        if (actEl && actEl.textContent.trim() === 'Loading…') {
+          loadMemberActivity(memberId, actEl);
         }
       }
     }
@@ -711,6 +806,73 @@
         </table>`;
     } catch (e) {
       el.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load attendance.</span>`;
+    }
+  }
+
+  /* ── Member activity ───────────────────────────────── */
+  function _formatActivity(action, details) {
+    let d = {};
+    try { d = JSON.parse(details || '{}'); } catch(e) {}
+
+    switch (action) {
+      case 'status_change':
+        return {
+          icon: '🔄',
+          title: `Status changed: ${esc(d.from || '?')} → <strong>${esc(d.to || '?')}</strong>`,
+          note:  d.reason ? `Reason: ${esc(d.reason)}` : null,
+        };
+      case 'edit_member': {
+        const changed = Object.keys(d.changes || {});
+        return {
+          icon:  '✏️',
+          title: 'Member details updated',
+          note:  changed.length ? `Fields: ${changed.map(esc).join(', ')}` : null,
+        };
+      }
+      case 'soft_delete_member':
+        return {
+          icon:  '👤',
+          title: 'Marked as Leaver',
+          note:  d.reason ? `Reason: ${esc(d.reason)}` : null,
+        };
+      case 'tag_add':
+        return { icon: '🎖', title: `Tag added: <strong>${esc(d.tag || '?')}</strong>`, note: null };
+      case 'tag_remove':
+        return { icon: '🎖', title: `Tag removed: ${esc(d.tag || '?')}`, note: null };
+      case 'auto_resolve_flags':
+        return { icon: '✅', title: `${d.count || ''} alert flag${d.count !== 1 ? 's' : ''} auto-resolved`, note: d.reason ? esc(d.reason) : null };
+      case 'dismiss_flag':
+        return { icon: '✅', title: `Flag dismissed: ${esc(d.rule || d.flag_label || '?')}`, note: d.note ? esc(d.note) : null };
+      case 'permanent_delete_member':
+        return { icon: '🗑', title: 'Record permanently deleted', note: null };
+      default:
+        return { icon: '📋', title: esc(action.replace(/_/g, ' ')), note: null };
+    }
+  }
+
+  async function loadMemberActivity(memberId, el) {
+    try {
+      const rows = await apiFetch(`/api/members/${memberId}/activity`);
+      if (!rows.length) {
+        el.innerHTML = `<span style="font-size:13px;color:var(--muted)">No activity recorded yet.</span>`;
+        return;
+      }
+      el.innerHTML = rows.map(r => {
+        const { icon, title, note } = _formatActivity(r.action, r.details);
+        const ts  = r.timestamp ? r.timestamp.slice(0, 16).replace('T', ' ') : '';
+        const who = r.performed_by ? ` · ${esc(r.performed_by)}` : '';
+        return `
+          <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+            <span style="font-size:16px;flex-shrink:0;padding-top:1px">${icon}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;color:var(--navy)">${title}</div>
+              ${note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${note}</div>` : ''}
+              <div style="font-size:11px;color:var(--muted);margin-top:3px">${esc(ts)}${who}</div>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (e) {
+      el.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load activity.</span>`;
     }
   }
 
@@ -827,8 +989,17 @@
     document.getElementById('e-member_id').textContent = m.member_id || '—';
     document.getElementById('e-first_name').value      = m.first_name || '';
     document.getElementById('e-surname').value         = m.surname || '';
-    document.getElementById('e-status').value          = m.status || 'Active';
     document.getElementById('e-session').value         = m.session || '';
+
+    // Status badge (read-only display — changes go through the status modal)
+    const smeta = getStatusMeta(m.status);
+    const badge = document.getElementById('e-status-badge');
+    if (badge) {
+      badge.textContent    = m.status || 'Active';
+      badge.style.background  = (smeta.colour || '#64748b') + '22';
+      badge.style.color       = smeta.colour || '#64748b';
+      badge.style.borderColor = (smeta.colour || '#64748b') + '66';
+    }
 
     // Contacts (always populated; section visibility controlled by renderDynamicEditFields)
     document.getElementById('e-c1-name').value  = m.contact1_name  || '';
@@ -997,7 +1168,6 @@
     const payload = {
       first_name:    document.getElementById('e-first_name').value.trim(),
       surname:       document.getElementById('e-surname').value.trim(),
-      status:        document.getElementById('e-status').value,
       session:       document.getElementById('e-session').value,
       contacts: [
         {
@@ -1072,12 +1242,75 @@
     }
   }
 
-  /* ── Soft delete ───────────────────────────────────── */
-  async function softDelete(memberId, fullName) {
-    if (!confirm(`Mark ${fullName} as a Leaver?\n\nThis will move them to the Leavers list. The record is kept and can be found using the Leavers toggle.`)) return;
+  /* ── Status change modal ───────────────────────────── */
+  let _statusMemberId   = null;
+  let _statusMemberName = null;
+
+  function openStatusModal(memberId, fullName, currentStatus) {
+    // Can be called from card button OR from inside the edit modal (no args = use editingId)
+    if (memberId === undefined) {
+      const m = allMembers.find(x => x.id === editingId);
+      if (!m) return;
+      memberId      = m.id;
+      fullName      = `${m.first_name || ''} ${m.surname || ''}`.trim();
+      currentStatus = m.status || 'Active';
+    }
+    _statusMemberId   = memberId;
+    _statusMemberName = fullName;
+
+    document.getElementById('status-modal-name').textContent    = fullName;
+    document.getElementById('status-modal-current').textContent = currentStatus;
+    document.getElementById('status-modal-reason').value        = '';
+
+    // Populate select with all statuses; mark current as selected
+    const sel = document.getElementById('status-modal-select');
+    sel.innerHTML = memberStatuses
+      .map(s => `<option value="${esc(s.name)}"${s.name === currentStatus ? ' selected' : ''}>${esc(s.name)}${s.name === currentStatus ? ' (current)' : ''}</option>`)
+      .join('');
+
+    document.getElementById('status-modal').classList.add('open');
+    setTimeout(() => document.getElementById('status-modal-reason').focus(), 50);
+  }
+
+  function closeStatusModal() {
+    document.getElementById('status-modal').classList.remove('open');
+    _statusMemberId = _statusMemberName = null;
+  }
+
+  async function submitStatusChange() {
+    const newStatus     = document.getElementById('status-modal-select').value;
+    const reason        = document.getElementById('status-modal-reason').value.trim();
+    const currentStatus = document.getElementById('status-modal-current').textContent;
+
+    if (newStatus === currentStatus) {
+      showToast('That is already the current status — pick a different one.', true);
+      return;
+    }
+    if (!reason) {
+      showToast('A reason is required.', true);
+      document.getElementById('status-modal-reason').focus();
+      return;
+    }
+
+    const btn = document.getElementById('status-modal-save');
+    btn.disabled = true;
+
     try {
-      await apiFetch(`/api/members/${memberId}`, { method: 'DELETE' });
-      showToast(`${fullName} marked as Leaver.`);
+      const res = await apiFetch(`/api/members/${_statusMemberId}/status`, {
+        method: 'POST',
+        body:   JSON.stringify({ status: newStatus, reason }),
+      });
+
+      let msg = `${_statusMemberName} moved to ${newStatus}.`;
+      if (res.flags_resolved > 0) {
+        msg += ` ${res.flags_resolved} alert flag${res.flags_resolved > 1 ? 's' : ''} auto-resolved.`;
+      }
+      showToast(msg);
+      closeStatusModal();
+
+      // If the edit modal is open for this member, close it too
+      if (editingId === _statusMemberId) closeEditModal();
+
       const prevSearch = document.getElementById('search').value.trim();
       await loadMembers();
       if (prevSearch) {
@@ -1088,8 +1321,14 @@
       }
     } catch (e) {
       showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
     }
   }
+
+  document.getElementById('status-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) closeStatusModal();
+  });
 
   /* Close edit modal on backdrop click */
   document.getElementById('edit-modal').addEventListener('click', function(e) {
@@ -1165,6 +1404,9 @@
   /* Leaver cards are slightly muted */
   .leaver-card { opacity: .72; }
   .leaver-card .card-head { background: var(--cream); }
+  /* Inactive cards are subtly indicated */
+  .inactive-card { opacity: .82; }
+  .inactive-card .card-head { background: #fefce8; }
   /* Action buttons sit below the name row so long names always have full width */
   .card-actions {
     display: flex;

@@ -185,7 +185,7 @@ def api_qr_search():
                JOIN attendance a ON a.member_id = m.id
                  AND a.session_date = ? AND a.session_type = ?
                  AND a.signed_in_at IS NOT NULL AND a.signed_out_at IS NULL
-               WHERE m.status = 'Active'
+               WHERE EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
                  AND LOWER(m.first_name) LIKE LOWER(?)
                ORDER BY m.first_name, m.surname
                LIMIT 20''',
@@ -199,7 +199,7 @@ def api_qr_search():
                FROM members m
                LEFT JOIN attendance a ON a.member_id = m.id
                  AND a.session_date = ? AND a.session_type = ?
-               WHERE m.status = 'Active'
+               WHERE EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
                  AND (m.session = ? OR m.member_type = 'staff')
                  AND LOWER(m.first_name) LIKE LOWER(?)
                ORDER BY m.first_name, m.surname
@@ -236,7 +236,8 @@ def api_qr_signin():
 
     db     = get_db()
     member = db.execute(
-        "SELECT id, first_name FROM members WHERE id = ? AND status = 'Active'",
+        "SELECT id, first_name FROM members WHERE id = ? "
+        "AND EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = members.status AND ms.behaviour = 'active')",
         (member_id,),
     ).fetchone()
     if not member:
@@ -335,7 +336,8 @@ def api_qr_signout():
 
     db     = get_db()
     member = db.execute(
-        "SELECT id, first_name FROM members WHERE id = ? AND status = 'Active'",
+        "SELECT id, first_name FROM members WHERE id = ? "
+        "AND EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = members.status AND ms.behaviour = 'active')",
         (member_id,),
     ).fetchone()
     if not member:

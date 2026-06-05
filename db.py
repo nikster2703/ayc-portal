@@ -245,6 +245,18 @@ def ensure_tables():
         CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_notifications_sender  ON notifications(sender_id);
         CREATE INDEX IF NOT EXISTS idx_notification_reads    ON notification_reads(user_id);
+        -- v10.4: configurable member statuses
+        CREATE TABLE IF NOT EXISTS member_statuses (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT    NOT NULL UNIQUE,
+            behaviour    TEXT    NOT NULL DEFAULT 'active',
+            colour       TEXT    NOT NULL DEFAULT '#22c55e',
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            is_default   INTEGER NOT NULL DEFAULT 0,
+            is_protected INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_member_statuses_name ON member_statuses(name);
+        CREATE INDEX IF NOT EXISTS idx_member_statuses_beh  ON member_statuses(behaviour);
         -- v8.3: QR quick-session tokens
         CREATE TABLE IF NOT EXISTS quick_signin_tokens (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -507,6 +519,32 @@ def ensure_tables():
             )
     catdb.commit()
     catdb.close()
+
+    # ── Seed member statuses ──────────────────────────────────────────────────
+    # Protected statuses (Active, Leaver) cannot be deleted; Active is the default.
+    msdb = _connect_db()
+    msdb.row_factory = _sc3.Row
+    _default_statuses = [
+        # name,       behaviour,  colour,    sort, is_default, is_protected
+        ('Active',   'active',   '#22c55e', 0,    1,          1),
+        ('Inactive', 'inactive', '#f59e0b', 1,    0,          0),
+        ('Leaver',   'leaver',   '#ef4444', 2,    0,          1),
+    ]
+    for name, behaviour, colour, sort_order, is_default, is_protected in _default_statuses:
+        # INSERT OR IGNORE so the loop is idempotent on repeated startups
+        msdb.execute(
+            'INSERT OR IGNORE INTO member_statuses '
+            '(name, behaviour, colour, sort_order, is_default, is_protected) '
+            'VALUES (?,?,?,?,?,?)',
+            (name, behaviour, colour, sort_order, is_default, is_protected),
+        )
+        # Always enforce correct behaviour + protected flag on existing rows
+        msdb.execute(
+            'UPDATE member_statuses SET behaviour = ?, is_protected = ? WHERE name = ?',
+            (behaviour, is_protected, name),
+        )
+    msdb.commit()
+    msdb.close()
 
     # ── Seed permissions catalogue ─────────────────────────────────────────────
     pdb = _connect_db()
