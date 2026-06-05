@@ -60,6 +60,17 @@
   </select>
   {% endif %}
 
+  <select class="session-select" id="sort-select" onchange="onSortChange()" style="flex-shrink:0">
+    <option value="first_name">Forename A–Z</option>
+    <option value="surname">Surname A–Z</option>
+    <option value="member_id">Member ID</option>
+  </select>
+  <button class="btn btn-ghost btn-sm" id="default-sort-btn" type="button"
+          onclick="toggleDefaultSort()"
+          style="flex-shrink:0;white-space:nowrap;padding:10px 14px;font-size:13px">
+    ☆ Set default
+  </button>
+
   <div class="count-pill" id="count-pill" onclick="showAll()">Loading…</div>
 </div>
 
@@ -265,6 +276,61 @@
   let memberStatuses = [];   // [{id, name, behaviour, colour, sort_order, ...}]
   let editingId     = null;
 
+  /* ── Sort ──────────────────────────────────────────── */
+  let currentSort = localStorage.getItem('ayc_sort') || 'first_name';
+
+  function sortMembers(list) {
+    return [...list].sort((a, b) => {
+      if (currentSort === 'surname') {
+        const c = (a.surname || '').localeCompare(b.surname || '');
+        return c || (a.first_name || '').localeCompare(b.first_name || '');
+      }
+      if (currentSort === 'member_id') {
+        return (a.member_id || '').localeCompare(b.member_id || '', undefined, { numeric: true });
+      }
+      // first_name (default)
+      const c = (a.first_name || '').localeCompare(b.first_name || '');
+      return c || (a.surname || '').localeCompare(b.surname || '');
+    });
+  }
+
+  function initSortSelect() {
+    const sel = document.getElementById('sort-select');
+    if (sel) sel.value = currentSort;
+    updateDefaultSortBtn();
+  }
+
+  function onSortChange() {
+    currentSort = document.getElementById('sort-select').value;
+    updateDefaultSortBtn();
+    const pill = document.getElementById('count-pill');
+    if (pill.classList.contains('showing-all')) {
+      renderMembers(getPool());
+    } else {
+      const q = document.getElementById('search').value.trim();
+      if (q) filterMembers(); else showSearchPrompt();
+    }
+  }
+
+  function toggleDefaultSort() {
+    const saved = localStorage.getItem('ayc_sort');
+    if (saved === currentSort) {
+      localStorage.removeItem('ayc_sort');
+    } else {
+      localStorage.setItem('ayc_sort', currentSort);
+    }
+    updateDefaultSortBtn();
+  }
+
+  function updateDefaultSortBtn() {
+    const btn = document.getElementById('default-sort-btn');
+    if (!btn) return;
+    const isDefault = localStorage.getItem('ayc_sort') === currentSort;
+    btn.textContent = isDefault ? '★ Default' : '☆ Set default';
+    btn.style.color = isDefault ? 'var(--accent)' : '';
+    btn.style.borderColor = isDefault ? 'var(--accent)' : '';
+  }
+
   function getStatusMeta(statusName) {
     return memberStatuses.find(s => s.name === statusName) || { colour: '#64748b', behaviour: 'active' };
   }
@@ -329,6 +395,7 @@
   })();
 
   loadMembers();
+  initSortSelect();
 
   /* ── Filters ───────────────────────────────────────── */
   function getPool() {
@@ -475,17 +542,25 @@
       </div>`;
   }
 
+  function getColCount() {
+    return window.innerWidth >= 1200 ? 4 : window.innerWidth >= 768 ? 2 : 1;
+  }
+
   function renderMembers(list) {
     const container = document.getElementById('members-container');
     if (!list.length) {
       container.innerHTML = `<div class="empty-state">No members match your search.</div>`;
       return;
     }
-    const sorted = [...list].sort((a, b) =>
-      (a.first_name || '').toLowerCase().localeCompare((b.first_name || '').toLowerCase())
-    );
     cardIdx = 0;
-    container.innerHTML = `<div class="members-grid">${sorted.map(memberCard).join('')}</div>`;
+    const sorted = sortMembers(list);
+    const nCols  = getColCount();
+    const cols   = Array.from({length: nCols}, () => []);
+    sorted.forEach((m, i) => cols[i % nCols].push(m));
+    const colsHtml = cols.map(col =>
+      `<div class="member-col">${col.map(memberCard).join('')}</div>`
+    ).join('');
+    container.innerHTML = `<div class="members-grid">${colsHtml}</div>`;
   }
 
   /* ── Card rendering ────────────────────────────────── */
@@ -548,11 +623,10 @@
     const typeInfo   = (typeConf.type) || {};
     const showBadge  = typeSlug !== 'member';
     const typeBadge  = showBadge
-      ? `<span style="display:inline-flex;align-items:center;gap:3px;
+      ? `<span style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;
                       background:#ede9fe;color:#7c3aed;
                       border:1.5px solid #c4b5fd;border-radius:6px;padding:1px 8px;
-                      font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
-                      margin-left:6px">
+                      font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em">
            ${esc(typeInfo.icon || '')} ${esc(m.staff_role || typeInfo.name || typeSlug)}
          </span>`
       : '';
@@ -580,16 +654,6 @@
            ).join('')}
          </span>`
       : '';
-
-    // ── Action buttons ───────────────────────────────────────────────────────────
-    // Edit is always available (including leavers, so status can be corrected)
-    // "Mark Leaver" is hidden for members who are already leavers
-    const actionBtns = CAN_EDIT ? `
-      <div class="card-actions" onclick="event.stopPropagation()">
-        <button class="btn btn-ghost btn-sm" onclick="openEditModal(${m.id})">✏️ Edit</button>
-        <button class="btn btn-ghost btn-sm" onclick="openStatusModal(${m.id},'${esc(full)}','${esc(m.status || 'Active')}')"
-                style="color:var(--muted)">⇄ Status</button>
-      </div>` : '';
 
     // ── Dynamic detail fields (show_on_card controls the card body) ─────────────
     // The field builder has separate "Show on Card" and "Show on Detail" toggles.
@@ -703,26 +767,49 @@
       ? `<span class="card-member-id">${esc(m.member_id)}</span>`
       : '';
 
+    // ── Section select + action buttons ─────────────────────────────────────────
+    // (Placed here so detailRowsHtml and hasC1 are already computed above)
+    const defaultSection = detailRowsHtml ? 'details' : (hasC1 ? 'contacts' : 'attendance');
+    const sectionSelectEl = `
+      <div onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" style="margin-left:auto">
+        <select class="card-section-select" id="sec-sel-${m.id}"
+                onchange="switchSection(${m.id}, this.value)">
+          <option value="details"${defaultSection === 'details' ? ' selected' : ''}>Details</option>
+          <option value="contacts"${defaultSection === 'contacts' ? ' selected' : ''}>Contacts</option>
+          <option value="attendance"${defaultSection === 'attendance' ? ' selected' : ''}>Attendance</option>
+          <option value="activity">Activity</option>
+          ${USER_PERMS.has('members.tags') ? '<option value="tags">Skills &amp; Badges</option>' : ''}
+        </select>
+      </div>`;
+
+    const actionBtns = `
+      <div class="card-actions" onclick="event.stopPropagation()">
+        ${CAN_EDIT ? `<button class="btn btn-ghost btn-sm" onclick="openEditModal(${m.id})">✏️ Edit</button>` : ''}
+        ${sectionSelectEl}
+      </div>`;
+
     return `
-<div class="member-card${isLeaver ? ' leaver-card' : isInactive ? ' inactive-card' : ''}" id="mc${idx}" onclick="toggleCard(${idx})">
+<div class="member-card${isLeaver ? ' leaver-card' : isInactive ? ' inactive-card' : ''}" id="mc${idx}" data-member-id="${m.id}" onclick="toggleCard(${idx})">
   <div class="card-head">
     <div class="avatar" style="background:${colour}">${esc(init)}</div>
     <div class="card-name-wrap">
-      <h3>${esc(full)}${typeBadge}</h3>
-      ${memberIdBadge}
-      <p>${sessionLabel} · ${statusBadge}${flagBadgesHtml}</p>
+      <h3>${esc(full)}</h3>
+      ${typeBadge ? `<div style="margin-top:3px">${typeBadge}</div>` : ''}
+      <p style="margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+        ${memberIdBadge}${statusBadge}${flagBadgesHtml}
+      </p>
       ${listInfoHtml}
     </div>
     <div class="chevron">▼</div>
   </div>
   ${actionBtns}
   <div class="card-body">
-    ${detailSectionHtml}
-    ${contactsHtml}
     ${flagsPanelHtml}
-    ${tagsHtml}
-    ${attHtml}
-    ${activityHtml}
+    <div class="card-section" data-sec="details"${defaultSection !== 'details' ? ' style="display:none"' : ''}>${detailSectionHtml || '<div class="detail-section"><span style="font-size:13px;color:var(--muted)">No additional details configured.</span></div>'}</div>
+    <div class="card-section" data-sec="contacts"${defaultSection !== 'contacts' ? ' style="display:none"' : ''}>${contactsHtml || '<div class="detail-section"><span style="font-size:13px;color:var(--muted)">No contacts on record.</span></div>'}</div>
+    <div class="card-section" data-sec="attendance"${defaultSection !== 'attendance' ? ' style="display:none"' : ''}>${attHtml}</div>
+    <div class="card-section" data-sec="activity"${defaultSection !== 'activity' ? ' style="display:none"' : ''}>${activityHtml}</div>
+    <div class="card-section" data-sec="tags"${defaultSection !== 'tags' ? ' style="display:none"' : ''}>${tagsHtml}</div>
     ${permDeleteHtml}
   </div>
 </div>`;
@@ -730,28 +817,48 @@
 
   function toggleCard(idx) {
     const card = document.getElementById('mc' + idx);
+    const wasExpanded = card.classList.contains('expanded');
     card.classList.toggle('expanded');
-    if (card.classList.contains('expanded')) {
+    if (!wasExpanded) {
+      const memberId = card.dataset.memberId;
+      // Log every view — repeated opens within a session are intentionally recorded
+      // as they may be relevant evidence of data access patterns.
+      apiFetch(`/api/members/${memberId}/viewed`, { method: 'POST' }).catch(() => {});
+      // Lazy-load whichever section is currently selected
+      const selEl = document.getElementById('sec-sel-' + memberId);
+      switchSection(parseInt(memberId), selEl ? selEl.value : 'details');
+    }
+  }
+
+  function switchSection(memberId, section) {
+    const card = document.querySelector(`.member-card[data-member-id="${memberId}"]`);
+    if (!card) return;
+
+    // Auto-expand if the card is still collapsed
+    if (!card.classList.contains('expanded')) {
+      card.classList.add('expanded');
+      apiFetch(`/api/members/${memberId}/viewed`, { method: 'POST' }).catch(() => {});
+    }
+
+    card.querySelectorAll('.card-section').forEach(s => { s.style.display = 'none'; });
+    const target = card.querySelector(`.card-section[data-sec="${section}"]`);
+    if (target) target.style.display = '';
+
+    // Lazy-load section data on first access
+    if (section === 'attendance') {
       const attDiv = card.querySelector('[id^="att-"]');
-      if (attDiv) {
-        const memberId = attDiv.id.replace('att-', '');
-        // Log every view — repeated opens within a session are intentionally recorded
-        // as they may be relevant evidence of data access patterns.
-        apiFetch(`/api/members/${memberId}/viewed`, { method: 'POST' }).catch(() => {});
-        // Lazy-load attendance history on first open only
-        if (attDiv.textContent.trim() === 'Loading…') {
-          loadAttendanceHistory(memberId, attDiv);
-        }
-        // Lazy-load tag badges on first open only
-        const tagsEl = document.getElementById('member-tags-detail-' + memberId);
-        if (tagsEl && !tagsEl.dataset.loaded) {
-          loadDetailCardTags(memberId, tagsEl);
-        }
-        // Lazy-load activity on first open only
-        const actEl = document.getElementById('activity-' + memberId);
-        if (actEl && actEl.textContent.trim() === 'Loading…') {
-          loadMemberActivity(memberId, actEl);
-        }
+      if (attDiv && attDiv.textContent.trim() === 'Loading…') {
+        loadAttendanceHistory(memberId, attDiv);
+      }
+    } else if (section === 'activity') {
+      const actEl = card.querySelector('[id^="activity-"]');
+      if (actEl && actEl.textContent.trim() === 'Loading…') {
+        loadMemberActivity(memberId, actEl);
+      }
+    } else if (section === 'tags') {
+      const tagsEl = card.querySelector('[id^="member-tags-detail-"]');
+      if (tagsEl && !tagsEl.dataset.loaded) {
+        loadDetailCardTags(memberId, tagsEl);
       }
     }
   }
@@ -1407,12 +1514,39 @@
   /* Inactive cards are subtly indicated */
   .inactive-card { opacity: .82; }
   .inactive-card .card-head { background: #fefce8; }
-  /* Action buttons sit below the name row so long names always have full width */
+  /* Action buttons bar — always visible below the card head */
   .card-actions {
     display: flex;
+    align-items: center;
     gap: 6px;
-    padding: 0 14px 11px 14px;
+    padding: 8px 14px;
     border-bottom: 1px solid var(--border);
   }
+  /* Pin button and select to the same 30px height so they align perfectly */
+  .card-actions .btn-sm {
+    height: 30px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+  }
+  /* Section nav select in card-actions bar */
+  .card-section-select {
+    font-family: 'Nunito', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    height: 30px;
+    padding: 0 8px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color .15s;
+  }
+  .card-section-select:hover,
+  .card-section-select:focus { border-color: var(--accent); }
 </style>
 {% endblock %}

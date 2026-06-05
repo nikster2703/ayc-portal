@@ -212,7 +212,7 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   margin-bottom: 22px;
   flex-wrap: wrap;
 }
-.search-wrap { position: relative; flex: 1; min-width: 200px; }
+.search-wrap { position: relative; flex: 0 1 260px; min-width: 160px; }
 .search-icon {
   position: absolute; left: 14px; top: 50%;
   transform: translateY(-50%);
@@ -283,15 +283,23 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
 .count-pill.showing-all { background: var(--accent); color: white; }
 
 /* ─── MEMBER CARDS ───────────────────────────────── */
+/* Flex-column layout — each column is independent so expanding a card
+   only shifts cards below it in the same column, not across the whole row */
 .members-grid {
-  display: grid;
-  /* Below desktop: fill with 280px minimum cards */
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: flex;
   gap: 12px;
+  align-items: flex-start;
 }
-/* Desktop and above: exactly 4 columns, cards grow with viewport */
+.member-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+/* Desktop and above: JS supplies 4 columns (getColCount) */
 @media (min-width: 1200px) {
-  .members-grid { grid-template-columns: repeat(4, 1fr); }
+  .members-grid { gap: 12px; }
 }
 .member-card {
   background: white;
@@ -330,13 +338,13 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   /* Allow name to wrap — no truncation */
   white-space: normal; overflow: visible; word-break: break-word;
 }
-/* Member ID pill — sits below the name on its own line */
+/* Member ID pill */
 .card-member-id {
   display: inline-block;
   font-family: monospace; font-size: 11px; font-weight: 600;
   color: var(--muted); background: #f1f5f9;
-  border: 1px solid var(--border); border-radius: 4px;
-  padding: 1px 6px; margin-top: 3px;
+  border: 1px solid var(--border); border-radius: 20px;
+  padding: 1px 8px;
 }
 .card-name-wrap p { font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
 .chevron { color: var(--muted); font-size: 12px; transition: transform .2s; flex-shrink: 0; margin-top: 4px; }
@@ -674,8 +682,8 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   }
   .nav-icon      { font-size: 14px; }
 
-  /* Member grid — 2 columns */
-  .members-grid  { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  /* Member grid — 2 columns (JS: getColCount returns 2 at this width) */
+  .members-grid  { gap: 10px; }
 
   /* Toolbar */
   .toolbar       { gap: 8px; }
@@ -699,8 +707,9 @@ body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(-
   .nav-link      { padding: 10px 14px; }
   .brand-label   { display: none; }
 
-  /* Member grid — single column */
-  .members-grid  { grid-template-columns: 1fr; }
+  /* Member grid — single column (JS: getColCount returns 1 at this width) */
+  .members-grid  { gap: 8px; }
+  .member-col    { gap: 8px; }
 
   /* Detail grid — single column */
   .dg            { grid-template-columns: 1fr; }

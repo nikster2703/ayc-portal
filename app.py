@@ -1,5 +1,5 @@
 """
-AYC Portal — Application factory  v10.0
+AYC Portal — Application factory  v11.0
 Phases 1–8: Auth, members, audit, user admin, approvals, register,
             documents, comms, term calendar, staff registrations,
             configurable Roles + Permissions, Member Alert Rules,

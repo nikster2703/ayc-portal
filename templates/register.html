@@ -252,6 +252,22 @@
   </div>
 </div>
 
+<!-- ── Register search filter ─────────────────────────────────── -->
+<div id="reg-search-wrap" style="display:none;position:relative;margin-bottom:14px;max-width:300px">
+  <svg style="position:absolute;left:11px;top:50%;transform:translateY(-50%);
+              color:var(--muted);pointer-events:none"
+       width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+  </svg>
+  <input id="reg-search" type="search" placeholder="Filter by name…"
+         oninput="filterRegister()"
+         style="width:100%;padding:8px 14px 8px 34px;border:2px solid var(--border);
+                border-radius:10px;font-family:'Nunito',sans-serif;font-size:14px;
+                outline:none;background:white;transition:border-color .18s;box-sizing:border-box"
+         onfocus="this.style.borderColor='var(--accent)'"
+         onblur="this.style.borderColor='var(--border)'">
+</div>
+
 <!-- ── Register grid ──────────────────────────────────────────── -->
 <div id="register-container">
   <div class="loading-state"><div class="spinner"></div><p>Loading register…</p></div>
@@ -668,6 +684,11 @@
   function renderRegister(members, sess, date) {
     const container = document.getElementById('register-container');
 
+    // Reset search on every render
+    const _srch = document.getElementById('reg-search');
+    if (_srch) _srch.value = '';
+    document.getElementById('reg-search-wrap').style.display = 'none';
+
     if (!members.length) {
       container.innerHTML =
         `<div class="empty-state">No members found for the ${esc(sess)} session.</div>`;
@@ -714,6 +735,38 @@
 
     html += '</div>';
     container.innerHTML = html;
+    document.getElementById('reg-search-wrap').style.display = '';
+  }
+
+  /* ── Register name filter ───────────────────────────────────── */
+  function filterRegister() {
+    const q = (document.getElementById('reg-search').value || '').trim().toLowerCase();
+    const container = document.getElementById('register-container');
+    if (!container) return;
+
+    const cards = container.querySelectorAll('.reg-card');
+    cards.forEach(card => {
+      const match = !q || (card.dataset.name || '').includes(q);
+      card.style.display = match ? '' : 'none';
+    });
+
+    // Hide a group header if every card beneath it is hidden
+    const grid = container.querySelector('.reg-grid');
+    if (!grid) return;
+    const children = Array.from(grid.children);
+    children.forEach((el, i) => {
+      if (!el.classList.contains('reg-group-header')) return;
+      // Find all reg-cards until the next header
+      let hasVisible = false;
+      for (let j = i + 1; j < children.length; j++) {
+        if (children[j].classList.contains('reg-group-header')) break;
+        if (children[j].classList.contains('reg-card') && children[j].style.display !== 'none') {
+          hasVisible = true;
+          break;
+        }
+      }
+      el.style.display = hasVisible ? '' : 'none';
+    });
   }
 
   /* ── Render a single value for a field (compact card format) ── */
@@ -815,7 +868,7 @@
     }
 
     return `
-      <div class="reg-card ${stateClass} ${unaShade}" id="card-${m.id}">
+      <div class="reg-card ${stateClass} ${unaShade}" id="card-${m.id}" data-name="${(m.first_name + ' ' + m.surname).toLowerCase()}">
         ${unaFlag}
         <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
         ${tagBadges ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:3px 0">${tagBadges}</div>` : ''}
