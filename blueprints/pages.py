@@ -414,6 +414,12 @@ def tags_page():
     return render_template('admin/tags.html', active_page='settings', **tpl_ctx())
 
 
+@bp.route('/admin/member-statuses')
+@permission_required('admin.settings')
+def member_statuses_page():
+    return render_template('admin/member_statuses.html', active_page='settings', **tpl_ctx())
+
+
 @bp.route('/admin/document-categories')
 @permission_required('admin.settings')
 def document_categories_page():

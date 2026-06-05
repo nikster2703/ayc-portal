@@ -124,6 +124,12 @@
   <div class="settings-grid">
 
     {% if 'admin.settings' in user_permissions %}
+    <a href="/admin/member-statuses" class="settings-card">
+      <div class="settings-card__icon">🔄</div>
+      <div class="settings-card__title">Member Statuses</div>
+      <div class="settings-card__desc">Define the statuses available to members — Active, Inactive, Leaver, and any custom statuses your organisation needs. Each maps to a behaviour that controls register, alerts, and QR sign-in access.</div>
+    </a>
+
     <a href="/admin/tags" class="settings-card">
       <div class="settings-card__icon">🎖</div>
       <div class="settings-card__title">Skills &amp; Badges</div>

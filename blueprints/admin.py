@@ -824,6 +824,130 @@ def api_tags_reorder():
     return jsonify({'success': True})
 
 
+# ── Member statuses CRUD ──────────────────────────────────────────────────────
+
+@bp.route('/api/admin/member-statuses', methods=['GET'])
+@permission_required('admin.settings')
+def api_admin_member_statuses_list():
+    db   = get_db()
+    rows = db.execute(
+        'SELECT * FROM member_statuses ORDER BY sort_order, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@bp.route('/api/admin/member-statuses', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_member_statuses_create():
+    data      = request.get_json() or {}
+    name      = data.get('name', '').strip()
+    behaviour = data.get('behaviour', '').strip()
+    colour, col_err = _validate_hex_colour(data.get('colour', ''), '#64748b')
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    if behaviour not in ('active', 'inactive', 'leaver'):
+        return jsonify({'error': 'Behaviour must be active, inactive, or leaver'}), 400
+    if col_err:
+        return jsonify({'error': col_err}), 400
+
+    db        = get_db()
+    max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM member_statuses').fetchone()[0]
+    try:
+        cur = db.execute(
+            'INSERT INTO member_statuses (name, behaviour, colour, sort_order, is_default, is_protected) '
+            'VALUES (?,?,?,?,0,0)',
+            (name, behaviour, colour, max_order + 1)
+        )
+        db.commit()
+        log_action('create_member_status', 'member_statuses', cur.lastrowid,
+                   {'name': name, 'behaviour': behaviour})
+        return jsonify(dict(db.execute(
+            'SELECT * FROM member_statuses WHERE id = ?', (cur.lastrowid,)
+        ).fetchone())), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A status named "{name}" already exists'}), 409
+
+
+@bp.route('/api/admin/member-statuses/<int:status_id>', methods=['PUT'])
+@permission_required('admin.settings')
+def api_admin_member_statuses_update(status_id):
+    db  = get_db()
+    row = db.execute('SELECT * FROM member_statuses WHERE id = ?', (status_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Status not found'}), 404
+
+    data      = request.get_json() or {}
+    name      = data.get('name', row['name']).strip()
+    colour, col_err = _validate_hex_colour(data.get('colour', row['colour']), row['colour'])
+    sort_order = int(data.get('sort_order', row['sort_order']))
+
+    # Protected statuses cannot be renamed or have their behaviour changed
+    if row['is_protected']:
+        name = row['name']  # silently keep original name
+
+    behaviour = row['behaviour']  # behaviour is fixed after creation
+    if not row['is_protected']:
+        _beh = data.get('behaviour', row['behaviour']).strip()
+        if _beh in ('active', 'inactive', 'leaver'):
+            behaviour = _beh
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    if col_err:
+        return jsonify({'error': col_err}), 400
+
+    try:
+        db.execute(
+            'UPDATE member_statuses SET name=?, behaviour=?, colour=?, sort_order=? WHERE id=?',
+            (name, behaviour, colour, sort_order, status_id)
+        )
+        db.commit()
+        log_action('update_member_status', 'member_statuses', status_id,
+                   {'name': name, 'behaviour': behaviour, 'colour': colour})
+        return jsonify(dict(db.execute(
+            'SELECT * FROM member_statuses WHERE id = ?', (status_id,)
+        ).fetchone()))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A status named "{name}" already exists'}), 409
+
+
+@bp.route('/api/admin/member-statuses/<int:status_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_admin_member_statuses_delete(status_id):
+    db  = get_db()
+    row = db.execute('SELECT * FROM member_statuses WHERE id = ?', (status_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Status not found'}), 404
+    if row['is_protected']:
+        return jsonify({'error': f'"{row["name"]}" is a protected status and cannot be deleted'}), 400
+
+    # Refuse if any members currently have this status
+    member_count = db.execute(
+        'SELECT COUNT(*) FROM members WHERE status = ?', (row['name'],)
+    ).fetchone()[0]
+    if member_count:
+        return jsonify({'error': f'{member_count} member{"s" if member_count != 1 else ""} '
+                                  f'currently have this status — reassign them first'}), 400
+
+    db.execute('DELETE FROM member_statuses WHERE id = ?', (status_id,))
+    db.commit()
+    log_action('delete_member_status', 'member_statuses', status_id, {'name': row['name']})
+    return jsonify({'success': True})
+
+
+@bp.route('/api/admin/member-statuses/reorder', methods=['POST'])
+@permission_required('admin.settings')
+def api_admin_member_statuses_reorder():
+    items = request.get_json() or []
+    db    = get_db()
+    for item in items:
+        db.execute('UPDATE member_statuses SET sort_order = ? WHERE id = ?',
+                   (item.get('sort_order', 0), item.get('id')))
+    db.commit()
+    return jsonify({'success': True})
+
+
 # ── Member types CRUD ─────────────────────────────────────────────────────────
 
 def _slugify(text):
@@ -1773,8 +1897,15 @@ def api_import_run():
                     elif field_key == 'status':
                         _s = str(val).strip()
                         if _s:
-                            _STATUS_MAP = {'active': 'Active', 'inactive': 'Inactive', 'leaver': 'Leaver'}
-                            core[field_key] = _STATUS_MAP.get(_s.lower(), _s)
+                            # Build a case-insensitive map from the member_statuses table
+                            _valid = {r['name'].lower(): r['name'] for r in db.execute(
+                                'SELECT name FROM member_statuses'
+                            ).fetchall()}
+                            _matched = _valid.get(_s.lower())
+                            if _matched:
+                                core[field_key] = _matched
+                            # Unknown status values are silently ignored; the default ('Active')
+                            # is applied at INSERT time. Import warnings are surfaced via not_imported.
                     else:
                         core[field_key] = str(val).strip()
                 elif field_key in custom_fields:

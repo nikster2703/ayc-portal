@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v10.21'  # v10.21: Member activity timeline on card; comms status filter dynamic from API; flag filter dropdown on members page
+APP_VERSION = 'v10.22'  # v10.22: Phase B — admin CRUD for member_statuses, Member Statuses settings page, CSV import uses DB status lookup
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

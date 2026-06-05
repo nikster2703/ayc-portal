@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Member Statuses{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🔄 Member Statuses</h1>
+</div>
+
+<div class="form-card" style="max-width:680px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Manage Member Statuses
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:6px">
+    Define the statuses available to members. Each status maps to one of three
+    <strong>behaviours</strong> that control how the system treats the member —
+    whether they appear on the register, receive alerts, and how they're counted.
+  </p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+    <span style="font-size:12px;padding:3px 10px;border-radius:20px;
+                 background:#22c55e20;color:#22c55e;border:1px solid #22c55e40;font-weight:700">
+      active — on register, alerts, QR sign-in
+    </span>
+    <span style="font-size:12px;padding:3px 10px;border-radius:20px;
+                 background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40;font-weight:700">
+      inactive — hidden from register and QR
+    </span>
+    <span style="font-size:12px;padding:3px 10px;border-radius:20px;
+                 background:#ef444420;color:#ef4444;border:1px solid #ef444440;font-weight:700">
+      leaver — permanently off register
+    </span>
+  </div>
+
+  <div id="statuses-list" style="margin-bottom:20px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:16px">
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add Status</button>
+  </div>
+</div>
+
+<!-- ── Add / Edit modal ──────────────────────────────────────────────────── -->
+<div id="status-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:460px">
+    <h2 id="modal-title">Add Status</h2>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Name</label>
+      <input id="ms-name" class="form-input" placeholder="e.g. Suspended" maxlength="60">
+      <p id="ms-name-locked" style="display:none;font-size:12px;color:var(--muted);margin-top:4px">
+        🔒 This is a protected status — its name cannot be changed.
+      </p>
+    </div>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Behaviour</label>
+      <select id="ms-behaviour" class="form-input">
+        <option value="active">active — on register, alerts, QR sign-in</option>
+        <option value="inactive">inactive — hidden from register and QR</option>
+        <option value="leaver">leaver — permanently off register</option>
+      </select>
+      <p id="ms-behaviour-locked" style="display:none;font-size:12px;color:var(--muted);margin-top:4px">
+        🔒 Behaviour is fixed on protected statuses.
+      </p>
+    </div>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Badge colour</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <div id="ms-colour-swatches" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <input type="color" id="ms-colour" value="#64748b"
+               oninput="syncColourFromPicker()"
+               style="width:36px;height:36px;border:none;background:none;cursor:pointer;padding:0">
+        <span id="ms-colour-preview"
+              style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;
+                     background:#64748b20;color:#64748b;border:1.5px solid #64748b40">
+          Preview
+        </span>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button id="modal-save-btn" class="btn btn-primary" onclick="saveStatus()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let _statuses  = [];
+  let _editingId = null;
+
+  const PRESETS = [
+    '#22c55e', '#f59e0b', '#ef4444', '#3b82f6',
+    '#8b5cf6', '#ec4899', '#14b8a6', '#f97316',
+    '#64748b', '#1e3a5f',
+  ];
+
+  const BEH_LABELS = {
+    active:   { label: 'active',   bg: '#22c55e20', colour: '#22c55e', border: '#22c55e40' },
+    inactive: { label: 'inactive', bg: '#f59e0b20', colour: '#f59e0b', border: '#f59e0b40' },
+    leaver:   { label: 'leaver',   bg: '#ef444420', colour: '#ef4444', border: '#ef444440' },
+  };
+
+  /* ── Boot ──────────────────────────────────────────────────── */
+  (function init() {
+    const sw = document.getElementById('ms-colour-swatches');
+    PRESETS.forEach(hex => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.style.cssText =
+        `width:24px;height:24px;border-radius:50%;background:${hex};
+         border:2px solid transparent;cursor:pointer;flex-shrink:0`;
+      btn.title = hex;
+      btn.onclick = () => setColour(hex);
+      sw.appendChild(btn);
+    });
+    loadStatuses();
+  })();
+
+  /* ── Colour helpers ────────────────────────────────────────── */
+  function setColour(hex) {
+    document.getElementById('ms-colour').value = hex;
+    updateColourPreview(hex);
+    document.querySelectorAll('#ms-colour-swatches button').forEach(b => {
+      b.style.border = b.title === hex ? '2px solid #1e3a5f' : '2px solid transparent';
+    });
+  }
+
+  function syncColourFromPicker() {
+    const hex = document.getElementById('ms-colour').value;
+    updateColourPreview(hex);
+    document.querySelectorAll('#ms-colour-swatches button').forEach(b => {
+      b.style.border = '2px solid transparent';
+    });
+  }
+
+  function updateColourPreview(hex) {
+    const prev = document.getElementById('ms-colour-preview');
+    prev.style.background   = hex + '20';
+    prev.style.color        = hex;
+    prev.style.borderColor  = hex + '40';
+  }
+
+  /* ── Load & render ─────────────────────────────────────────── */
+  async function loadStatuses() {
+    const el = document.getElementById('statuses-list');
+    try {
+      _statuses = await apiFetch('/api/admin/member-statuses');
+      renderStatuses();
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load statuses: ${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderStatuses() {
+    const el = document.getElementById('statuses-list');
+    if (!_statuses.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px">No statuses defined.</p>';
+      return;
+    }
+    el.innerHTML = _statuses.map(s => {
+      const beh  = BEH_LABELS[s.behaviour] || BEH_LABELS.active;
+      const drag = s.is_protected ? '' :
+        `draggable="true"
+         ondragstart="onDragStart(event,${s.id})"
+         ondragover="onDragOver(event)"
+         ondrop="onDrop(event,${s.id})"
+         ondragend="onDragEnd()"`;
+      return `
+      <div id="sr-${s.id}" data-id="${s.id}" ${drag}
+           style="display:flex;align-items:center;gap:10px;padding:11px 8px;
+                  border-bottom:1px solid var(--border);border-radius:6px;
+                  transition:background .15s">
+        <span style="color:${s.is_protected ? 'var(--border)' : 'var(--muted)'};
+                     cursor:${s.is_protected ? 'default' : 'grab'};font-size:16px"
+              title="${s.is_protected ? 'Protected — cannot reorder' : 'Drag to reorder'}">⠿</span>
+
+        <!-- Colour swatch -->
+        <span style="width:14px;height:14px;border-radius:50%;flex-shrink:0;
+                     background:${esc(s.colour)};border:2px solid ${esc(s.colour)}44"></span>
+
+        <!-- Name -->
+        <span style="font-weight:700;font-size:14px;color:var(--navy);flex:1">
+          ${esc(s.name)}
+          ${s.is_protected ? '<span style="font-size:11px;color:var(--muted);font-weight:500"> 🔒 protected</span>' : ''}
+        </span>
+
+        <!-- Behaviour badge -->
+        <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;
+                     background:${beh.bg};color:${beh.colour};border:1px solid ${beh.border};
+                     white-space:nowrap">
+          ${beh.label}
+        </span>
+
+        <!-- Live badge preview -->
+        <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;
+                     background:${esc(s.colour)}22;color:${esc(s.colour)};
+                     border:1.5px solid ${esc(s.colour)}55;white-space:nowrap">
+          ${esc(s.name)}
+        </span>
+
+        <button class="btn btn-ghost btn-sm" onclick="openEditModal(${s.id})">Edit</button>
+        ${s.is_protected
+          ? `<button class="btn btn-ghost btn-sm" disabled style="opacity:.35;cursor:not-allowed" title="Protected status cannot be deleted">Delete</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="deleteStatus(${s.id},'${esc(s.name)}')"
+                    style="color:var(--red)">Delete</button>`}
+      </div>`;
+    }).join('');
+  }
+
+  /* ── Modal ─────────────────────────────────────────────────── */
+  function openAddModal() {
+    _editingId = null;
+    document.getElementById('modal-title').textContent      = 'Add Status';
+    document.getElementById('ms-name').value                = '';
+    document.getElementById('ms-name').disabled             = false;
+    document.getElementById('ms-name-locked').style.display = 'none';
+    document.getElementById('ms-behaviour').value           = 'active';
+    document.getElementById('ms-behaviour').disabled        = false;
+    document.getElementById('ms-behaviour-locked').style.display = 'none';
+    document.getElementById('modal-save-btn').textContent   = 'Add';
+    setColour('#64748b');
+    document.getElementById('status-modal').classList.add('open');
+    document.getElementById('ms-name').focus();
+  }
+
+  function openEditModal(id) {
+    const s = _statuses.find(x => x.id === id);
+    if (!s) return;
+    _editingId = id;
+
+    const protected_ = !!s.is_protected;
+    document.getElementById('modal-title').textContent      = `Edit: ${s.name}`;
+    document.getElementById('ms-name').value                = s.name;
+    document.getElementById('ms-name').disabled             = protected_;
+    document.getElementById('ms-name-locked').style.display = protected_ ? '' : 'none';
+    document.getElementById('ms-behaviour').value           = s.behaviour;
+    document.getElementById('ms-behaviour').disabled        = protected_;
+    document.getElementById('ms-behaviour-locked').style.display = protected_ ? '' : 'none';
+    document.getElementById('modal-save-btn').textContent   = 'Save Changes';
+    setColour(s.colour || '#64748b');
+    document.getElementById('status-modal').classList.add('open');
+    document.getElementById(protected_ ? 'ms-colour' : 'ms-name').focus();
+  }
+
+  function closeModal() {
+    document.getElementById('status-modal').classList.remove('open');
+    _editingId = null;
+  }
+
+  async function saveStatus() {
+    const name      = document.getElementById('ms-name').value.trim();
+    const behaviour = document.getElementById('ms-behaviour').value;
+    const colour    = document.getElementById('ms-colour').value;
+
+    if (!_editingId && !name) { showToast('Please enter a name.', true); return; }
+
+    const btn = document.getElementById('modal-save-btn');
+    btn.disabled = true;
+    try {
+      if (_editingId) {
+        await apiFetch(`/api/admin/member-statuses/${_editingId}`, {
+          method: 'PUT',
+          body:   JSON.stringify({ name, behaviour, colour }),
+        });
+        showToast('Status updated.');
+      } else {
+        await apiFetch('/api/admin/member-statuses', {
+          method: 'POST',
+          body:   JSON.stringify({ name, behaviour, colour }),
+        });
+        showToast(`"${name}" added.`);
+      }
+      closeModal();
+      loadStatuses();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteStatus(id, name) {
+    if (!confirm(`Delete the "${name}" status?\n\nThis cannot be undone. Any members currently assigned this status must be reassigned first.`)) return;
+    try {
+      await apiFetch(`/api/admin/member-statuses/${id}`, { method: 'DELETE' });
+      showToast(`"${name}" deleted.`);
+      loadStatuses();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Drag-to-reorder ───────────────────────────────────────── */
+  let _dragId = null;
+
+  function onDragStart(e, id) {
+    _dragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.4';
+  }
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.style.background = 'var(--cream)';
+  }
+  function onDragEnd() {
+    document.querySelectorAll('[id^="sr-"]').forEach(el => {
+      el.style.background = 'transparent';
+      el.style.opacity    = '1';
+    });
+  }
+  async function onDrop(e, targetId) {
+    e.preventDefault();
+    if (_dragId === targetId) return;
+    e.currentTarget.style.background = 'transparent';
+
+    const fromIdx = _statuses.findIndex(s => s.id === _dragId);
+    const toIdx   = _statuses.findIndex(s => s.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [moved] = _statuses.splice(fromIdx, 1);
+    _statuses.splice(toIdx, 0, moved);
+    _statuses.forEach((s, i) => s.sort_order = i);
+    renderStatuses();
+
+    try {
+      await apiFetch('/api/admin/member-statuses/reorder', {
+        method: 'POST',
+        body:   JSON.stringify(_statuses.map((s, i) => ({ id: s.id, sort_order: i }))),
+      });
+    } catch (e) {
+      showToast('Could not save order: ' + e.message, true);
+    }
+  }
+</script>
+{% endblock %}
