@@ -3,7 +3,19 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>📁 Document Repository</h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1 style="margin:0">📁 Document Repository</h1>
+    <select id="cat-select"
+            onchange="switchCat(this.value)"
+            style="padding:6px 10px;border:2px solid var(--border);
+                   border-radius:8px;font-family:'Nunito',sans-serif;font-size:13px;
+                   font-weight:700;color:var(--navy);background:white;cursor:pointer;
+                   outline:none;transition:border-color .15s"
+            onfocus="this.style.borderColor='var(--accent)'"
+            onblur="this.style.borderColor='var(--border)'">
+      <option value="all">All Categories</option>
+    </select>
+  </div>
   {% if 'documents.upload' in user_permissions %}
   <button class="btn btn-primary" onclick="openUploadModal()">⬆️ Upload Document</button>
   {% endif %}
@@ -48,7 +60,7 @@
   </button>
   <button class="btn btn-ghost btn-sm" id="clear-filters-btn" style="display:none"
           onclick="clearAllFilters()">✕ Clear filters</button>
-  <div id="cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto"></div>
+  <button class="btn btn-ghost btn-sm" id="compact-toggle-btn" onclick="toggleCompact()" title="Toggle compact view">⊟ Compact</button>
 </div>
 
 <!-- ── Condition query builder ──────────────────────────────── -->
@@ -181,9 +193,9 @@
   const CAN_UPLOAD = USER_PERMS.has('documents.upload');
   const CAN_DELETE = USER_PERMS.has('documents.delete');
 
-  const EXT_ICONS = {
-    pdf:'🔴', docx:'🔵', doc:'🔵', xlsx:'🟢', xls:'🟢',
-    jpg:'🟡', jpeg:'🟡', png:'🟡',
+  const EXT_LABELS = {
+    pdf:'PDF', docx:'Word', doc:'Word', xlsx:'Excel', xls:'Excel',
+    jpg:'Image', jpeg:'Image', png:'Image',
   };
 
   let allDocs        = [];   // current result set (may be filtered server-side)
@@ -192,6 +204,7 @@
   let allMembers     = [];   // for member_ref pickers
   let currentCat     = 'all';
   let filtersVisible = false;
+  let _compactMode   = false;
   let catMetaFields  = [];   // field defs for currently selected category
   let _condId        = 0;    // unique row counter for condition builder
 
@@ -237,22 +250,20 @@
   }
   init();
 
-  /* ── Category tabs ──────────────────────────────────────── */
+  /* ── Category dropdown ──────────────────────────────────── */
   function buildCatTabs() {
-    const wrap = document.getElementById('cat-tabs');
-    const tabs = [{ id: 'all', name: 'All', icon: '' }, ...allCategories];
-    wrap.innerHTML = tabs.map(c => `
-      <button class="tab-btn ${(c.id||c.name) === currentCat || (currentCat==='all' && c.id==='all') ? 'active' : ''}"
-              data-cat="${c.id ?? c.name}"
-              onclick='switchCat(${JSON.stringify(String(c.id ?? c.name))})'>
-        ${c.icon ? c.icon + ' ' : ''}${esc(c.name)}
-      </button>`).join('');
+    const sel = document.getElementById('cat-select');
+    // Clear all options except the first "All Categories" option
+    while (sel.options.length > 1) sel.remove(1);
+    allCategories.forEach(c => {
+      const opt = new Option(`${c.icon ? c.icon + ' ' : ''}${c.name}`, String(c.id ?? c.name));
+      sel.add(opt);
+    });
+    sel.value = currentCat;
   }
 
   function switchCat(cat) {
     currentCat = cat;
-    document.querySelectorAll('.tab-btn[data-cat]').forEach(b =>
-      b.classList.toggle('active', b.dataset.cat === cat));
     const catId = cat === 'all' ? null : (allCategories.find(c => String(c.id) === cat || c.name === cat)?.id ?? null);
     updateMetaFields(catId);
     runSearch();
@@ -472,16 +483,19 @@
       .sort(([a],[b]) => (order[a]||9999) - (order[b]||9999) || a.localeCompare(b))
       .map(([cat, docs]) => {
         const catObj = allCategories.find(c => c.name === cat) || {};
+        const inner  = _compactMode
+          ? `<div class="doc-compact-list">${docs.map(docCompactRow).join('')}</div>`
+          : `<div class="doc-grid">${docs.map(docCard).join('')}</div>`;
         return `<div style="margin-bottom:28px">
           <div class="dash-section-title">${catObj.icon||'📄'} ${esc(cat)}</div>
-          <div class="doc-grid">${docs.map(docCard).join('')}</div>
+          ${inner}
         </div>`;
       }).join('');
   }
 
   function docCard(d) {
     const ext      = (d.filename||'').split('.').pop().toLowerCase();
-    const icon     = EXT_ICONS[ext] || '📄';
+    const extLabel = EXT_LABELS[ext] || ext.toUpperCase() || 'File';
     const upDate   = d.created_at
       ? new Date(d.created_at+'Z').toLocaleDateString('en-GB') : '—';
     const today    = new Date().toISOString().slice(0,10);
@@ -502,10 +516,12 @@
 
     return `
       <div class="doc-card">
-        <div class="doc-icon">${icon}</div>
-        <div class="doc-info">
-          <div class="doc-title">${esc(d.title)} ${locked ? '<span title="Restricted">🔒</span>' : ''}</div>
-          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${esc(d.description)}</div>` : ''}
+        <div class="doc-body">
+          <div class="doc-title">
+            <span class="doc-ext-badge">${esc(extLabel)}</span>
+            ${esc(d.title)}${locked ? ' <span title="Restricted" style="font-size:12px">🔒</span>' : ''}
+          </div>
+          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4">${esc(d.description)}</div>` : ''}
           <div class="doc-meta">
             ${d.category_name
               ? `<span class="badge badge-ro" style="font-size:11px;background:${d.category_color||'#e2e8f0'};color:#1e293b">${d.category_icon||'📄'} ${esc(d.category_name)}</span>`
@@ -518,15 +534,86 @@
         </div>
         <div class="doc-actions">
           <a href="/api/documents/${d.id}/view"
-             class="btn btn-ghost btn-sm" target="_blank" rel="noopener">👁</a>
+             class="btn btn-ghost btn-sm" target="_blank" rel="noopener" title="View">👁</a>
           <a href="/api/documents/${d.id}/download"
-             class="btn btn-ghost btn-sm" download>⬇️</a>
-          ${CAN_UPLOAD ? `<button class="btn btn-ghost btn-sm"
+             class="btn btn-ghost btn-sm" download title="Download">⬇️</a>
+          ${CAN_UPLOAD ? `<button class="btn btn-ghost btn-sm" title="Edit"
             onclick='openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
-          ${CAN_DELETE ? `<button class="btn btn-danger btn-sm"
+          ${CAN_DELETE ? `<button class="btn btn-danger btn-sm" title="Delete"
             onclick='deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
         </div>
       </div>`;
+  }
+
+  /* ── Compact mode ───────────────────────────────────────── */
+  function toggleCompact() {
+    _compactMode = !_compactMode;
+    const btn = document.getElementById('compact-toggle-btn');
+    btn.style.background  = _compactMode ? 'var(--accent)' : '';
+    btn.style.color       = _compactMode ? 'white' : '';
+    btn.style.borderColor = _compactMode ? 'var(--accent)' : '';
+    btn.textContent       = _compactMode ? '⊞ Cards' : '⊟ Compact';
+    renderDocs(allDocs);
+  }
+
+  function docCompactRow(d) {
+    const ext      = (d.filename||'').split('.').pop().toLowerCase();
+    const extLabel = EXT_LABELS[ext] || ext.toUpperCase() || 'File';
+    const upDate   = d.created_at
+      ? new Date(d.created_at+'Z').toLocaleDateString('en-GB') : '—';
+    const today    = new Date().toISOString().slice(0,10);
+    const expired  = d.retain_until && d.retain_until <= today;
+    const expiring = d.retain_until && !expired &&
+      d.retain_until <= new Date(Date.now()+30*864e5).toISOString().slice(0,10);
+    const locked   = d.allowed_role_ids && String(d.allowed_role_ids).trim();
+    const retBadge = expired
+      ? `<span class="badge" style="background:#fef2f2;color:#991b1b;font-size:10px">⚠️ Expired</span>`
+      : expiring
+      ? `<span class="badge" style="background:#fff7ed;color:#c2410c;font-size:10px">⏳ ${fmtDate(d.retain_until)}</span>`
+      : '';
+    const metaHtml = (d.metadata||[]).slice(0,3).map(m =>
+      `<span style="font-size:11px;color:var(--muted)">${esc(m.label)}: <strong>${esc(m.display||m.value)}</strong></span>`
+    ).join(' · ');
+
+    return `
+      <div class="doc-compact-row" id="compact-row-${d.id}" onclick="toggleCompactRow(${d.id})">
+        <div class="doc-compact-summary">
+          <span class="doc-ext-badge">${esc(extLabel)}</span>
+          <span class="doc-compact-title">${esc(d.title)}${locked ? ' 🔒' : ''}</span>
+          <span class="doc-compact-meta">
+            ${d.category_name ? `<span class="badge badge-ro" style="font-size:10px;background:${d.category_color||'#e2e8f0'};color:#1e293b">${d.category_icon||'📄'} ${esc(d.category_name)}</span>` : ''}
+            <span style="color:var(--muted);font-size:11px">${upDate}</span>
+            <span style="color:var(--muted);font-size:11px">${esc(d.uploaded_by_name||'—')}</span>
+            ${retBadge}
+          </span>
+          <span class="doc-compact-chevron">▸</span>
+        </div>
+        <div class="doc-compact-detail" style="display:none">
+          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${esc(d.description)}</div>` : ''}
+          ${metaHtml ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${metaHtml}</div>` : ''}
+          <div class="doc-actions" style="border-top:none;margin-top:0;padding-top:0">
+            <a href="/api/documents/${d.id}/view"
+               class="btn btn-ghost btn-sm" target="_blank" rel="noopener" title="View">👁</a>
+            <a href="/api/documents/${d.id}/download"
+               class="btn btn-ghost btn-sm" download title="Download">⬇️</a>
+            ${CAN_UPLOAD ? `<button class="btn btn-ghost btn-sm" title="Edit"
+              onclick='event.stopPropagation();openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
+            ${CAN_DELETE ? `<button class="btn btn-danger btn-sm" title="Delete"
+              onclick='event.stopPropagation();deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function toggleCompactRow(id) {
+    const row    = document.getElementById(`compact-row-${id}`);
+    if (!row) return;
+    const detail  = row.querySelector('.doc-compact-detail');
+    const chevron = row.querySelector('.doc-compact-chevron');
+    const open    = detail.style.display !== 'none';
+    detail.style.display  = open ? 'none' : 'block';
+    chevron.textContent   = open ? '▸' : '▾';
+    row.style.background  = open ? '' : '#f8fafc';
   }
 
   /* ── Retention banner ───────────────────────────────────── */
@@ -819,19 +906,34 @@
     background: white;
     border: 2px solid var(--border);
     border-radius: 12px;
-    padding: 14px 16px;
+    padding: 12px 14px 10px;
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    flex-direction: column;
+    gap: 0;
     transition: border-color .18s;
   }
   .doc-card:hover { border-color: var(--accent); }
-  .doc-icon    { font-size: 28px; flex-shrink:0; line-height:1; margin-top:3px; }
-  .doc-info    { flex:1; min-width:0; }
-  .doc-title   { font-size:14px; font-weight:800; color:var(--navy);
-                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .doc-meta    { display:flex; align-items:center; gap:6px; margin-top:5px; flex-wrap:wrap; }
-  .doc-actions { display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
+  .doc-body    { flex:1; min-width:0; }
+  .doc-title   { font-size:13px; font-weight:800; color:var(--navy);
+                 display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+                 line-height:1.35; margin-bottom:3px; }
+  .doc-ext-badge { font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px;
+                   background:#e2e8f0; color:#475569; letter-spacing:.03em;
+                   flex-shrink:0; text-transform:uppercase; }
+  .doc-meta    { display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap; }
+  .doc-actions { display:flex; flex-direction:row; gap:4px; margin-top:8px;
+                 padding-top:8px; border-top:1px solid var(--border); }
+
+  /* Compact list mode */
+  .doc-compact-list { display:flex; flex-direction:column; gap:2px; }
+  .doc-compact-row  { border:1.5px solid var(--border); border-radius:8px;
+                      padding:8px 12px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .doc-compact-row:hover { border-color:var(--accent); }
+  .doc-compact-summary { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .doc-compact-title   { font-size:13px; font-weight:800; color:var(--navy); flex:1; min-width:0; }
+  .doc-compact-meta    { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
+  .doc-compact-chevron { font-size:11px; color:var(--muted); flex-shrink:0; transition:transform .15s; }
+  .doc-compact-detail  { padding-top:10px; margin-top:8px; border-top:1px solid var(--border); }
 
   /* Reset global .form-group input/label rules inside the roles lists */
   #upload-roles-list label,

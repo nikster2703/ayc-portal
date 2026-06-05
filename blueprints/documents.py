@@ -685,13 +685,18 @@ def api_documents_view(doc_id):
     except FileNotFoundError:
         return jsonify({'error': 'File not found on disk — it may have been lost during a server migration.'}), 404
     safe_mime = doc['mime_type'] if doc['mime_type'] in _SAFE_MIME_TYPES else 'application/octet-stream'
+    # PDFs and images are safe to display inline in the browser (no script execution risk).
+    # Everything else (Word, Excel, unknown) is forced to download to avoid any rendering
+    # quirks; HTML/SVG are already excluded from _SAFE_MIME_TYPES for XSS reasons.
+    _INLINE_TYPES = {'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+    if safe_mime in _INLINE_TYPES:
+        disposition = f'inline; filename="{doc["filename"]}"'
+    else:
+        disposition = f'attachment; filename="{doc["filename"]}"'
     return current_app.response_class(
         decrypted,
         mimetype=safe_mime,
-        # Force attachment — never serve user-uploaded content inline from the portal origin.
-        # This closes the XSS vector where an HTML file with a stored MIME of text/html
-        # would execute scripts in the browser under the portal's session context.
-        headers={'Content-Disposition': f'attachment; filename="{doc["filename"]}"'},
+        headers={'Content-Disposition': disposition},
     )
 
 
