@@ -1285,6 +1285,14 @@
         return { icon: '✅', title: `Flag dismissed: ${esc(d.rule || d.flag_label || '?')}`, note: d.note ? esc(d.note) : null };
       case 'permanent_delete_member':
         return { icon: '🗑', title: 'Record permanently deleted', note: null };
+      case 'payment_record': {
+        const amtStr = d.amount != null ? ` — £${parseFloat(d.amount).toFixed(2)}` : '';
+        return { icon: '💳', title: `Payment recorded${d.period ? ': ' + esc(d.period) : ''}${amtStr}`, note: null };
+      }
+      case 'payment_edit':
+        return { icon: '✏️', title: `Payment updated${d.period ? ': ' + esc(d.period) : ''}`, note: null };
+      case 'payment_void':
+        return { icon: '🚫', title: 'Payment voided', note: d.reason ? `Reason: ${esc(d.reason)}` : null };
       default:
         return { icon: '📋', title: esc(action.replace(/_/g, ' ')), note: null };
     }

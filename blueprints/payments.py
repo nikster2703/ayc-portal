@@ -150,7 +150,7 @@ def api_member_payments_create(member_id):
     )
     db.commit()
 
-    log_action('payment_record', 'member_payments', member_id, {
+    log_action('payment_record', 'members', member_id, {
         'payment_type_id': payment_type_id, 'period': period,
         'amount': amount, 'payment_date': payment_date,
     })
@@ -205,8 +205,8 @@ def api_payment_update(payment_id):
     )
     db.commit()
 
-    log_action('payment_edit', 'member_payments', payment_id, {
-        'member_id': pay['member_id'], 'period': period,
+    log_action('payment_edit', 'members', pay['member_id'], {
+        'payment_id': payment_id, 'period': period,
     })
 
     return jsonify({'ok': True})
@@ -233,8 +233,8 @@ def api_payment_void(payment_id):
     )
     db.commit()
 
-    log_action('payment_void', 'member_payments', payment_id, {
-        'member_id': pay['member_id'], 'reason': void_reason,
+    log_action('payment_void', 'members', pay['member_id'], {
+        'payment_id': payment_id, 'reason': void_reason,
     })
 
     return jsonify({'ok': True})

@@ -15,18 +15,22 @@
     <select class="session-select" id="action-filter" onchange="loadLog()">
       <option value="all">All actions</option>
       <optgroup label="Auth">
-        <option value="login">Logins</option>
-        <option value="logout">Logouts</option>
-        <option value="login_failed">Failed logins</option>
-        <option value="change_password">Password changes</option>
+        <option value="login">Login</option>
+        <option value="logout">Logout</option>
+        <option value="login_failed">Failed login</option>
+        <option value="change_password">Password changed</option>
+        <option value="switch_session">Session switched</option>
       </optgroup>
       <optgroup label="Members">
         <option value="view_member">Member viewed</option>
         <option value="edit_member">Member edited</option>
+        <option value="status_change">Status changed</option>
         <option value="soft_delete_member">Marked as leaver</option>
         <option value="permanent_delete_member">Permanently deleted</option>
-        <option value="reinstate_member">Reinstated</option>
-        <option value="raise_flag">Alert flag raised</option>
+        <option value="tag_add">Tag added</option>
+        <option value="tag_remove">Tag removed</option>
+      </optgroup>
+      <optgroup label="Alerts &amp; Flags">
         <option value="dismiss_flag">Flag dismissed</option>
         <option value="auto_resolve_flags">Flags auto-resolved</option>
         <option value="run_alert_rules">Alert checks run</option>
@@ -34,12 +38,10 @@
         <option value="update_alert_rule">Alert rule updated</option>
         <option value="deactivate_alert_rule">Alert rule deactivated</option>
         <option value="delete_alert_rule">Alert rule deleted</option>
-        <option value="add_member_tag">Tag added</option>
-        <option value="remove_member_tag">Tag removed</option>
       </optgroup>
       <optgroup label="Registrations">
-        <option value="approve_registration">Approved</option>
-        <option value="reject_registration">Rejected</option>
+        <option value="approve_registration">Registration approved</option>
+        <option value="reject_registration">Registration rejected</option>
       </optgroup>
       <optgroup label="Users">
         <option value="create_user">User created</option>
@@ -49,38 +51,86 @@
       <optgroup label="Register">
         <option value="register_complete">Register completed</option>
         <option value="register_reset">Register reset</option>
+        <option value="note_added">Session note added</option>
+        <option value="note_deleted">Session note deleted</option>
       </optgroup>
       <optgroup label="Calendar">
+        <option value="create_session_type">Session type created</option>
+        <option value="update_session_type">Session type updated</option>
+        <option value="delete_session_type">Session type deleted</option>
         <option value="add_term_session">Session added</option>
-        <option value="bulk_term_sessions">Bulk generated</option>
+        <option value="bulk_term_sessions">Term sessions generated</option>
         <option value="update_term_session">Session updated</option>
         <option value="delete_term_session">Session deleted</option>
       </optgroup>
       <optgroup label="Documents">
-        <option value="upload_document">Uploaded</option>
-        <option value="view_document">Viewed</option>
-        <option value="download_document">Downloaded</option>
-        <option value="delete_document">Deleted</option>
+        <option value="create_document_category">Category created</option>
+        <option value="update_document_category">Category updated</option>
+        <option value="deactivate_document_category">Category deactivated</option>
+        <option value="create_doc_field">Field created</option>
+        <option value="update_doc_field">Field updated</option>
+        <option value="delete_doc_field">Field deleted</option>
+        <option value="upload_document">Document uploaded</option>
+        <option value="update_document_access">Access updated</option>
+        <option value="update_document">Document updated</option>
+        <option value="update_doc_metadata">Metadata saved</option>
+        <option value="download_document">Document downloaded</option>
+        <option value="view_document">Document viewed</option>
+        <option value="delete_document">Document removed</option>
       </optgroup>
       <optgroup label="Email &amp; Mailshots">
         <option value="create_email_template">Template created</option>
         <option value="edit_email_template">Template edited</option>
         <option value="delete_email_template">Template deleted</option>
+        <option value="attach_to_mailshot">Attached to mailshot</option>
         <option value="send_mailshot">Mailshot sent</option>
       </optgroup>
-      <optgroup label="Documents">
-        <option value="update_document">Updated</option>
-        <option value="update_doc_metadata">Metadata saved</option>
-        <option value="delete_doc_field">Field permanently deleted</option>
-        <option value="deactivate_doc_field">Field deactivated</option>
+      <optgroup label="Payments">
+        <option value="payment_record">Payment recorded</option>
+        <option value="payment_edit">Payment edited</option>
+        <option value="payment_void">Payment voided</option>
+        <option value="setting_change">Setting updated</option>
+        <option value="payment_type_create">Payment type created</option>
+        <option value="payment_type_edit">Payment type updated</option>
+        <option value="payment_type_toggle">Payment type toggled</option>
+        <option value="payment_method_create">Payment method created</option>
+        <option value="payment_method_edit">Payment method updated</option>
+        <option value="payment_method_toggle">Payment method toggled</option>
       </optgroup>
       <optgroup label="Admin">
         <option value="update_settings">Settings updated</option>
-        <option value="create_role">Role created</option>
-        <option value="update_role">Role updated</option>
-        <option value="delete_role">Role deleted</option>
+        <option value="update_branding">Branding updated</option>
+        <option value="upload_branding_logo">Logo uploaded</option>
+        <option value="delete_branding_logo">Logo removed</option>
+        <option value="create_staff_role">Staff role created</option>
+        <option value="update_staff_role">Staff role updated</option>
+        <option value="create_role">Portal role created</option>
+        <option value="update_role">Portal role updated</option>
+        <option value="delete_role">Portal role deleted</option>
+        <option value="create_tag">Tag definition created</option>
+        <option value="update_tag">Tag definition updated</option>
+        <option value="create_member_status">Member status created</option>
+        <option value="update_member_status">Member status updated</option>
+        <option value="delete_member_status">Member status deleted</option>
+        <option value="create_member_type">Member type created</option>
+        <option value="update_member_type">Member type updated</option>
+        <option value="delete_member_type">Member type deleted</option>
+        <option value="create_field_definition">Custom field created</option>
+        <option value="update_field_definition">Custom field updated</option>
+        <option value="delete_field_definition">Custom field deleted</option>
+        <option value="assign_type_field">Field assigned to type</option>
+        <option value="remove_type_field">Field removed from type</option>
         <option value="maintenance_clear">Maintenance clear</option>
         <option value="maintenance_clear_members">All members cleared</option>
+        <option value="maintenance_backup">Database backed up</option>
+        <option value="maintenance_restore">Database restored</option>
+        <option value="import.run">Member import run</option>
+        <option value="resync_sessions_check">Session resync run</option>
+        <option value="export_members">Members exported</option>
+      </optgroup>
+      <optgroup label="Other">
+        <option value="notification.deleted">Notification deleted</option>
+        <option value="qr_token_regenerated">QR token regenerated</option>
       </optgroup>
     </select>
     <div class="count-pill" id="entry-count" style="cursor:default">—</div>
@@ -100,67 +150,112 @@
 
   const ACTION_LABELS = {
     // Auth
-    login:                   { icon: '🔑', label: 'Login',                   colour: 'var(--accent)'   },
-    logout:                  { icon: '🚪', label: 'Logout',                  colour: 'var(--muted)'  },
-    login_failed:            { icon: '🚫', label: 'Failed login',            colour: 'var(--red)'    },
-    change_password:         { icon: '🔒', label: 'Password changed',        colour: 'var(--muted)'  },
+    login:                        { icon: '🔑', label: 'Login',                          colour: 'var(--accent)'  },
+    logout:                       { icon: '🚪', label: 'Logout',                         colour: 'var(--muted)'   },
+    login_failed:                 { icon: '🚫', label: 'Failed login',                   colour: 'var(--red)'     },
+    change_password:              { icon: '🔒', label: 'Password changed',               colour: 'var(--muted)'   },
+    switch_session:               { icon: '🔄', label: 'Session switched',               colour: 'var(--muted)'   },
     // Members
-    view_member:             { icon: '👁',  label: 'Member viewed',           colour: 'var(--muted)'  },
-    edit_member:             { icon: '✏️',  label: 'Member edited',           colour: 'var(--navy)'   },
-    soft_delete_member:      { icon: '👤', label: 'Marked as leaver',        colour: 'var(--orange)' },
-    permanent_delete_member: { icon: '🗑️', label: 'Permanently deleted',     colour: 'var(--red)'    },
-    raise_flag:              { icon: '🚨', label: 'Alert flag raised',        colour: '#b45309'       },
-    dismiss_flag:            { icon: '✅', label: 'Flag dismissed',           colour: '#166534'       },
-    auto_resolve_flags:      { icon: '✅', label: 'Flags auto-resolved',      colour: '#166534'       },
-    run_alert_rules:         { icon: '🔍', label: 'Alert checks run',         colour: '#1e40af'       },
-    create_alert_rule:       { icon: '🚨', label: 'Alert rule created',       colour: '#1e40af'       },
-    update_alert_rule:       { icon: '✏️', label: 'Alert rule updated',       colour: '#1e40af'       },
-    deactivate_alert_rule:   { icon: '🗑️', label: 'Alert rule deactivated',   colour: '#b45309'       },
-    delete_alert_rule:       { icon: '🗑️', label: 'Alert rule deleted',        colour: 'var(--red)'    },
-    reinstate_member:        { icon: '✅', label: 'Member reinstated',       colour: 'var(--green)'  },
-    add_member_tag:          { icon: '🏷️', label: 'Tag added',               colour: 'var(--accent)'   },
-    remove_member_tag:       { icon: '🏷️', label: 'Tag removed',             colour: 'var(--orange)' },
+    view_member:                  { icon: '👁',  label: 'Member viewed',                  colour: 'var(--muted)'   },
+    edit_member:                  { icon: '✏️',  label: 'Member edited',                  colour: 'var(--navy)'    },
+    status_change:                { icon: '🔄', label: 'Status changed',                 colour: 'var(--navy)'    },
+    soft_delete_member:           { icon: '👤', label: 'Marked as leaver',               colour: 'var(--orange)'  },
+    permanent_delete_member:      { icon: '🗑️', label: 'Permanently deleted',            colour: 'var(--red)'     },
+    tag_add:                      { icon: '🏷️', label: 'Tag added',                      colour: 'var(--accent)'  },
+    tag_remove:                   { icon: '🏷️', label: 'Tag removed',                    colour: 'var(--orange)'  },
+    // Alerts & Flags
+    dismiss_flag:                 { icon: '✅', label: 'Flag dismissed',                 colour: '#166534'        },
+    auto_resolve_flags:           { icon: '✅', label: 'Flags auto-resolved',            colour: '#166534'        },
+    run_alert_rules:              { icon: '🔍', label: 'Alert checks run',               colour: '#1e40af'        },
+    create_alert_rule:            { icon: '🚨', label: 'Alert rule created',             colour: '#1e40af'        },
+    update_alert_rule:            { icon: '✏️', label: 'Alert rule updated',             colour: '#1e40af'        },
+    deactivate_alert_rule:        { icon: '⏸️', label: 'Alert rule deactivated',         colour: '#b45309'        },
+    delete_alert_rule:            { icon: '🗑️', label: 'Alert rule deleted',             colour: 'var(--red)'     },
     // Registrations
-    approve_registration:    { icon: '✅', label: 'Registration approved',   colour: 'var(--green)'  },
-    reject_registration:     { icon: '❌', label: 'Registration rejected',   colour: 'var(--red)'    },
+    approve_registration:         { icon: '✅', label: 'Registration approved',          colour: 'var(--green)'   },
+    reject_registration:          { icon: '❌', label: 'Registration rejected',          colour: 'var(--red)'     },
     // Users
-    create_user:             { icon: '🧑', label: 'User created',            colour: 'var(--green)'  },
-    update_user:             { icon: '✏️', label: 'User updated',            colour: 'var(--navy)'   },
-    delete_user:             { icon: '🗑️', label: 'User deleted',            colour: 'var(--red)'    },
+    create_user:                  { icon: '🧑', label: 'User created',                   colour: 'var(--green)'   },
+    update_user:                  { icon: '✏️', label: 'User updated',                   colour: 'var(--navy)'    },
+    delete_user:                  { icon: '🗑️', label: 'User deleted',                   colour: 'var(--red)'     },
     // Register / Attendance
-    register_complete:       { icon: '✔️', label: 'Register completed',      colour: 'var(--green)'  },
-    register_reset:          { icon: '↩️', label: 'Register reset',          colour: 'var(--orange)' },
+    register_complete:            { icon: '✔️', label: 'Register completed',             colour: 'var(--green)'   },
+    register_reset:               { icon: '↩️', label: 'Register reset',                 colour: 'var(--orange)'  },
+    note_added:                   { icon: '📝', label: 'Session note added',             colour: 'var(--accent)'  },
+    note_deleted:                 { icon: '📝', label: 'Session note deleted',           colour: 'var(--orange)'  },
     // Calendar
-    add_term_session:        { icon: '📅', label: 'Calendar session added',  colour: 'var(--accent)'   },
-    bulk_term_sessions:      { icon: '📅', label: 'Term sessions generated', colour: 'var(--accent)'   },
-    update_term_session:     { icon: '📅', label: 'Calendar session updated',colour: 'var(--navy)'   },
-    delete_term_session:     { icon: '📅', label: 'Calendar session deleted',colour: 'var(--red)'    },
+    create_session_type:          { icon: '📅', label: 'Session type created',           colour: 'var(--accent)'  },
+    update_session_type:          { icon: '✏️', label: 'Session type updated',           colour: 'var(--navy)'    },
+    delete_session_type:          { icon: '🗑️', label: 'Session type deleted',           colour: 'var(--red)'     },
+    add_term_session:             { icon: '📅', label: 'Calendar session added',         colour: 'var(--accent)'  },
+    bulk_term_sessions:           { icon: '📅', label: 'Term sessions generated',        colour: 'var(--accent)'  },
+    update_term_session:          { icon: '✏️', label: 'Calendar session updated',       colour: 'var(--navy)'    },
+    delete_term_session:          { icon: '🗑️', label: 'Calendar session deleted',       colour: 'var(--red)'     },
     // Documents
-    upload_document:         { icon: '📁', label: 'Document uploaded',       colour: 'var(--accent)'   },
-    view_document:           { icon: '👁', label: 'Document viewed',         colour: 'var(--muted)'  },
-    download_document:       { icon: '⬇️', label: 'Document downloaded',     colour: 'var(--muted)'  },
-    delete_document:         { icon: '🗑️', label: 'Document removed',        colour: 'var(--orange)' },
+    create_document_category:     { icon: '📁', label: 'Document category created',      colour: 'var(--accent)'  },
+    update_document_category:     { icon: '✏️', label: 'Document category updated',      colour: 'var(--navy)'    },
+    deactivate_document_category: { icon: '⏸️', label: 'Document category deactivated',  colour: 'var(--orange)'  },
+    create_doc_field:             { icon: '📝', label: 'Document field created',         colour: 'var(--accent)'  },
+    update_doc_field:             { icon: '✏️', label: 'Document field updated',         colour: 'var(--navy)'    },
+    delete_doc_field:             { icon: '🗑️', label: 'Document field deleted',         colour: 'var(--red)'     },
+    upload_document:              { icon: '📁', label: 'Document uploaded',              colour: 'var(--accent)'  },
+    update_document_access:       { icon: '🔐', label: 'Document access updated',        colour: 'var(--navy)'    },
+    update_document:              { icon: '📝', label: 'Document updated',               colour: 'var(--navy)'    },
+    update_doc_metadata:          { icon: '🏷️', label: 'Document metadata saved',        colour: 'var(--navy)'    },
+    download_document:            { icon: '⬇️', label: 'Document downloaded',            colour: 'var(--muted)'   },
+    view_document:                { icon: '👁', label: 'Document viewed',                colour: 'var(--muted)'   },
+    delete_document:              { icon: '🗑️', label: 'Document removed',               colour: 'var(--orange)'  },
     // Email & Mailshots
-    create_email_template:   { icon: '✉️',  label: 'Template created',        colour: 'var(--accent)'   },
-    edit_email_template:     { icon: '✏️',  label: 'Template edited',         colour: 'var(--navy)'   },
-    delete_email_template:   { icon: '🗑️',  label: 'Template deleted',        colour: 'var(--red)'    },
-    send_mailshot:           { icon: '📤', label: 'Mailshot sent',            colour: 'var(--accent)'   },
+    create_email_template:        { icon: '✉️',  label: 'Email template created',        colour: 'var(--accent)'  },
+    edit_email_template:          { icon: '✏️',  label: 'Email template edited',         colour: 'var(--navy)'    },
+    delete_email_template:        { icon: '🗑️',  label: 'Email template deleted',        colour: 'var(--red)'     },
+    attach_to_mailshot:           { icon: '📎', label: 'Attached to mailshot',           colour: 'var(--navy)'    },
+    send_mailshot:                { icon: '📤', label: 'Mailshot sent',                  colour: 'var(--accent)'  },
+    // Payments
+    payment_record:               { icon: '💳', label: 'Payment recorded',              colour: 'var(--green)'   },
+    payment_edit:                 { icon: '✏️', label: 'Payment edited',                colour: 'var(--navy)'    },
+    payment_void:                 { icon: '🚫', label: 'Payment voided',                colour: 'var(--red)'     },
+    setting_change:               { icon: '⚙️', label: 'Setting updated',               colour: 'var(--muted)'   },
+    payment_type_create:          { icon: '💳', label: 'Payment type created',          colour: 'var(--accent)'  },
+    payment_type_edit:            { icon: '✏️', label: 'Payment type updated',          colour: 'var(--navy)'    },
+    payment_type_toggle:          { icon: '⏸️', label: 'Payment type toggled',          colour: 'var(--orange)'  },
+    payment_method_create:        { icon: '💳', label: 'Payment method created',        colour: 'var(--accent)'  },
+    payment_method_edit:          { icon: '✏️', label: 'Payment method updated',        colour: 'var(--navy)'    },
+    payment_method_toggle:        { icon: '⏸️', label: 'Payment method toggled',        colour: 'var(--orange)'  },
     // Admin / Settings
-    update_settings:         { icon: '⚙️', label: 'Settings updated',        colour: 'var(--muted)'  },
-    create_role:             { icon: '🛡️', label: 'Role created',            colour: 'var(--accent)'   },
-    update_role:             { icon: '🛡️', label: 'Role updated',            colour: 'var(--navy)'   },
-    delete_role:             { icon: '🛡️', label: 'Role deleted',            colour: 'var(--red)'    },
-    create_tag:              { icon: '🏷️', label: 'Tag definition created',  colour: 'var(--accent)'   },
-    update_tag:              { icon: '🏷️', label: 'Tag definition updated',  colour: 'var(--navy)'   },
-    maintenance_clear:         { icon: '🧹', label: 'Maintenance clear',          colour: 'var(--orange)' },
-    maintenance_clear_members: { icon: '☠️',  label: 'All members cleared',       colour: 'var(--red)'    },
-    update_document:           { icon: '📝', label: 'Document updated',           colour: 'var(--navy)'   },
-    update_doc_metadata:       { icon: '🏷️', label: 'Document metadata saved',    colour: 'var(--navy)'   },
-    delete_doc_field:          { icon: '🗑️', label: 'Doc field permanently deleted', colour: 'var(--red)' },
-    deactivate_doc_field:      { icon: '⏸️', label: 'Doc field deactivated',      colour: 'var(--orange)' },
-    create_session_note:     { icon: '📝', label: 'Session note added',      colour: 'var(--accent)'   },
-    delete_session_note:     { icon: '📝', label: 'Session note deleted',    colour: 'var(--orange)' },
-    default:                 { icon: '📋', label: 'Action',                  colour: 'var(--muted)'  },
+    update_settings:              { icon: '⚙️', label: 'Settings updated',              colour: 'var(--muted)'   },
+    update_branding:              { icon: '🎨', label: 'Branding updated',              colour: 'var(--muted)'   },
+    upload_branding_logo:         { icon: '🖼️', label: 'Logo uploaded',                 colour: 'var(--accent)'  },
+    delete_branding_logo:         { icon: '🖼️', label: 'Logo removed',                  colour: 'var(--orange)'  },
+    create_staff_role:            { icon: '👷', label: 'Staff role created',            colour: 'var(--accent)'  },
+    update_staff_role:            { icon: '✏️', label: 'Staff role updated',            colour: 'var(--navy)'    },
+    create_role:                  { icon: '🛡️', label: 'Portal role created',           colour: 'var(--accent)'  },
+    update_role:                  { icon: '🛡️', label: 'Portal role updated',           colour: 'var(--navy)'    },
+    delete_role:                  { icon: '🛡️', label: 'Portal role deleted',           colour: 'var(--red)'     },
+    create_tag:                   { icon: '🏷️', label: 'Tag definition created',        colour: 'var(--accent)'  },
+    update_tag:                   { icon: '🏷️', label: 'Tag definition updated',        colour: 'var(--navy)'    },
+    create_member_status:         { icon: '🔵', label: 'Member status created',         colour: 'var(--accent)'  },
+    update_member_status:         { icon: '✏️', label: 'Member status updated',         colour: 'var(--navy)'    },
+    delete_member_status:         { icon: '🗑️', label: 'Member status deleted',         colour: 'var(--red)'     },
+    create_member_type:           { icon: '👥', label: 'Member type created',           colour: 'var(--accent)'  },
+    update_member_type:           { icon: '✏️', label: 'Member type updated',           colour: 'var(--navy)'    },
+    delete_member_type:           { icon: '🗑️', label: 'Member type deleted',           colour: 'var(--red)'     },
+    create_field_definition:      { icon: '📋', label: 'Custom field created',          colour: 'var(--accent)'  },
+    update_field_definition:      { icon: '✏️', label: 'Custom field updated',          colour: 'var(--navy)'    },
+    delete_field_definition:      { icon: '🗑️', label: 'Custom field deleted',          colour: 'var(--red)'     },
+    assign_type_field:            { icon: '➕', label: 'Field assigned to member type', colour: 'var(--accent)'  },
+    remove_type_field:            { icon: '➖', label: 'Field removed from member type',colour: 'var(--orange)'  },
+    maintenance_clear:            { icon: '🧹', label: 'Maintenance data cleared',      colour: 'var(--orange)'  },
+    maintenance_clear_members:    { icon: '☠️',  label: 'All members cleared',           colour: 'var(--red)'     },
+    maintenance_backup:           { icon: '💾', label: 'Database backed up',            colour: 'var(--green)'   },
+    maintenance_restore:          { icon: '♻️', label: 'Database restored',             colour: 'var(--orange)'  },
+    'import.run':                 { icon: '📥', label: 'Member import run',             colour: 'var(--accent)'  },
+    resync_sessions_check:        { icon: '🔄', label: 'Session resync check run',      colour: 'var(--muted)'   },
+    export_members:               { icon: '📤', label: 'Members exported',              colour: 'var(--muted)'   },
+    // Other
+    'notification.deleted':       { icon: '🔔', label: 'Notification deleted',          colour: 'var(--muted)'   },
+    qr_token_regenerated:         { icon: '📱', label: 'QR token regenerated',          colour: 'var(--muted)'   },
+    default:                      { icon: '📋', label: 'Action',                        colour: 'var(--muted)'   },
   };
 
   function _buildParams() {
