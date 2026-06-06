@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.8'  # v11.8: Payment table — Edit/Void moved to second row, removes 6th column
+APP_VERSION = 'v11.9'  # v11.9: registration_style replaces slug-based staff detection; paid_current badge+filter; audit log display overhaul
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

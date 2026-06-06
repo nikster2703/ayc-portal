@@ -80,6 +80,7 @@
   .badge-inactive { background: #f3f4f6; color: var(--muted); border-color: var(--border); }
   .badge-pub      { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
   .badge-priv     { background: #f3f4f6; color: var(--muted); border-color: var(--border); }
+  .badge-staff    { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
   .mt-card__footer {
     border-top: 1px solid var(--border);
     padding: 12px 20px;
@@ -143,6 +144,25 @@
                 placeholder="Brief description of this member type"></textarea>
     </div>
 
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Registration Style</label>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button type="button" id="mt-style-member" class="btn btn-sm"
+                onclick="setRegStyle('member')"
+                style="border:2px solid var(--border);border-radius:8px;padding:6px 16px">
+          Member
+        </button>
+        <button type="button" id="mt-style-staff" class="btn btn-sm"
+                onclick="setRegStyle('staff')"
+                style="border:2px solid var(--border);border-radius:8px;padding:6px 16px">
+          Staff
+        </button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:4px 0 0">
+        Staff types appear on all session registers regardless of assigned session. Paid status is not tracked for staff.
+      </p>
+    </div>
+
     <div class="form-group" style="margin-bottom:20px">
       <label class="form-label">Public Registration</label>
       <div style="display:flex;gap:8px;margin-top:6px">
@@ -176,6 +196,7 @@
   let _editingId        = null;
   let _slugManuallyEdited = false;
   let _publicReg        = 0;
+  let _regStyle         = 'member';
 
   /* ── Boot ─────────────────────────────────────────────── */
   (function init() {
@@ -195,6 +216,17 @@
     if (!_slugManuallyEdited) {
       document.getElementById('mt-slug').value = slugify(document.getElementById('mt-name').value);
     }
+  }
+
+  /* ── Registration style toggle ───────────────────────── */
+  function setRegStyle(val) {
+    _regStyle = val;
+    const member = document.getElementById('mt-style-member');
+    const staff  = document.getElementById('mt-style-staff');
+    const onStyle  = 'background:var(--accent);color:white;border-color:var(--accent);border-radius:8px;padding:6px 16px';
+    const offStyle = 'background:white;color:var(--navy);border:2px solid var(--border);border-radius:8px;padding:6px 16px';
+    member.style.cssText = val === 'member' ? onStyle : offStyle;
+    staff.style.cssText  = val === 'staff'  ? onStyle : offStyle;
   }
 
   /* ── Public reg toggle ────────────────────────────────── */
@@ -238,6 +270,9 @@
     const pubBadge = t.public_registration
       ? `<span class="badge badge-pub">Public Registration On</span>`
       : `<span class="badge badge-priv">Registration Private</span>`;
+    const styleBadge = (t.registration_style === 'staff')
+      ? `<span class="badge badge-staff">Staff</span>`
+      : '';
     const fieldCount = t.field_count || 0;
     return `
       <div class="mt-card" style="border-left: 4px solid ${esc(t.colour || '#1b2d4f')}">
@@ -252,6 +287,7 @@
         <div class="mt-card__badges">
           ${activeBadge}
           ${pubBadge}
+          ${styleBadge}
         </div>
         <div class="mt-card__footer">
           <span class="mt-card__footer-meta">${fieldCount} field${fieldCount !== 1 ? 's' : ''} configured</span>
@@ -278,6 +314,7 @@
     document.getElementById('mt-slug').disabled           = false;
     document.getElementById('mt-slug-help').style.display = '';
     document.getElementById('mt-save-btn').textContent    = 'Add Type';
+    setRegStyle('member');
     setPublicReg(0);
     document.getElementById('mt-modal').classList.add('open');
     document.getElementById('mt-name').focus();
@@ -297,6 +334,7 @@
     document.getElementById('mt-slug').disabled           = true;
     document.getElementById('mt-slug-help').style.display = 'none';
     document.getElementById('mt-save-btn').textContent    = 'Save Changes';
+    setRegStyle(t.registration_style || 'member');
     setPublicReg(t.public_registration ? 1 : 0);
     document.getElementById('mt-modal').classList.add('open');
     document.getElementById('mt-name').focus();
@@ -323,13 +361,13 @@
       if (_editingId) {
         await apiFetch(`/api/admin/member-types/${_editingId}`, {
           method: 'PUT',
-          body:   JSON.stringify({ name, icon, colour, description, public_registration: _publicReg }),
+          body:   JSON.stringify({ name, icon, colour, description, public_registration: _publicReg, registration_style: _regStyle }),
         });
         showToast('Member type updated.');
       } else {
         await apiFetch('/api/admin/member-types', {
           method: 'POST',
-          body:   JSON.stringify({ name, slug, icon, colour, description, public_registration: _publicReg }),
+          body:   JSON.stringify({ name, slug, icon, colour, description, public_registration: _publicReg, registration_style: _regStyle }),
         });
         showToast(`"${name}" created.`);
       }

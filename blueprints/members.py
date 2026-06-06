@@ -24,11 +24,16 @@ bp = Blueprint('members', __name__)
 @bp.route('/api/members')
 @permission_required('members.view')
 def api_members():
+    from helpers import get_setting
     db = get_db()
 
     status_filter  = request.args.get('status', 'active')
     session_filter = request.args.get('session', 'all')
     flag_filter    = request.args.get('flag_rule_id')
+    paid_filter    = request.args.get('paid', '')   # '1' = paid, '0' = unpaid, '' = all
+
+    # Current membership period for paid_current calculation
+    current_period = get_setting('current_membership_period', '')
 
     conditions = ['1=1']
     params     = []
@@ -60,7 +65,13 @@ def api_members():
         params.extend(scoped)
 
     if session.get('role') == 'leader':
-        conditions.append("m.member_type IN (SELECT slug FROM member_types WHERE registration_style != 'staff')")
+        conditions.append("mt.registration_style != 'staff'")
+
+    # Paid filter — uses the paid_sub LEFT JOIN below
+    if paid_filter == '1':
+        conditions.append('paid_sub.member_id IS NOT NULL')
+    elif paid_filter == '0':
+        conditions.append("paid_sub.member_id IS NULL AND mt.registration_style != 'staff'")
 
     flag_join = ''
     if status_filter == 'flagged' or flag_filter:
@@ -83,6 +94,8 @@ def api_members():
 
     rows = db.execute(f'''
         SELECT  DISTINCT m.*,
+                mt.registration_style,
+                CASE WHEN paid_sub.member_id IS NOT NULL THEN 1 ELSE 0 END AS paid_current,
                 c1.contact_name  AS contact1_name,
                 c1.contact_phone AS contact1_phone,
                 c1.contact_email AS contact1_email,
@@ -90,6 +103,15 @@ def api_members():
                 c2.contact_phone AS contact2_phone,
                 c2.contact_email AS contact2_email
         FROM    members m
+        LEFT JOIN member_types mt ON mt.slug = m.member_type
+        LEFT JOIN (
+            SELECT DISTINCT mp2.member_id
+            FROM   member_payments mp2
+            JOIN   payment_types pt2 ON pt2.id = mp2.payment_type_id
+            WHERE  pt2.name = 'Membership'
+              AND  mp2.period = ?
+              AND  mp2.voided_at IS NULL
+        ) paid_sub ON paid_sub.member_id = m.id
         {flag_join}
         LEFT JOIN member_contacts c1
                ON c1.member_id = m.id AND c1.contact_order = 1
@@ -97,7 +119,7 @@ def api_members():
                ON c2.member_id = m.id AND c2.contact_order = 2
         WHERE   {where}
         ORDER   BY m.first_name, m.surname
-    ''', params).fetchall()
+    ''', [current_period] + params).fetchall()
 
     member_ids        = [r['id'] for r in rows]
     custom_fields_map = {}

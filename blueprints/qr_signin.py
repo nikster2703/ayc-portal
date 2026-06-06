@@ -199,8 +199,9 @@ def api_qr_search():
                FROM members m
                LEFT JOIN attendance a ON a.member_id = m.id
                  AND a.session_date = ? AND a.session_type = ?
+               JOIN member_types mt ON mt.slug = m.member_type
                WHERE EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
-                 AND (m.session = ? OR m.member_type = 'staff')
+                 AND (m.session = ? OR mt.registration_style = 'staff')
                  AND LOWER(m.first_name) LIKE LOWER(?)
                ORDER BY m.first_name, m.surname
                LIMIT 20''',

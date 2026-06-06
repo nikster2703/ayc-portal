@@ -244,8 +244,9 @@ def export_register_page():
                ON  a.member_id   = m.id
                AND a.session_date = ?
                AND a.session_type = ?
+        JOIN    member_types mt ON mt.slug = m.member_type
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
-          AND   m.member_type = 'staff'
+          AND   mt.registration_style = 'staff'
           AND   m.session     = ?
         ORDER   BY m.surname, m.first_name
     ''', (date, session_type, session_type)).fetchall()

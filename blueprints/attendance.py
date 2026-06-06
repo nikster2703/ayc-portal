@@ -93,8 +93,9 @@ def api_attendance_staff_get(session_type, date):
                ON  a.member_id    = m.id
                AND a.session_date = ?
                AND a.session_type = ?
+        JOIN    member_types mt ON mt.slug = m.member_type
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
-          AND   m.member_type  = "staff"
+          AND   mt.registration_style = 'staff'
           AND   m.session      = ?
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()

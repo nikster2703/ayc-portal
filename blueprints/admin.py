@@ -981,6 +981,7 @@ def api_admin_member_types_create():
     colour, col_err     = _validate_hex_colour(data.get('colour', ''), '#1b2d4f')
     description         = data.get('description', '').strip() or None
     public_registration = int(data.get('public_registration', 0))
+    registration_style  = 'staff' if data.get('registration_style') == 'staff' else 'member'
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
@@ -994,12 +995,12 @@ def api_admin_member_types_create():
     try:
         cur = db.execute(
             '''INSERT INTO member_types
-               (name, slug, icon, colour, description, public_registration, sort_order)
-               VALUES (?,?,?,?,?,?,?)''',
-            (name, slug, icon, colour, description, public_registration, max_order + 1),
+               (name, slug, icon, colour, description, public_registration, registration_style, sort_order)
+               VALUES (?,?,?,?,?,?,?,?)''',
+            (name, slug, icon, colour, description, public_registration, registration_style, max_order + 1),
         )
         db.commit()
-        log_action('create_member_type', 'member_types', cur.lastrowid, {'name': name, 'slug': slug})
+        log_action('create_member_type', 'member_types', cur.lastrowid, {'name': name, 'slug': slug, 'registration_style': registration_style})
         row = db.execute(
             '''SELECT mt.*, (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.member_type_id = mt.id) AS field_count
                FROM member_types mt WHERE mt.id = ?''', (cur.lastrowid,)
@@ -1027,6 +1028,7 @@ def api_admin_member_types_update(type_id):
     public_registration = int(data.get('public_registration', current['public_registration']))
     active              = int(data.get('active', current['active']))
     sort_order          = int(data.get('sort_order', current['sort_order']))
+    registration_style  = 'staff' if data.get('registration_style', current['registration_style']) == 'staff' else 'member'
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
@@ -1043,12 +1045,12 @@ def api_admin_member_types_update(type_id):
     try:
         db.execute(
             '''UPDATE member_types
-               SET name=?, icon=?, colour=?, description=?, public_registration=?, active=?, sort_order=?
+               SET name=?, icon=?, colour=?, description=?, public_registration=?, active=?, registration_style=?, sort_order=?
                WHERE id=?''',
-            (name, icon, colour, description, public_registration, active, sort_order, type_id),
+            (name, icon, colour, description, public_registration, active, registration_style, sort_order, type_id),
         )
         db.commit()
-        log_action('update_member_type', 'member_types', type_id, {'name': name, 'active': active})
+        log_action('update_member_type', 'member_types', type_id, {'name': name, 'active': active, 'registration_style': registration_style})
         row = db.execute(
             '''SELECT mt.*, (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.member_type_id = mt.id) AS field_count
                FROM member_types mt WHERE mt.id = ?''', (type_id,)

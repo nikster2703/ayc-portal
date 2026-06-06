@@ -60,6 +60,12 @@
   </select>
   {% endif %}
 
+  <select class="session-select" id="paid-filter" onchange="filterMembers()">
+    <option value="all">All Members</option>
+    <option value="paid">💳 Paid</option>
+    <option value="unpaid">⚠️ Unpaid</option>
+  </select>
+
   <select class="session-select" id="sort-select" onchange="onSortChange()" style="flex-shrink:0">
     <option value="first_name">Forename A–Z</option>
     <option value="surname">Surname A–Z</option>
@@ -474,11 +480,12 @@
     const sessionVal   = document.getElementById('session-filter').value;
     const statusFilter = (document.getElementById('status-filter') || {}).value || 'active';
     const flagFilter   = ((document.getElementById('flag-filter') || {}).value || '');
+    const paidFilter   = ((document.getElementById('paid-filter') || {}).value || 'all');
 
     return allMembers.filter(m => {
-      const sess  = (m.session || '').trim();
-      const mtype = (m.member_type || 'member');
-      const ms    = getStatusMeta(m.status);
+      const sess    = (m.session || '').trim();
+      const isStaff = m.registration_style === 'staff';
+      const ms      = getStatusMeta(m.status);
 
       // Flag filter takes precedence over status filter when active
       let statusOk;
@@ -496,11 +503,17 @@
       if (sessionVal === 'all') {
         sessOk = true;
       } else if (sessionVal === '__staff__') {
-        sessOk = mtype === 'staff';
+        sessOk = isStaff;
       } else {
-        sessOk = mtype !== 'staff' && sess === sessionVal;
+        sessOk = !isStaff && sess === sessionVal;
       }
-      return statusOk && sessOk;
+      // Paid filter — only applies to non-staff members
+      let paidOk = true;
+      if (paidFilter !== 'all' && !isStaff) {
+        paidOk = paidFilter === 'paid' ? m.paid_current === 1 : m.paid_current !== 1;
+      }
+
+      return statusOk && sessOk && paidOk;
     });
   }
 
@@ -691,7 +704,7 @@
       : '';
 
     // ── Type badge (staff / custom types) ───────────────────────────────────────
-    const isStaff    = typeSlug === 'staff';
+    const isStaff    = m.registration_style === 'staff';
     const typeInfo   = (typeConf.type) || {};
     const showBadge  = typeSlug !== 'member';
     const typeBadge  = showBadge
@@ -712,6 +725,14 @@
                                 font-size:11px;font-weight:700;
                                 background:${sBadgeCol}22;color:${sBadgeCol};
                                 border:1.5px solid ${sBadgeCol}55">${esc(m.status || 'Active')}</span>`;
+
+    // ── Paid badge (members only, not staff) ─────────────────────────────────────
+    const paidBadge = (!isStaff && m.paid_current === 1)
+      ? `<span style="display:inline-block;padding:1px 8px;border-radius:20px;
+                      font-size:11px;font-weight:700;
+                      background:#dcfce7;color:#166534;
+                      border:1.5px solid #86efac">💳 Paid</span>`
+      : '';
 
     // ── Alert flag badges ────────────────────────────────────────────────────────
     const activeFlags  = (m.flags || []);
@@ -865,7 +886,7 @@
       <h3>${esc(full)}</h3>
       ${typeBadge ? `<div style="margin-top:3px">${typeBadge}</div>` : ''}
       <p style="margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-        ${memberIdBadge}${statusBadge}${flagBadgesHtml}
+        ${memberIdBadge}${statusBadge}${paidBadge}${flagBadgesHtml}
       </p>
       ${listInfoHtml}
     </div>
