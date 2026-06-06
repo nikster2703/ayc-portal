@@ -150,8 +150,8 @@ def api_member_payments_create(member_id):
     )
     db.commit()
 
-    log_action('payment_record', member_id, {
-        'type_id': payment_type_id, 'period': period,
+    log_action('payment_record', 'member_payments', member_id, {
+        'payment_type_id': payment_type_id, 'period': period,
         'amount': amount, 'payment_date': payment_date,
     })
 
@@ -205,8 +205,8 @@ def api_payment_update(payment_id):
     )
     db.commit()
 
-    log_action('payment_edit', pay['member_id'], {
-        'payment_id': payment_id, 'period': period,
+    log_action('payment_edit', 'member_payments', payment_id, {
+        'member_id': pay['member_id'], 'period': period,
     })
 
     return jsonify({'ok': True})
@@ -233,8 +233,8 @@ def api_payment_void(payment_id):
     )
     db.commit()
 
-    log_action('payment_void', pay['member_id'], {
-        'payment_id': payment_id, 'reason': void_reason,
+    log_action('payment_void', 'member_payments', payment_id, {
+        'member_id': pay['member_id'], 'reason': void_reason,
     })
 
     return jsonify({'ok': True})
@@ -266,7 +266,7 @@ def api_current_period_set():
     )
     db.commit()
 
-    log_action('setting_change', None, {'key': 'current_membership_period', 'value': period})
+    log_action('setting_change', 'settings', None, {'key': 'current_membership_period', 'value': period})
     return jsonify({'ok': True, 'current_period': period})
 
 
@@ -302,7 +302,7 @@ def api_payment_types_create():
     except sqlite3.IntegrityError:
         return jsonify({'error': 'A payment type with that name already exists'}), 409
 
-    log_action('payment_type_create', None, {'name': name})
+    log_action('payment_type_create', 'payment_types', None, {'name': name})
     return jsonify({'ok': True})
 
 
@@ -329,7 +329,7 @@ def api_payment_types_update(type_id):
     except sqlite3.IntegrityError:
         return jsonify({'error': 'A payment type with that name already exists'}), 409
 
-    log_action('payment_type_edit', None, {'id': type_id, 'name': name})
+    log_action('payment_type_edit', 'payment_types', type_id, {'name': name})
     return jsonify({'ok': True})
 
 
@@ -352,7 +352,7 @@ def api_payment_types_deactivate(type_id):
     active_now = db.execute('SELECT active FROM payment_types WHERE id = ?', (type_id,)).fetchone()[0]
     db.execute('UPDATE payment_types SET active=? WHERE id=?', (0 if active_now else 1, type_id))
     db.commit()
-    log_action('payment_type_toggle', None, {'id': type_id, 'active': not active_now})
+    log_action('payment_type_toggle', 'payment_types', type_id, {'active': not active_now})
     return jsonify({'ok': True})
 
 
@@ -387,7 +387,7 @@ def api_payment_methods_create():
     except sqlite3.IntegrityError:
         return jsonify({'error': 'A payment method with that name already exists'}), 409
 
-    log_action('payment_method_create', None, {'name': name})
+    log_action('payment_method_create', 'payment_methods', None, {'name': name})
     return jsonify({'ok': True})
 
 
@@ -410,7 +410,7 @@ def api_payment_methods_update(method_id):
     except sqlite3.IntegrityError:
         return jsonify({'error': 'A payment method with that name already exists'}), 409
 
-    log_action('payment_method_edit', None, {'id': method_id, 'name': name})
+    log_action('payment_method_edit', 'payment_methods', method_id, {'name': name})
     return jsonify({'ok': True})
 
 
@@ -425,5 +425,5 @@ def api_payment_methods_deactivate(method_id):
     active_now = db.execute('SELECT active FROM payment_methods WHERE id = ?', (method_id,)).fetchone()[0]
     db.execute('UPDATE payment_methods SET active=? WHERE id=?', (0 if active_now else 1, method_id))
     db.commit()
-    log_action('payment_method_toggle', None, {'id': method_id, 'active': not active_now})
+    log_action('payment_method_toggle', 'payment_methods', method_id, {'active': not active_now})
     return jsonify({'ok': True})
