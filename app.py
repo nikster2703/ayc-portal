@@ -1,9 +1,9 @@
 """
-AYC Portal — Application factory  v11.0
-Phases 1–8: Auth, members, audit, user admin, approvals, register,
+AYC Portal — Application factory  v11.6
+Phases 1–8 + payments: Auth, members, audit, user admin, approvals, register,
             documents, comms, term calendar, staff registrations,
             configurable Roles + Permissions, Member Alert Rules,
-            Notifications, QR quick sign-in.
+            Notifications, QR quick sign-in, Payments.
 
 All routes live in blueprints/:
   auth          — login/logout/me/change-password

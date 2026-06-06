@@ -24,7 +24,7 @@ import sqlcipher3 as sqlite3
 from flask import Blueprint, jsonify, request, session
 
 from helpers import (
-    get_db, get_setting, log_action, permission_required, tpl_ctx,
+    get_db, get_setting, log_action, permission_required,
 )
 
 bp = Blueprint('payments', __name__)
