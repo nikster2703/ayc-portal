@@ -1043,12 +1043,12 @@
             </span>
             ${USER_PERMS.has('payments.record') ? `<button class="btn btn-ghost btn-sm"
               style="font-size:12px;padding:3px 10px;margin-left:auto"
-              onclick="openPaymentModal(${memberId})">+ Record</button>` : ''}
+              onclick="event.stopPropagation();openPaymentModal(${memberId})">+ Record</button>` : ''}
           </div>`;
       } else if (statusEl && USER_PERMS.has('payments.record')) {
         statusEl.innerHTML = `<button class="btn btn-ghost btn-sm"
           style="font-size:12px;padding:3px 10px"
-          onclick="openPaymentModal(${memberId})">+ Record Payment</button>`;
+          onclick="event.stopPropagation();openPaymentModal(${memberId})">+ Record Payment</button>`;
       }
 
       if (!payments.length) {
@@ -1085,9 +1085,9 @@
               const actions = (!voided && (CAN_RECORD || CAN_MANAGE))
                 ? `<td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;text-align:right">
                      ${CAN_RECORD ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px"
-                       onclick="openEditPaymentModal(${memberId},${p.id})">Edit</button>` : ''}
+                       onclick="event.stopPropagation();openEditPaymentModal(${memberId},${p.id})">Edit</button>` : ''}
                      ${CAN_MANAGE ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px;color:var(--red)"
-                       onclick="openVoidModal(${p.id})">Void</button>` : ''}
+                       onclick="event.stopPropagation();openVoidModal(${p.id})">Void</button>` : ''}
                    </td>`
                 : ((CAN_RECORD || CAN_MANAGE) ? '<td style="border-bottom:1px solid var(--border)"></td>' : '');
               const noteTitle = p.notes ? ` title="${esc(p.notes)}"` : '';
