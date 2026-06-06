@@ -476,3 +476,9 @@ def maintenance_page():
 @permission_required('admin.maintenance')
 def import_page():
     return render_template('admin/import.html', active_page='settings', **tpl_ctx())
+
+
+@bp.route('/admin/settings/export')
+@permission_required('admin.maintenance')
+def export_page():
+    return render_template('admin/export.html', active_page='settings', **tpl_ctx())

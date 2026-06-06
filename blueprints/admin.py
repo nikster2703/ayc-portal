@@ -2098,3 +2098,206 @@ def api_import_report(report_id):
         as_attachment=True,
         download_name='import_not_imported.csv',
     )
+
+
+# ── Member Export ──────────────────────────────────────────────────────────────
+
+@bp.route('/api/admin/export/preview')
+@permission_required('admin.maintenance')
+def api_export_preview():
+    """Return a count of members matching the current filter options."""
+    db              = get_db()
+    status_filter   = request.args.get('status_filter', 'active')
+    session_filter  = request.args.get('session', 'all')
+    type_filter     = request.args.get('member_type', 'all')
+
+    where, params = _export_where(status_filter, session_filter, type_filter)
+    row = db.execute(f'SELECT COUNT(*) AS n FROM members m WHERE {where}', params).fetchone()
+    return jsonify({'count': row['n']})
+
+
+@bp.route('/api/admin/export/members.csv')
+@permission_required('admin.maintenance')
+def api_export_members_csv():
+    """Stream a full member data CSV export."""
+    import io
+    db              = get_db()
+    status_filter   = request.args.get('status_filter', 'active')
+    session_filter  = request.args.get('session', 'all')
+    type_filter     = request.args.get('member_type', 'all')
+    _sections_raw   = request.args.get('sections', 'core,contacts,custom,attendance')
+    sections        = set(s.strip() for s in _sections_raw.split(',') if s.strip())
+    if not sections:
+        sections = {'core', 'contacts', 'custom', 'attendance'}
+
+    inc_core       = 'core'       in sections
+    inc_contacts   = 'contacts'   in sections
+    inc_custom     = 'custom'     in sections
+    inc_attendance = 'attendance' in sections
+
+    where, params = _export_where(status_filter, session_filter, type_filter)
+
+    # ── Fetch members with contacts ──────────────────────────────────────────
+    members = db.execute(f'''
+        SELECT  m.*,
+                c1.contact_name  AS contact1_name,
+                c1.contact_phone AS contact1_phone,
+                c1.contact_email AS contact1_email,
+                c2.contact_name  AS contact2_name,
+                c2.contact_phone AS contact2_phone,
+                c2.contact_email AS contact2_email
+        FROM    members m
+        LEFT JOIN member_contacts c1 ON c1.member_id = m.id AND c1.contact_order = 1
+        LEFT JOIN member_contacts c2 ON c2.member_id = m.id AND c2.contact_order = 2
+        WHERE   {where}
+        ORDER   BY m.surname, m.first_name
+    ''', params).fetchall()
+    members = [dict(r) for r in members]
+
+    if not members:
+        return Response('No members match the selected filters.\n',
+                        mimetype='text/csv',
+                        headers={'Content-Disposition': 'attachment; filename="members_export.csv"'})
+
+    member_ids = [m['id'] for m in members]
+    placeholders = ','.join('?' * len(member_ids))
+
+    # ── Custom field values ──────────────────────────────────────────────────
+    custom_map = {}
+    if inc_custom:
+        cfv_rows = db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value '
+            f'FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({placeholders})',
+            member_ids
+        ).fetchall()
+        for r in cfv_rows:
+            custom_map.setdefault(r['member_id'], {})[r['key']] = r['value']
+
+    # ── Attendance summary ───────────────────────────────────────────────────
+    att_map = {}
+    if inc_attendance:
+        att_rows = db.execute(
+            f'SELECT member_id, COUNT(*) AS total_sessions, MAX(session_date) AS last_attended '
+            f'FROM attendance WHERE member_id IN ({placeholders}) '
+            f'GROUP BY member_id',
+            member_ids
+        ).fetchall()
+        att_map = {r['member_id']: dict(r) for r in att_rows}
+
+    # ── Collect active custom field definitions for relevant member types ────
+    custom_fields = []
+    if inc_custom:
+        type_slugs = list({m['member_type'] for m in members})
+        type_ids_rows = db.execute(
+            f'SELECT id, slug FROM member_types WHERE slug IN ({",".join("?" * len(type_slugs))})',
+            type_slugs
+        ).fetchall()
+        type_id_map = {r['slug']: r['id'] for r in type_ids_rows}
+        custom_field_defs = db.execute(
+            f'''SELECT DISTINCT fd.key, fd.label, fd.field_type
+                FROM member_type_fields mtf
+                JOIN field_definitions fd ON fd.id = mtf.field_id
+                WHERE mtf.member_type_id IN ({",".join("?" * len(type_id_map))})
+                  AND fd.active = 1 AND fd.system_field = 0
+                ORDER BY mtf.sort_order''',
+            list(type_id_map.values())
+        ).fetchall()
+        seen_keys = set()
+        for r in custom_field_defs:
+            if r['key'] not in seen_keys:
+                seen_keys.add(r['key'])
+                custom_fields.append(dict(r))
+
+    # ── Build CSV ────────────────────────────────────────────────────────────
+    core_cols = [
+        ('member_id',       'Member ID'),
+        ('first_name',      'First Name'),
+        ('surname',         'Surname'),
+        ('date_of_birth',   'Date of Birth'),
+        ('date_registered', 'Date Registered'),
+        ('session',         'Session'),
+        ('member_type',     'Member Type'),
+        ('staff_role',      'Staff Role'),
+        ('status',          'Status'),
+        ('status_note',     'Status Note'),
+        ('mobile',          'Mobile'),
+        ('email',           'Email'),
+        ('unattended_exit', 'Unattended Exit'),
+    ]
+    contact_cols = [
+        ('contact1_name',  'Contact 1 Name'),
+        ('contact1_phone', 'Contact 1 Phone'),
+        ('contact1_email', 'Contact 1 Email'),
+        ('contact2_name',  'Contact 2 Name'),
+        ('contact2_phone', 'Contact 2 Phone'),
+        ('contact2_email', 'Contact 2 Email'),
+    ]
+    attendance_cols = [
+        ('total_sessions', 'Total Sessions'),
+        ('last_attended',  'Last Attended'),
+    ]
+    custom_col_headers = [f['label'] for f in custom_fields]
+
+    header = (
+        ([label for _, label in core_cols]       if inc_core       else []) +
+        ([label for _, label in contact_cols]     if inc_contacts   else []) +
+        ([label for _, label in attendance_cols]  if inc_attendance else []) +
+        ([f['label'] for f in custom_fields]      if inc_custom     else [])
+    )
+
+    output = io.StringIO()
+    writer = _csv_mod.writer(output)
+    writer.writerow(header)
+
+    for m in members:
+        att  = att_map.get(m['id'], {})
+        cfvs = custom_map.get(m['id'], {})
+
+        row = (
+            ([m.get(key, '') or '' for key, _ in core_cols]       if inc_core       else []) +
+            ([m.get(key, '') or '' for key, _ in contact_cols]     if inc_contacts   else []) +
+            ([att.get('total_sessions', 0), att.get('last_attended', '') or ''] if inc_attendance else []) +
+            ([cfvs.get(f['key'], '') or '' for f in custom_fields] if inc_custom     else [])
+        )
+        writer.writerow(row)
+
+    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename  = f'{slug}_members_{timestamp}.csv'
+
+    log_action('export_members', 'members', None, {
+        'count': len(members), 'status_filter': status_filter,
+        'session_filter': session_filter, 'type_filter': type_filter,
+    })
+
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+def _export_where(status_filter, session_filter, type_filter):
+    """Build the WHERE clause and params for member export queries."""
+    conditions = []
+    params     = []
+
+    if status_filter == 'active':
+        conditions.append(
+            'EXISTS (SELECT 1 FROM member_statuses ms '
+            'WHERE ms.name = m.status AND ms.behaviour = \'active\')'
+        )
+    # 'all' = no status filter
+
+    if session_filter and session_filter != 'all':
+        conditions.append('m.session = ?')
+        params.append(session_filter)
+
+    if type_filter and type_filter != 'all':
+        conditions.append('m.member_type = ?')
+        params.append(type_filter)
+
+    where = ' AND '.join(conditions) if conditions else '1=1'
+    return where, params

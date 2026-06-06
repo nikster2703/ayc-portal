@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Export Members{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:8px">
+  <a href="/admin/settings/maintenance" style="font-size:13px;color:var(--accent);text-decoration:none;font-weight:700">
+    ← Data Maintenance
+  </a>
+</div>
+<div class="page-header" style="margin-bottom:24px">
+  <h1>📤 Export Members</h1>
+</div>
+
+<div style="max-width:600px">
+
+  <!-- ── Filter options ──────────────────────────────────────────── -->
+  <div class="form-card" style="margin-bottom:20px">
+    <h2 style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:16px">Export Options</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+      <div class="form-group">
+        <label class="form-label">Member Status</label>
+        <select id="opt-status" class="form-input" onchange="updatePreview()">
+          <option value="active">Active members only</option>
+          <option value="all">All members (including leavers)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Member Type</label>
+        <select id="opt-type" class="form-input" onchange="updatePreview()">
+          <option value="all">All types</option>
+          {% for mt in member_types %}
+          <option value="{{ mt.slug }}">{{ mt.icon or '' }} {{ mt.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">Session</label>
+        <select id="opt-session" class="form-input" onchange="updatePreview()">
+          <option value="all">All sessions</option>
+          {% for st in session_types %}
+          <option value="{{ st.name }}">{{ st.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+    </div>
+
+    <!-- Preview count -->
+    <div id="preview-bar" style="display:flex;align-items:center;gap:10px;padding:12px 14px;
+         background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px">
+      <span id="preview-icon" style="font-size:18px">⏳</span>
+      <div>
+        <div id="preview-text" style="font-size:14px;font-weight:700;color:var(--navy)">Calculating…</div>
+        <div id="preview-sub" style="font-size:12px;color:var(--muted);margin-top:1px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── What's included ─────────────────────────────────────────── -->
+  <div class="form-card" style="margin-bottom:20px">
+    <h2 style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">What&#x2019;s Included</h2>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Click to toggle sections on or off.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="section-card on" data-section="core" onclick="toggleSection(this)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">🪪</span>
+            <div>
+              <div style="font-size:12px;font-weight:800;color:var(--navy)">Core fields</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Member ID, name, DOB, date registered, session, type, status</div>
+            </div>
+          </div>
+          <span class="section-tick" style="font-size:14px;flex-shrink:0">✅</span>
+        </div>
+      </div>
+      <div class="section-card on" data-section="contacts" onclick="toggleSection(this)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">📞</span>
+            <div>
+              <div style="font-size:12px;font-weight:800;color:var(--navy)">Contact details</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Contact 1 &amp; 2 — name, phone, email</div>
+            </div>
+          </div>
+          <span class="section-tick" style="font-size:14px;flex-shrink:0">✅</span>
+        </div>
+      </div>
+      <div class="section-card on" data-section="custom" onclick="toggleSection(this)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">🔧</span>
+            <div>
+              <div style="font-size:12px;font-weight:800;color:var(--navy)">Custom fields</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">All active Field Builder fields for the selected member type(s)</div>
+            </div>
+          </div>
+          <span class="section-tick" style="font-size:14px;flex-shrink:0">✅</span>
+        </div>
+      </div>
+      <div class="section-card on" data-section="attendance" onclick="toggleSection(this)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">📊</span>
+            <div>
+              <div style="font-size:12px;font-weight:800;color:var(--navy)">Attendance summary</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Total sessions attended and last attended date</div>
+            </div>
+          </div>
+          <span class="section-tick" style="font-size:14px;flex-shrink:0">✅</span>
+        </div>
+      </div>
+    </div>
+    <div id="section-warning" style="display:none;margin-top:10px;font-size:12px;
+         color:#9a3412;background:#fff7ed;border:1.5px solid #fed7aa;
+         border-radius:8px;padding:8px 12px">
+      ⚠️ Select at least one section to enable the export.
+    </div>
+  </div>
+
+  <!-- ── Download ────────────────────────────────────────────────── -->
+  <div style="display:flex;gap:10px;align-items:center">
+    <button id="download-btn" class="btn btn-primary" onclick="doExport()" disabled>
+      ⬇️ Download CSV
+    </button>
+    <span id="download-hint" style="font-size:12px;color:var(--muted)">
+      Select options above to generate your export.
+    </span>
+  </div>
+
+</div>
+
+<style>
+  .section-card {
+    padding:10px 12px;border-radius:8px;cursor:pointer;
+    border:1.5px solid var(--border);background:#f8fafc;
+    transition:border-color .15s, background .15s, opacity .15s;
+    user-select:none;
+  }
+  .section-card.on  { border-color:var(--accent);background:#f0fdf4; }
+  .section-card.off { opacity:.5; }
+  .section-card.off .section-tick { visibility:hidden; }
+</style>
+<script>
+  let _previewTimer = null;
+  let _previewCount = 0;
+
+  function toggleSection(card) {
+    const isOn = card.classList.contains('on');
+    card.classList.toggle('on',  !isOn);
+    card.classList.toggle('off',  isOn);
+    const anyOn = document.querySelectorAll('.section-card.on').length > 0;
+    document.getElementById('section-warning').style.display = anyOn ? 'none' : '';
+    updatePreview();
+  }
+
+  function _selectedSections() {
+    return [...document.querySelectorAll('.section-card.on')]
+      .map(c => c.dataset.section).join(',');
+  }
+
+  function _params() {
+    return new URLSearchParams({
+      status_filter: document.getElementById('opt-status').value,
+      session:       document.getElementById('opt-session').value,
+      member_type:   document.getElementById('opt-type').value,
+      sections:      _selectedSections(),
+    });
+  }
+
+  async function updatePreview() {
+    clearTimeout(_previewTimer);
+    _previewTimer = setTimeout(async () => {
+      const bar  = document.getElementById('preview-bar');
+      const icon = document.getElementById('preview-icon');
+      const text = document.getElementById('preview-text');
+      const sub  = document.getElementById('preview-sub');
+      const btn  = document.getElementById('download-btn');
+      const hint = document.getElementById('download-hint');
+
+      icon.textContent = '⏳';
+      text.textContent = 'Calculating…';
+      sub.textContent  = '';
+      btn.disabled     = true;
+      bar.style.background   = '#f0f9ff';
+      bar.style.borderColor  = '#bae6fd';
+
+      try {
+        const res  = await apiFetch('/api/admin/export/preview?' + _params());
+        _previewCount = res.count;
+
+        if (_previewCount === 0) {
+          icon.textContent = '⚠️';
+          text.textContent = 'No members match these filters';
+          sub.textContent  = 'Adjust the options above to include members in the export.';
+          bar.style.background  = '#fff7ed';
+          bar.style.borderColor = '#fed7aa';
+          btn.disabled     = true;
+          hint.textContent = '';
+        } else {
+          const noSections = !_selectedSections();
+          icon.textContent = noSections ? '⚠️' : '✅';
+          text.textContent = `${_previewCount} member${_previewCount !== 1 ? 's' : ''} will be exported`;
+          sub.textContent  = noSections ? 'Select at least one section below.' : 'Click Download CSV to generate the file.';
+          bar.style.background  = '#f0fdf4';
+          bar.style.borderColor = '#86efac';
+          btn.disabled     = noSections;
+          hint.textContent = '';
+        }
+      } catch (e) {
+        icon.textContent = '❌';
+        text.textContent = 'Could not fetch preview — ' + e.message;
+        sub.textContent  = '';
+        bar.style.background  = '#fef2f2';
+        bar.style.borderColor = '#fca5a5';
+      }
+    }, 300);
+  }
+
+  function doExport() {
+    const btn = document.getElementById('download-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating…';
+    window.location.href = '/api/admin/export/members.csv?' + _params();
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '⬇️ Download CSV';
+    }, 2500);
+  }
+
+  // Run preview on page load
+  updatePreview();
+</script>
+{% endblock %}
