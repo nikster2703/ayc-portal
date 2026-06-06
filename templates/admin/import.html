@@ -78,6 +78,51 @@
     <button class="btn btn-primary" id="btn-analyse" onclick="doAnalyse()" disabled>
       Analyse File →
     </button>
+
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);
+                font-size:13px;color:var(--muted)">
+      Importing existing <strong>attendance</strong> or <strong>payment history</strong> from a
+      club spreadsheet?
+      <a href="/admin/settings/import-history"
+         style="color:var(--accent);font-weight:600;text-decoration:none">
+        Use the History Import wizard →
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- STEP 2B — AYC Export Detected (round-trip restore)                      -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="step-2b" style="display:none">
+  <div class="form-card" style="max-width:560px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <span style="font-size:28px">🔄</span>
+      <div>
+        <div style="font-size:16px;font-weight:800;color:var(--navy)">AYC Export Detected</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">
+          This file was exported from the AYC portal. Choose which sheets to import.
+        </div>
+      </div>
+    </div>
+
+    <!-- Sheet checkboxes -->
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px" id="ayc-sheet-list"></div>
+
+    <!-- Additive warning -->
+    <div style="font-size:12px;color:#1e40af;background:#eff6ff;border:1.5px solid #bfdbfe;
+                border-radius:8px;padding:10px 12px;margin-bottom:18px">
+      ℹ️ <strong>Additive import</strong> — existing records are never overwritten.
+      Members with a matching Member ID, attendance records that already exist, and
+      payments that already exist will all be skipped.
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" onclick="goStep(1)">← Back</button>
+      <button class="btn btn-primary" id="btn-run-ayc" onclick="doAycImport()">
+        Import Now
+      </button>
+    </div>
   </div>
 </div>
 
@@ -226,6 +271,14 @@
          style="text-decoration:none">⬇ Download Report (CSV)</a>
     </div>
 
+    <!-- AYC multi-sheet results (shown for round-trip restores) -->
+    <div id="ayc-sheet-results" style="display:none;margin-bottom:20px">
+      <div style="font-weight:600;font-size:13px;color:var(--navy);margin-bottom:8px">
+        Per-sheet results:
+      </div>
+      <div id="ayc-sheet-results-list" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+
     <div style="display:flex;gap:10px">
       <a href="/members" class="btn btn-primary">View Members</a>
       <button class="btn btn-ghost" onclick="location.reload()">Import Another File</button>
@@ -249,6 +302,8 @@ let state = {
   coreFields:  [],
   customFields:[],
   mapping:     {},   // { colIndex: fieldKey }
+  aycExport:   false,
+  aycSheets:   {},
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -339,6 +394,14 @@ async function doAnalyse() {
     state.columns     = data.columns || [];
     state.preview     = data.preview || [];
     state.totalRows   = data.total_rows || 0;
+    state.aycExport   = !!data.ayc_export;
+    state.aycSheets   = data.ayc_sheets || {};
+
+    if (state.aycExport) {
+      buildAycSheetList();
+      goStep('2b');
+      return;
+    }
 
     // Show sheet selector if multiple sheets
     if (state.sheetNames.length > 1) {
@@ -609,13 +672,98 @@ async function doImport() {
   }
 }
 
+// ── AYC round-trip import ──────────────────────────────────────────────────────
+function buildAycSheetList() {
+  const container = document.getElementById('ayc-sheet-list');
+  const sheets = [
+    { key: 'Members',            label: '🪪 Members sheet',            id: 'ayc-chk-members' },
+    { key: 'Attendance History', label: '📅 Attendance History sheet', id: 'ayc-chk-attendance' },
+    { key: 'Payment History',    label: '💳 Payment History sheet',    id: 'ayc-chk-payments' },
+  ];
+  container.innerHTML = sheets.map(s => {
+    const present = !!state.aycSheets[s.key];
+    return `
+      <label style="display:flex;align-items:center;gap:10px;cursor:${present ? 'pointer' : 'not-allowed'};
+                    padding:10px 12px;border:1.5px solid ${present ? 'var(--border)' : '#e2e8f0'};
+                    border-radius:8px;background:${present ? '#f8fafc' : '#f1f5f9'};opacity:${present ? 1 : 0.5}">
+        <input type="checkbox" id="${s.id}" ${present ? 'checked' : 'disabled'}
+               style="width:16px;height:16px">
+        <div>
+          <div style="font-weight:600;font-size:14px;color:var(--navy)">${s.label}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">
+            ${present ? 'Found in file' : 'Not present in file'}
+          </div>
+        </div>
+      </label>`;
+  }).join('');
+}
+
+async function doAycImport() {
+  const btn = document.getElementById('btn-run-ayc');
+  btn.disabled    = true;
+  btn.textContent = '⏳ Importing…';
+
+  const payload = {
+    file_id:           state.fileId,
+    file_ext:          state.fileExt,
+    import_members:    document.getElementById('ayc-chk-members')?.checked    ?? false,
+    import_attendance: document.getElementById('ayc-chk-attendance')?.checked ?? false,
+    import_payments:   document.getElementById('ayc-chk-payments')?.checked   ?? false,
+  };
+
+  try {
+    const data = await apiFetch('/api/admin/import/run-ayc', {
+      method: 'POST',
+      body:   JSON.stringify(payload),
+    });
+
+    const results = data.results || {};
+    // Sum totals for the headline counters
+    let totalImported = 0, totalSkipped = 0;
+    for (const r of Object.values(results)) {
+      totalImported += r.imported || 0;
+      totalSkipped  += r.skipped  || 0;
+    }
+    document.getElementById('res-imported').textContent = totalImported.toLocaleString();
+    document.getElementById('res-skipped').textContent  = totalSkipped.toLocaleString();
+    document.getElementById('res-errors').textContent   = '0';
+    document.getElementById('res-errors-card').style.display = 'none';
+
+    // Per-sheet breakdown
+    const sheetLabels = { members: '🪪 Members', attendance: '📅 Attendance History', payments: '💳 Payment History' };
+    const sheetList   = document.getElementById('ayc-sheet-results-list');
+    sheetList.innerHTML = Object.entries(results).map(([key, r]) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  padding:8px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;font-size:13px">
+        <span style="font-weight:600;color:var(--navy)">${sheetLabels[key] || key}</span>
+        <span style="color:var(--muted)">
+          ${r.imported || 0} imported · ${r.skipped || 0} skipped
+          ${r.error ? `· <span style="color:#b91c1c">${esc(r.error)}</span>` : ''}
+        </span>
+      </div>`).join('');
+    document.getElementById('ayc-sheet-results').style.display = '';
+
+    goStep(4);
+  } catch(e) {
+    showToast('Import failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Import Now';
+  }
+}
+
 // ── Navigation ─────────────────────────────────────────────────────────────────
 function goStep(n) {
+  ['1','2','2b','3','4'].forEach(i => {
+    const el = document.getElementById(`step-${i}`);
+    if (el) el.style.display = (String(i) === String(n)) ? '' : 'none';
+  });
+  // Update tab bar (tabs 1–4 only; 2b shares tab 2's highlight)
+  const tabN = n === '2b' ? 2 : parseInt(n);
   [1,2,3,4].forEach(i => {
-    document.getElementById(`step-${i}`).style.display = i === n ? '' : 'none';
     const tab = document.getElementById(`tab-${i}`);
-    tab.style.background = i === n ? 'var(--navy)' : (i < n ? '#e8eef8' : '#f8fafc');
-    tab.style.color      = i === n ? '#fff'        : (i < n ? 'var(--navy)' : 'var(--muted)');
+    tab.style.background = i === tabN ? 'var(--navy)' : (i < tabN ? '#e8eef8' : '#f8fafc');
+    tab.style.color      = i === tabN ? '#fff'        : (i < tabN ? 'var(--navy)' : 'var(--muted)');
   });
 }
 </script>

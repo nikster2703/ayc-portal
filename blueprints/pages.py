@@ -485,6 +485,24 @@ def import_page():
     return render_template('admin/import.html', active_page='settings', **tpl_ctx())
 
 
+@bp.route('/admin/settings/import-history')
+@permission_required('admin.maintenance')
+def import_history_page():
+    from helpers import get_db
+    db           = get_db()
+    session_types = db.execute('SELECT name FROM session_types ORDER BY sort_order, name').fetchall()
+    payment_types = db.execute('SELECT name FROM payment_types ORDER BY sort_order, name').fetchall()
+    payment_methods = db.execute('SELECT name FROM payment_methods ORDER BY sort_order, name').fetchall()
+    return render_template(
+        'admin/import_history.html',
+        active_page='settings',
+        session_types=session_types,
+        payment_types=payment_types,
+        payment_methods=payment_methods,
+        **tpl_ctx()
+    )
+
+
 @bp.route('/admin/settings/export')
 @permission_required('admin.maintenance')
 def export_page():

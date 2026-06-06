@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.9'  # v11.9: registration_style replaces slug-based staff detection; paid_current badge+filter; audit log display overhaul
+APP_VERSION = 'v11.10'  # v11.10: XLSX multi-sheet export (Members + Attendance/Payment History); import round-trip restore; external history import wizard; export sort + payments/flags sections
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

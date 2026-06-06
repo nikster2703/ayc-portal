@@ -37,6 +37,7 @@ from helpers import (
     get_db, log_action, login_required, permission_required, has_permission,
     _assigned_session, _connect_db, _validate_hex_colour, _invalidate_brand_cache,
     get_brand_settings, get_valid_session_names, get_session_types, validate_password,
+    get_setting,
 )
 
 bp = Blueprint('admin', __name__)
@@ -1672,6 +1673,9 @@ _IMPORT_CORE_FIELDS = [
     {'key': 'contact2_name',      'label': 'Contact 2 — Full Name',     'field_type': 'text',     'required': False},
     {'key': 'contact2_phone',     'label': 'Contact 2 — Phone',         'field_type': 'text',     'required': False},
     {'key': 'contact2_email',     'label': 'Contact 2 — Email',         'field_type': 'email',    'required': False},
+    # Payment fields — create a member_payments record on import
+    {'key': '_payment_paid',      'label': 'Payment — Mark as Paid (Yes/No)',  'field_type': 'text', 'required': False,
+     'hint': 'A payment record will be created for any row where this is Yes / True / 1. Uses the current membership period and Membership payment type.'},
 ]
 
 
@@ -1772,14 +1776,24 @@ def api_import_analyse():
         except OSError: pass
         return jsonify({'error': f'Could not read file: {exc}'}), 400
 
+    # ── Detect AYC export format ─────────────────────────────────────────────
+    _AYC_SHEETS = {'Members', 'Attendance History', 'Payment History'}
+    ayc_export  = bool(ext in ('xlsx', 'xls') and _AYC_SHEETS & set(sheet_names))
+    ayc_sheet_info = {}
+    if ayc_export:
+        for _sn in _AYC_SHEETS:
+            ayc_sheet_info[_sn] = _sn in sheet_names
+
     return jsonify({
-        'file_id':      file_id,
-        'file_ext':     ext,
-        'sheet_names':  sheet_names,
-        'active_sheet': active_sheet,
-        'columns':      headers,
-        'preview':      data_rows[:5],
-        'total_rows':   len(data_rows),
+        'file_id':       file_id,
+        'file_ext':      ext,
+        'sheet_names':   sheet_names,
+        'active_sheet':  active_sheet,
+        'columns':       headers,
+        'preview':       data_rows[:5],
+        'total_rows':    len(data_rows),
+        'ayc_export':    ayc_export,
+        'ayc_sheets':    ayc_sheet_info,
     })
 
 
@@ -1859,6 +1873,21 @@ def api_import_run():
         'contact1_name', 'contact1_phone', 'contact1_email',
         'contact2_name', 'contact2_phone', 'contact2_email',
     }
+    PAYMENT_KEYS = {'_payment_paid'}
+
+    # Pre-fetch payment type + current period if any payment column is mapped
+    _has_payment_col  = any(v in PAYMENT_KEYS for v in mapping.values())
+    _membership_type  = None
+    _import_period    = ''
+    if _has_payment_col:
+        _import_period   = get_setting('current_membership_period', '')
+        _membership_type = db.execute(
+            "SELECT id FROM payment_types WHERE name = 'Membership' LIMIT 1"
+        ).fetchone()
+        if not _membership_type:
+            _membership_type = db.execute(
+                'SELECT id FROM payment_types ORDER BY sort_order, id LIMIT 1'
+            ).fetchone()
 
     imported          = 0
     skipped           = 0
@@ -1894,6 +1923,8 @@ def api_import_run():
                     'contact2_name', 'contact2_phone', 'contact2_email',
                 ):
                     contacts[field_key] = str(val).strip()
+                elif field_key in PAYMENT_KEYS:
+                    core[field_key] = val  # store raw value; handled after INSERT
                 elif field_key in CORE_KEYS:
                     if field_key in ('unattended_exit', 'gdpr_consent'):
                         core[field_key] = _bool_val(val)
@@ -1997,6 +2028,14 @@ def api_import_run():
                         'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
                         (new_id, fd['id'], str(fval))
                     )
+
+            # ── Create payment record if marked as paid ──────────────────────
+            if _bool_val(core.get('_payment_paid', 0)) and _membership_type and _import_period:
+                db.execute(
+                    'INSERT INTO member_payments '
+                    '(member_id, payment_type_id, period, recorded_by) VALUES (?,?,?,?)',
+                    (new_id, _membership_type['id'], _import_period, None)
+                )
 
             db.commit()
             imported += 1
@@ -2102,6 +2141,681 @@ def api_import_report(report_id):
     )
 
 
+# ── AYC round-trip import ──────────────────────────────────────────────────────
+
+# Maps export column headers (normalised to lower) → import field keys.
+# None = skip column; '__member_type' = store slug directly on members row.
+_AYC_COL_MAP = {
+    'member id':       'member_id',
+    'first name':      'first_name',
+    'surname':         'surname',
+    'date of birth':   'date_of_birth',
+    'date registered': 'date_registered',
+    'session':         'session',
+    'member type':     '__member_type',
+    'staff role':      'staff_role',
+    'status':          'status',
+    'status note':     None,
+    'mobile':          'mobile',
+    'email':           'email',
+    'unattended exit': 'unattended_exit',
+    'contact 1 name':  'contact1_name',
+    'contact 1 phone': 'contact1_phone',
+    'contact 1 email': 'contact1_email',
+    'contact 2 name':  'contact2_name',
+    'contact 2 phone': 'contact2_phone',
+    'contact 2 email': 'contact2_email',
+    # summary / computed columns → skip
+    'total sessions':  None,
+    'last attended':   None,
+    'payment count':   None,
+    'total paid':      None,
+    'last payment':    None,
+    'active flags':    None,
+}
+
+
+def _ayc_import_members(db, save_path, file_ext):
+    """Import the Members sheet from an AYC export XLSX. Returns result dict."""
+    from helpers import _next_member_id, _save_id_format_from_import
+
+    try:
+        _, _, headers, data_rows = _read_xlsx_file(save_path, 'Members')
+    except Exception as exc:
+        return {'error': str(exc), 'imported': 0, 'skipped': 0}
+
+    if not headers:
+        return {'imported': 0, 'skipped': 0, 'note': 'Members sheet is empty'}
+
+    # Normalised header → col index
+    hmap = {h.lower().strip(): i for i, h in enumerate(headers)}
+
+    # Pre-load ALL custom field definitions for label matching
+    all_fd = db.execute(
+        'SELECT id, label, key, field_type, column_name FROM field_definitions WHERE active = 1'
+    ).fetchall()
+    label_to_fd = {fd['label'].lower().strip(): dict(fd) for fd in all_fd}
+
+    # Pre-load member type slug → id map
+    mt_rows    = db.execute('SELECT id, slug FROM member_types').fetchall()
+    slug_to_id = {r['slug']: r['id'] for r in mt_rows}
+
+    # Valid statuses (case-insensitive)
+    valid_statuses = {r['name'].lower(): r['name'] for r in db.execute(
+        'SELECT name FROM member_statuses'
+    ).fetchall()}
+
+    CORE_KEYS = {
+        'first_name', 'surname', 'date_of_birth', 'address', 'postcode',
+        'session', 'ethnicity_religion', 'medical_sen', 'gp_contact',
+        'unattended_exit', 'gdpr_consent', 'staff_role', 'date_registered',
+        'comments', 'status',
+    }
+    _MEMBER_COLUMNS = {
+        'first_name', 'surname', 'date_of_birth', 'address', 'postcode',
+        'ethnicity_religion', 'medical_sen', 'gp_contact', 'session',
+        'unattended_exit', 'gdpr_consent', 'staff_role', 'status',
+        'date_registered', 'comments', 'mobile', 'email',
+    }
+
+    imported = 0
+    skipped  = 0
+    imported_ids_used = []
+
+    for row in data_rows:
+        def _cell(col_label):
+            i = hmap.get(col_label)
+            return str(row[i]).strip() if i is not None and i < len(row) and row[i] not in (None, '') else ''
+
+        first_name = _cell('first name')
+        surname    = _cell('surname')
+        if not first_name and not surname:
+            skipped += 1
+            continue
+
+        provided_id  = _cell('member id')
+        member_type  = _cell('member type')   # slug
+
+        if provided_id and db.execute(
+            'SELECT id FROM members WHERE member_id = ?', (provided_id,)
+        ).fetchone():
+            skipped += 1
+            continue
+
+        member_id = provided_id if provided_id else _next_member_id(db)
+
+        # Core fields
+        core = {}
+        for label_norm, field_key in _AYC_COL_MAP.items():
+            if field_key is None or field_key in ('member_id', '__member_type'):
+                continue
+            i = hmap.get(label_norm)
+            if i is None or i >= len(row):
+                continue
+            val = str(row[i]).strip() if row[i] not in (None, '') else ''
+            if not val:
+                continue
+            if field_key in ('unattended_exit', 'gdpr_consent'):
+                core[field_key] = _bool_val(val)
+            elif field_key == 'status':
+                matched = valid_statuses.get(val.lower())
+                if matched:
+                    core['status'] = matched
+            elif field_key in CORE_KEYS or field_key in ('email', 'mobile'):
+                core[field_key] = val
+
+        email_val  = core.pop('email',  None)
+        mobile_val = core.pop('mobile', None)
+
+        # Contacts
+        contacts = {}
+        for prefix in ('contact1', 'contact2'):
+            for suffix in ('name', 'phone', 'email'):
+                lbl = f'{prefix[:-1]} {prefix[-1]} {suffix}'  # e.g. "contact 1 name"
+                i   = hmap.get(lbl)
+                if i is not None and i < len(row) and row[i] not in (None, ''):
+                    contacts[f'{prefix}_{suffix}'] = str(row[i]).strip()
+
+        try:
+            db.execute('''
+                INSERT INTO members
+                    (member_id, first_name, surname, date_of_birth, address,
+                     postcode, session, ethnicity_religion, medical_sen,
+                     gp_contact, unattended_exit, gdpr_consent, staff_role,
+                     date_registered, comments, status, member_type,
+                     email, mobile)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ''', (
+                member_id,
+                first_name, surname,
+                core.get('date_of_birth') or None, core.get('address') or None,
+                core.get('postcode') or None, core.get('session') or None,
+                core.get('ethnicity_religion') or None, core.get('medical_sen') or None,
+                core.get('gp_contact') or None,
+                core.get('unattended_exit', 0), core.get('gdpr_consent', 0),
+                core.get('staff_role') or None, core.get('date_registered') or None,
+                core.get('comments') or None, core.get('status', 'Active'),
+                member_type or 'member',
+                email_val or None, mobile_val or None,
+            ))
+            new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+
+            for order, prefix in ((1, 'contact1'), (2, 'contact2')):
+                name  = contacts.get(f'{prefix}_name',  '')
+                phone = contacts.get(f'{prefix}_phone', '')
+                email = contacts.get(f'{prefix}_email', '')
+                if name or phone or email:
+                    db.execute(
+                        'INSERT INTO member_contacts '
+                        '(member_id, contact_order, contact_name, contact_phone, contact_email) '
+                        'VALUES (?,?,?,?,?)',
+                        (new_id, order, name or None, phone or None, email or None)
+                    )
+
+            # Custom fields — match remaining columns by label
+            type_id = slug_to_id.get(member_type or 'member')
+            if type_id:
+                type_fd_ids = {r['field_id'] for r in db.execute(
+                    'SELECT field_id FROM member_type_fields WHERE member_type_id = ?', (type_id,)
+                ).fetchall()}
+                for label_norm, fd in label_to_fd.items():
+                    if fd['id'] not in type_fd_ids:
+                        continue
+                    i = hmap.get(label_norm)
+                    if i is None or i >= len(row):
+                        continue
+                    val = str(row[i]).strip() if row[i] not in (None, '') else ''
+                    if not val:
+                        continue
+                    col = fd.get('column_name')
+                    if col and col in _MEMBER_COLUMNS:
+                        db.execute(f'UPDATE members SET {col} = ? WHERE id = ?', (val, new_id))
+                    else:
+                        db.execute(
+                            'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
+                            (new_id, fd['id'], val)
+                        )
+
+            db.commit()
+            imported += 1
+            if provided_id:
+                imported_ids_used.append(member_id)
+
+        except Exception as exc:
+            skipped += 1
+            try: db.rollback()
+            except Exception: pass
+
+    if imported_ids_used:
+        _save_id_format_from_import(db, imported_ids_used)
+
+    return {'imported': imported, 'skipped': skipped}
+
+
+def _ayc_import_attendance(db, save_path, file_ext):
+    """Import the Attendance History sheet from an AYC export XLSX."""
+    try:
+        _, _, headers, data_rows = _read_xlsx_file(save_path, 'Attendance History')
+    except Exception as exc:
+        return {'error': str(exc), 'imported': 0, 'skipped': 0}
+
+    if not headers:
+        return {'imported': 0, 'skipped': 0, 'note': 'Attendance History sheet is empty'}
+
+    hmap = {h.lower().strip(): i for i, h in enumerate(headers)}
+    # Build member_id string → numeric id cache
+    mid_cache = {}
+
+    def _resolve_member(member_ref):
+        if member_ref in mid_cache:
+            return mid_cache[member_ref]
+        row = db.execute('SELECT id FROM members WHERE member_id = ?', (member_ref,)).fetchone()
+        mid_cache[member_ref] = row['id'] if row else None
+        return mid_cache[member_ref]
+
+    imported = 0
+    skipped  = 0
+
+    for row in data_rows:
+        def _cell(label):
+            i = hmap.get(label)
+            return str(row[i]).strip() if i is not None and i < len(row) and row[i] not in (None, '') else ''
+
+        member_ref   = _cell('member id')
+        session_date = _cell('date')
+        session_type = _cell('session')
+
+        if not member_ref or not session_date:
+            skipped += 1
+            continue
+
+        numeric_id = _resolve_member(member_ref)
+        if not numeric_id:
+            skipped += 1
+            continue
+
+        # Skip duplicate
+        if db.execute(
+            'SELECT 1 FROM attendance WHERE member_id=? AND session_date=? AND session_type=?',
+            (numeric_id, session_date, session_type)
+        ).fetchone():
+            skipped += 1
+            continue
+
+        signed_in  = _cell('signed in')  or None
+        signed_out = _cell('signed out') or None
+
+        try:
+            db.execute(
+                'INSERT INTO attendance (member_id, session_date, session_type, signed_in_at, signed_out_at) '
+                'VALUES (?,?,?,?,?)',
+                (numeric_id, session_date, session_type, signed_in, signed_out)
+            )
+            db.commit()
+            imported += 1
+        except Exception:
+            skipped += 1
+            try: db.rollback()
+            except Exception: pass
+
+    return {'imported': imported, 'skipped': skipped}
+
+
+def _ayc_import_payments(db, save_path, file_ext):
+    """Import the Payment History sheet from an AYC export XLSX."""
+    try:
+        _, _, headers, data_rows = _read_xlsx_file(save_path, 'Payment History')
+    except Exception as exc:
+        return {'error': str(exc), 'imported': 0, 'skipped': 0}
+
+    if not headers:
+        return {'imported': 0, 'skipped': 0, 'note': 'Payment History sheet is empty'}
+
+    hmap = {h.lower().strip(): i for i, h in enumerate(headers)}
+
+    # Pre-load lookup caches
+    mid_cache = {}
+    pt_cache  = {}
+    pm_cache  = {}
+
+    def _resolve_member(ref):
+        if ref not in mid_cache:
+            r = db.execute('SELECT id FROM members WHERE member_id = ?', (ref,)).fetchone()
+            mid_cache[ref] = r['id'] if r else None
+        return mid_cache[ref]
+
+    def _resolve_pt(name):
+        if name not in pt_cache:
+            r = db.execute('SELECT id FROM payment_types WHERE name = ?', (name,)).fetchone()
+            if not r:
+                r = db.execute('SELECT id FROM payment_types ORDER BY sort_order, id LIMIT 1').fetchone()
+            pt_cache[name] = r['id'] if r else None
+        return pt_cache[name]
+
+    def _resolve_pm(name):
+        if not name:
+            return None
+        if name not in pm_cache:
+            r = db.execute('SELECT id FROM payment_methods WHERE name = ?', (name,)).fetchone()
+            pm_cache[name] = r['id'] if r else None
+        return pm_cache[name]
+
+    imported = 0
+    skipped  = 0
+
+    for row in data_rows:
+        def _cell(label):
+            i = hmap.get(label)
+            return str(row[i]).strip() if i is not None and i < len(row) and row[i] not in (None, '') else ''
+
+        member_ref   = _cell('member id')
+        period       = _cell('period')
+        payment_date = _cell('payment date') or None
+        pt_name      = _cell('payment type')
+        pm_name      = _cell('method')
+        amount_str   = _cell('amount')
+        notes        = _cell('notes') or None
+
+        if not member_ref or not period:
+            skipped += 1
+            continue
+
+        numeric_id = _resolve_member(member_ref)
+        if not numeric_id:
+            skipped += 1
+            continue
+
+        pt_id = _resolve_pt(pt_name)
+        if not pt_id:
+            skipped += 1
+            continue
+
+        pm_id = _resolve_pm(pm_name)
+
+        try:
+            amount = float(amount_str) if amount_str else None
+        except ValueError:
+            amount = None
+
+        # Dedup: same member + period + payment_type + date
+        if db.execute(
+            'SELECT 1 FROM member_payments WHERE member_id=? AND period=? AND payment_type_id=? AND payment_date IS ?',
+            (numeric_id, period, pt_id, payment_date)
+        ).fetchone():
+            skipped += 1
+            continue
+
+        try:
+            db.execute(
+                'INSERT INTO member_payments (member_id, payment_type_id, period, payment_date, amount, method_id, notes) '
+                'VALUES (?,?,?,?,?,?,?)',
+                (numeric_id, pt_id, period, payment_date, amount, pm_id, notes)
+            )
+            db.commit()
+            imported += 1
+        except Exception:
+            skipped += 1
+            try: db.rollback()
+            except Exception: pass
+
+    return {'imported': imported, 'skipped': skipped}
+
+
+@bp.route('/api/admin/import/run-ayc', methods=['POST'])
+@csrf.exempt
+@permission_required('admin.maintenance')
+def api_import_run_ayc():
+    """Round-trip import from an AYC export XLSX — additive, skips existing records."""
+    data    = request.get_json() or {}
+    file_id = (data.get('file_id')  or '').strip()
+    file_ext = (data.get('file_ext') or '').strip()
+    do_members    = data.get('import_members',    True)
+    do_attendance = data.get('import_attendance', True)
+    do_payments   = data.get('import_payments',   True)
+
+    if not file_id or not file_ext:
+        return jsonify({'error': 'Missing file_id or file_ext'}), 400
+
+    imports_dir = os.path.join(INSTANCE_DIR, 'data', 'imports')
+    save_path   = os.path.join(imports_dir, f'{file_id}.{file_ext}')
+    if not os.path.exists(save_path):
+        return jsonify({'error': 'Upload not found — please re-upload the file'}), 404
+
+    db      = get_db()
+    results = {}
+    if do_members:
+        results['members']    = _ayc_import_members(db, save_path, file_ext)
+    if do_attendance:
+        results['attendance'] = _ayc_import_attendance(db, save_path, file_ext)
+    if do_payments:
+        results['payments']   = _ayc_import_payments(db, save_path, file_ext)
+
+    try: os.remove(save_path)
+    except OSError: pass
+
+    log_action('import.ayc_restore', 'members', None, results)
+    return jsonify({'results': results})
+
+
+# ── External history import (attendance + payments from third-party files) ──────
+
+@bp.route('/api/admin/import/history/analyse', methods=['POST'])
+@csrf.exempt
+@permission_required('admin.maintenance')
+def api_import_history_analyse():
+    """Upload and analyse an external attendance or payment history file."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in ('xlsx', 'xls', 'csv'):
+        return jsonify({'error': 'Only .xlsx, .xls and .csv files are supported'}), 400
+
+    imports_dir = os.path.join(INSTANCE_DIR, 'data', 'imports')
+    os.makedirs(imports_dir, exist_ok=True)
+    file_id   = str(_uuid_mod.uuid4())
+    save_path = os.path.join(imports_dir, f'{file_id}.{ext}')
+    f.save(save_path)
+
+    sheet_name = (request.form.get('sheet_name') or '').strip() or None
+    try:
+        if ext in ('xlsx', 'xls'):
+            sheet_names, active_sheet, headers, data_rows = _read_xlsx_file(save_path, sheet_name)
+        else:
+            sheet_names, active_sheet = [], ''
+            headers, data_rows = _read_csv_file(save_path)
+    except Exception as exc:
+        try: os.remove(save_path)
+        except OSError: pass
+        return jsonify({'error': f'Could not read file: {exc}'}), 400
+
+    # Detect wide attendance format: count columns that look like dates
+    import re as _re2
+    _date_pat = _re2.compile(
+        r'^\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}$'   # 01/09/2024
+        r'|\d{4}[/\-\.]\d{2}[/\-\.]\d{2}$'           # 2024-09-01
+        r'|\d{1,2}\s+\w+\s+\d{4}$'                   # 1 Sep 2024
+    )
+    date_col_count = sum(1 for h in headers if _date_pat.match(h.strip()))
+    likely_wide    = date_col_count >= 3 and date_col_count > len(headers) // 2
+
+    return jsonify({
+        'file_id':       file_id,
+        'file_ext':      ext,
+        'sheet_names':   sheet_names,
+        'active_sheet':  active_sheet,
+        'columns':       headers,
+        'preview':       data_rows[:5],
+        'total_rows':    len(data_rows),
+        'likely_wide':   likely_wide,
+        'date_col_count': date_col_count,
+    })
+
+
+@bp.route('/api/admin/import/history/run', methods=['POST'])
+@csrf.exempt
+@permission_required('admin.maintenance')
+def api_import_history_run():
+    """Import external attendance or payment history into the portal."""
+    data     = request.get_json() or {}
+    file_id  = (data.get('file_id')  or '').strip()
+    file_ext = (data.get('file_ext') or '').strip()
+    sheet_name = (data.get('sheet_name') or '').strip() or None
+    import_type = (data.get('import_type') or '').strip()  # 'attendance' or 'payments'
+    match_by    = data.get('match_by', 'member_id')         # 'member_id' or 'name'
+    mapping     = data.get('mapping', {})                   # colIndex → role
+
+    if not file_id or not file_ext or import_type not in ('attendance', 'payments'):
+        return jsonify({'error': 'Missing required parameters'}), 400
+
+    imports_dir = os.path.join(INSTANCE_DIR, 'data', 'imports')
+    save_path   = os.path.join(imports_dir, f'{file_id}.{file_ext}')
+    if not os.path.exists(save_path):
+        return jsonify({'error': 'Upload not found — please re-upload the file'}), 404
+
+    try:
+        if file_ext in ('xlsx', 'xls'):
+            _, _, headers, data_rows = _read_xlsx_file(save_path, sheet_name)
+        else:
+            headers, data_rows = _read_csv_file(save_path)
+    except Exception as exc:
+        return jsonify({'error': f'Could not read file: {exc}'}), 400
+
+    db = get_db()
+
+    # Member resolution helper
+    _mid_cache = {}
+    def _resolve(row):
+        if match_by == 'member_id':
+            col_i = next((int(k) for k, v in mapping.items() if v == 'member_id'), None)
+            ref   = str(row[col_i]).strip() if col_i is not None and col_i < len(row) else ''
+            if not ref: return None
+            if ref not in _mid_cache:
+                r = db.execute('SELECT id FROM members WHERE member_id = ?', (ref,)).fetchone()
+                _mid_cache[ref] = r['id'] if r else None
+            return _mid_cache[ref]
+        else:  # name
+            fn_i = next((int(k) for k, v in mapping.items() if v == 'first_name'), None)
+            sn_i = next((int(k) for k, v in mapping.items() if v == 'surname'), None)
+            fn   = str(row[fn_i]).strip() if fn_i is not None and fn_i < len(row) else ''
+            sn   = str(row[sn_i]).strip() if sn_i is not None and sn_i < len(row) else ''
+            key  = f'{fn}|{sn}'
+            if key not in _mid_cache:
+                r = db.execute('SELECT id FROM members WHERE first_name=? AND surname=?', (fn, sn)).fetchone()
+                _mid_cache[key] = r['id'] if r else None
+            return _mid_cache[key]
+
+    def _col(row, role):
+        i = next((int(k) for k, v in mapping.items() if v == role), None)
+        return str(row[i]).strip() if i is not None and i < len(row) and row[i] not in (None, '') else ''
+
+    imported = 0
+    skipped  = 0
+    errors   = []
+
+    if import_type == 'attendance':
+        att_format   = data.get('att_format', 'long')   # 'long' or 'wide'
+        default_type = (data.get('default_session_type') or '').strip()
+
+        if att_format == 'wide':
+            # Wide: member col + date columns
+            member_col_i = int(next((k for k, v in mapping.items() if v == 'member_id'), -1))
+            date_col_indices = [int(k) for k, v in mapping.items() if v == 'date_column']
+            date_labels      = [headers[i] for i in date_col_indices if i < len(headers)]
+
+            for row in data_rows:
+                numeric_id = _resolve(row)
+                if not numeric_id:
+                    skipped += 1
+                    continue
+                for col_i, date_label in zip(date_col_indices, date_labels):
+                    val = str(row[col_i]).strip() if col_i < len(row) and row[col_i] not in (None, '') else ''
+                    if not val:
+                        continue  # blank = absent
+                    if db.execute(
+                        'SELECT 1 FROM attendance WHERE member_id=? AND session_date=? AND session_type=?',
+                        (numeric_id, date_label, default_type)
+                    ).fetchone():
+                        skipped += 1
+                        continue
+                    try:
+                        db.execute(
+                            'INSERT INTO attendance (member_id, session_date, session_type) VALUES (?,?,?)',
+                            (numeric_id, date_label, default_type)
+                        )
+                        db.commit()
+                        imported += 1
+                    except Exception as exc:
+                        errors.append(str(exc))
+                        skipped += 1
+                        try: db.rollback()
+                        except Exception: pass
+        else:
+            # Long format
+            for row in data_rows:
+                numeric_id   = _resolve(row)
+                session_date = _col(row, 'date')
+                session_type = _col(row, 'session_type') or default_type
+                if not numeric_id or not session_date:
+                    skipped += 1
+                    continue
+                if db.execute(
+                    'SELECT 1 FROM attendance WHERE member_id=? AND session_date=? AND session_type=?',
+                    (numeric_id, session_date, session_type)
+                ).fetchone():
+                    skipped += 1
+                    continue
+                try:
+                    db.execute(
+                        'INSERT INTO attendance (member_id, session_date, session_type) VALUES (?,?,?)',
+                        (numeric_id, session_date, session_type)
+                    )
+                    db.commit()
+                    imported += 1
+                except Exception as exc:
+                    errors.append(str(exc))
+                    skipped += 1
+                    try: db.rollback()
+                    except Exception: pass
+
+    else:  # payments
+        pt_cache = {}
+        pm_cache = {}
+
+        def _pt(name):
+            if name not in pt_cache:
+                r = db.execute('SELECT id FROM payment_types WHERE name = ?', (name,)).fetchone()
+                if not r:
+                    r = db.execute('SELECT id FROM payment_types ORDER BY sort_order, id LIMIT 1').fetchone()
+                pt_cache[name] = r['id'] if r else None
+            return pt_cache[name]
+
+        def _pm(name):
+            if not name: return None
+            if name not in pm_cache:
+                r = db.execute('SELECT id FROM payment_methods WHERE name = ?', (name,)).fetchone()
+                pm_cache[name] = r['id'] if r else None
+            return pm_cache[name]
+
+        default_period = (data.get('default_period') or get_setting('current_membership_period', '')).strip()
+        default_pt     = (data.get('default_payment_type') or '').strip()
+
+        for row in data_rows:
+            numeric_id   = _resolve(row)
+            period       = _col(row, 'period') or default_period
+            payment_date = _col(row, 'date') or None
+            pt_name      = _col(row, 'payment_type') or default_pt
+            pm_name      = _col(row, 'method')
+            amount_str   = _col(row, 'amount')
+            notes        = _col(row, 'notes') or None
+
+            if not numeric_id or not period:
+                skipped += 1
+                continue
+
+            pt_id = _pt(pt_name)
+            if not pt_id:
+                skipped += 1
+                continue
+
+            try:
+                amount = float(amount_str) if amount_str else None
+            except ValueError:
+                amount = None
+
+            if db.execute(
+                'SELECT 1 FROM member_payments WHERE member_id=? AND period=? AND payment_type_id=? AND payment_date IS ?',
+                (numeric_id, period, pt_id, payment_date)
+            ).fetchone():
+                skipped += 1
+                continue
+
+            try:
+                db.execute(
+                    'INSERT INTO member_payments (member_id, payment_type_id, period, payment_date, amount, method_id, notes) '
+                    'VALUES (?,?,?,?,?,?,?)',
+                    (numeric_id, pt_id, period, payment_date, amount, _pm(pm_name), notes)
+                )
+                db.commit()
+                imported += 1
+            except Exception as exc:
+                errors.append(str(exc))
+                skipped += 1
+                try: db.rollback()
+                except Exception: pass
+
+    try: os.remove(save_path)
+    except OSError: pass
+
+    log_action(f'import.history.{import_type}', 'members', None,
+               {'imported': imported, 'skipped': skipped})
+    return jsonify({'imported': imported, 'skipped': skipped,
+                    'errors': errors[:20]})
+
+
 # ── Member Export ──────────────────────────────────────────────────────────────
 
 @bp.route('/api/admin/export/preview')
@@ -2127,6 +2841,7 @@ def api_export_members_csv():
     status_filter   = request.args.get('status_filter', 'active')
     session_filter  = request.args.get('session', 'all')
     type_filter     = request.args.get('member_type', 'all')
+    sort_by         = request.args.get('sort', 'member_id')
     _sections_raw   = request.args.get('sections', 'core,contacts,custom,attendance')
     sections        = set(s.strip() for s in _sections_raw.split(',') if s.strip())
     if not sections:
@@ -2136,6 +2851,8 @@ def api_export_members_csv():
     inc_contacts   = 'contacts'   in sections
     inc_custom     = 'custom'     in sections
     inc_attendance = 'attendance' in sections
+    inc_payments   = 'payments'   in sections
+    inc_flags      = 'flags'      in sections
 
     where, params = _export_where(status_filter, session_filter, type_filter)
 
@@ -2152,7 +2869,7 @@ def api_export_members_csv():
         LEFT JOIN member_contacts c1 ON c1.member_id = m.id AND c1.contact_order = 1
         LEFT JOIN member_contacts c2 ON c2.member_id = m.id AND c2.contact_order = 2
         WHERE   {where}
-        ORDER   BY m.surname, m.first_name
+        ORDER   BY {_export_order(sort_by)}
     ''', params).fetchall()
     members = [dict(r) for r in members]
 
@@ -2187,6 +2904,37 @@ def api_export_members_csv():
             member_ids
         ).fetchall()
         att_map = {r['member_id']: dict(r) for r in att_rows}
+
+    # ── Payment summary ──────────────────────────────────────────────────────
+    payments_map   = {}
+    current_period = ''
+    if inc_payments:
+        current_period = get_setting('current_membership_period', '')
+        pay_rows = db.execute(
+            f'''SELECT mp.member_id,
+                       COUNT(CASE WHEN mp.voided_at IS NULL THEN 1 END) AS payment_count,
+                       SUM(CASE WHEN mp.voided_at IS NULL THEN COALESCE(mp.amount, 0) ELSE 0 END) AS total_paid,
+                       MAX(CASE WHEN mp.voided_at IS NULL THEN mp.payment_date ELSE NULL END) AS last_payment_date,
+                       MAX(CASE WHEN mp.voided_at IS NULL AND mp.period = ? THEN 1 ELSE 0 END) AS paid_this_period
+                FROM member_payments mp
+                WHERE mp.member_id IN ({placeholders})
+                GROUP BY mp.member_id''',
+            [current_period] + member_ids
+        ).fetchall()
+        payments_map = {r['member_id']: dict(r) for r in pay_rows}
+
+    # ── Active flags ─────────────────────────────────────────────────────────
+    flags_map = {}
+    if inc_flags:
+        flag_rows = db.execute(
+            f'''SELECT mf.member_id, GROUP_CONCAT(ar.name, ', ') AS flag_names
+                FROM member_flags mf
+                JOIN alert_rules ar ON ar.id = mf.rule_id
+                WHERE mf.member_id IN ({placeholders}) AND mf.resolved_at IS NULL
+                GROUP BY mf.member_id''',
+            member_ids
+        ).fetchall()
+        flags_map = {r['member_id']: r['flag_names'] for r in flag_rows}
 
     # ── Collect active custom field definitions for relevant member types ────
     custom_fields = []
@@ -2240,12 +2988,19 @@ def api_export_members_csv():
         ('total_sessions', 'Total Sessions'),
         ('last_attended',  'Last Attended'),
     ]
-    custom_col_headers = [f['label'] for f in custom_fields]
+    payment_cols = [
+        ('payment_count',    f'Payment Count'),
+        ('total_paid',       f'Total Paid'),
+        ('last_payment_date','Last Payment Date'),
+        ('paid_this_period', f'Paid This Period ({current_period})' if current_period else 'Paid This Period'),
+    ]
 
     header = (
         ([label for _, label in core_cols]       if inc_core       else []) +
         ([label for _, label in contact_cols]     if inc_contacts   else []) +
         ([label for _, label in attendance_cols]  if inc_attendance else []) +
+        ([label for _, label in payment_cols]     if inc_payments   else []) +
+        (['Active Flags']                         if inc_flags      else []) +
         ([f['label'] for f in custom_fields]      if inc_custom     else [])
     )
 
@@ -2256,11 +3011,15 @@ def api_export_members_csv():
     for m in members:
         att  = att_map.get(m['id'], {})
         cfvs = custom_map.get(m['id'], {})
+        pay  = payments_map.get(m['id'], {})
 
+        paid_flag = 'Yes' if pay.get('paid_this_period') else ('No' if pay else '')
         row = (
             ([m.get(key, '') or '' for key, _ in core_cols]       if inc_core       else []) +
             ([m.get(key, '') or '' for key, _ in contact_cols]     if inc_contacts   else []) +
             ([att.get('total_sessions', 0), att.get('last_attended', '') or ''] if inc_attendance else []) +
+            ([pay.get('payment_count', 0), pay.get('total_paid', ''), pay.get('last_payment_date', '') or '', paid_flag] if inc_payments else []) +
+            ([flags_map.get(m['id'], '')]                         if inc_flags      else []) +
             ([cfvs.get(f['key'], '') or '' for f in custom_fields] if inc_custom     else [])
         )
         writer.writerow(row)
@@ -2279,6 +3038,304 @@ def api_export_members_csv():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
+
+
+@bp.route('/api/admin/export/members.xlsx')
+@permission_required('admin.maintenance')
+def api_export_members_xlsx():
+    """XLSX export: Sheet 1 = Members, Sheet 2 = Attendance History, Sheet 3 = Payment History."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    db             = get_db()
+    status_filter  = request.args.get('status_filter', 'active')
+    session_filter = request.args.get('session', 'all')
+    type_filter    = request.args.get('member_type', 'all')
+    sort_by        = request.args.get('sort', 'member_id')
+    _sections_raw  = request.args.get('sections', 'core,contacts,custom,attendance,payments,flags')
+    sections       = set(s.strip() for s in _sections_raw.split(',') if s.strip())
+    if not sections:
+        sections = {'core', 'contacts', 'custom', 'attendance', 'payments', 'flags'}
+
+    inc_core       = 'core'       in sections
+    inc_contacts   = 'contacts'   in sections
+    inc_custom     = 'custom'     in sections
+    inc_attendance = 'attendance' in sections
+    inc_payments   = 'payments'   in sections
+    inc_flags      = 'flags'      in sections
+
+    where, params = _export_where(status_filter, session_filter, type_filter)
+
+    # ── Fetch members ────────────────────────────────────────────────────────
+    members = db.execute(f'''
+        SELECT  m.*,
+                c1.contact_name  AS contact1_name,
+                c1.contact_phone AS contact1_phone,
+                c1.contact_email AS contact1_email,
+                c2.contact_name  AS contact2_name,
+                c2.contact_phone AS contact2_phone,
+                c2.contact_email AS contact2_email
+        FROM    members m
+        LEFT JOIN member_contacts c1 ON c1.member_id = m.id AND c1.contact_order = 1
+        LEFT JOIN member_contacts c2 ON c2.member_id = m.id AND c2.contact_order = 2
+        WHERE   {where}
+        ORDER   BY {_export_order(sort_by)}
+    ''', params).fetchall()
+    members = [dict(r) for r in members]
+
+    if not members:
+        return jsonify({'error': 'No members match the selected filters'}), 404
+
+    member_ids   = [m['id'] for m in members]
+    placeholders = ','.join('?' * len(member_ids))
+    mid_map      = {m['id']: m for m in members}  # for joining history rows to names
+
+    # ── Attendance summary for Sheet 1 ───────────────────────────────────────
+    att_map = {}
+    if inc_attendance:
+        att_rows = db.execute(
+            f'SELECT member_id, COUNT(*) AS total_sessions, MAX(session_date) AS last_attended '
+            f'FROM attendance WHERE member_id IN ({placeholders}) GROUP BY member_id',
+            member_ids
+        ).fetchall()
+        att_map = {r['member_id']: dict(r) for r in att_rows}
+
+    # ── Payment summary for Sheet 1 ──────────────────────────────────────────
+    payments_map   = {}
+    current_period = ''
+    if inc_payments:
+        current_period = get_setting('current_membership_period', '')
+        pay_rows = db.execute(
+            f'''SELECT mp.member_id,
+                       COUNT(CASE WHEN mp.voided_at IS NULL THEN 1 END) AS payment_count,
+                       SUM(CASE WHEN mp.voided_at IS NULL THEN COALESCE(mp.amount, 0) ELSE 0 END) AS total_paid,
+                       MAX(CASE WHEN mp.voided_at IS NULL THEN mp.payment_date ELSE NULL END) AS last_payment_date,
+                       MAX(CASE WHEN mp.voided_at IS NULL AND mp.period = ? THEN 1 ELSE 0 END) AS paid_this_period
+                FROM member_payments mp WHERE mp.member_id IN ({placeholders})
+                GROUP BY mp.member_id''',
+            [current_period] + member_ids
+        ).fetchall()
+        payments_map = {r['member_id']: dict(r) for r in pay_rows}
+
+    # ── Active flags for Sheet 1 ─────────────────────────────────────────────
+    flags_map = {}
+    if inc_flags:
+        flag_rows = db.execute(
+            f'''SELECT mf.member_id, GROUP_CONCAT(ar.name, ', ') AS flag_names
+                FROM member_flags mf JOIN alert_rules ar ON ar.id = mf.rule_id
+                WHERE mf.member_id IN ({placeholders}) AND mf.resolved_at IS NULL
+                GROUP BY mf.member_id''',
+            member_ids
+        ).fetchall()
+        flags_map = {r['member_id']: r['flag_names'] for r in flag_rows}
+
+    # ── Custom fields for Sheet 1 ────────────────────────────────────────────
+    custom_map    = {}
+    custom_fields = []
+    if inc_custom:
+        cfv_rows = db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value '
+            f'FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({placeholders})',
+            member_ids
+        ).fetchall()
+        for r in cfv_rows:
+            custom_map.setdefault(r['member_id'], {})[r['key']] = r['value']
+        type_slugs    = list({m['member_type'] for m in members})
+        type_ids_rows = db.execute(
+            f'SELECT id, slug FROM member_types WHERE slug IN ({",".join("?" * len(type_slugs))})',
+            type_slugs
+        ).fetchall()
+        type_id_map = {r['slug']: r['id'] for r in type_ids_rows}
+        cfd_rows = db.execute(
+            f'''SELECT DISTINCT fd.key, fd.label, fd.field_type
+                FROM member_type_fields mtf JOIN field_definitions fd ON fd.id = mtf.field_id
+                WHERE mtf.member_type_id IN ({",".join("?" * len(type_id_map))})
+                  AND fd.active = 1 AND fd.system_field = 0
+                ORDER BY mtf.sort_order''',
+            list(type_id_map.values())
+        ).fetchall()
+        seen_keys = set()
+        for r in cfd_rows:
+            if r['key'] not in seen_keys:
+                seen_keys.add(r['key'])
+                custom_fields.append(dict(r))
+
+    # ── Full attendance history for Sheet 2 ──────────────────────────────────
+    att_history = db.execute(
+        f'''SELECT a.member_id, m.first_name, m.surname, m.member_id AS member_ref,
+                   a.session_date, a.session_type, a.signed_in_at, a.signed_out_at
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            WHERE a.member_id IN ({placeholders})
+            ORDER BY a.session_date, a.session_type, m.surname, m.first_name''',
+        member_ids
+    ).fetchall()
+
+    # ── Full payment history for Sheet 3 ─────────────────────────────────────
+    pay_history = db.execute(
+        f'''SELECT mp.member_id, m.first_name, m.surname, m.member_id AS member_ref,
+                   mp.period, mp.payment_date, pt.name AS payment_type,
+                   pm.name AS payment_method, mp.amount, mp.notes
+            FROM member_payments mp
+            JOIN members m  ON m.id  = mp.member_id
+            JOIN payment_types pt ON pt.id = mp.payment_type_id
+            LEFT JOIN payment_methods pm ON pm.id = mp.method_id
+            WHERE mp.member_id IN ({placeholders}) AND mp.voided_at IS NULL
+            ORDER BY mp.payment_date DESC, m.surname, m.first_name''',
+        member_ids
+    ).fetchall()
+
+    # ── Build workbook ────────────────────────────────────────────────────────
+    HEADER_FILL = PatternFill('solid', start_color='1e3a5f')
+    HEADER_FONT = Font(bold=True, color='FFFFFF', name='Arial', size=10)
+    BODY_FONT   = Font(name='Arial', size=10)
+
+    def _style_sheet(ws, col_widths):
+        ws.freeze_panes = 'A2'
+        for col_idx, width in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+        for cell in ws[1]:
+            cell.font      = HEADER_FONT
+            cell.fill      = HEADER_FILL
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.font = BODY_FONT
+
+    wb = Workbook()
+
+    # ── Sheet 1: Members ─────────────────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = 'Members'
+
+    core_cols = [
+        ('member_id',       'Member ID',        14),
+        ('first_name',      'First Name',        16),
+        ('surname',         'Surname',           16),
+        ('date_of_birth',   'Date of Birth',     14),
+        ('date_registered', 'Date Registered',   16),
+        ('session',         'Session',           16),
+        ('member_type',     'Member Type',       16),
+        ('staff_role',      'Staff Role',        16),
+        ('status',          'Status',            12),
+        ('status_note',     'Status Note',       24),
+        ('mobile',          'Mobile',            14),
+        ('email',           'Email',             26),
+        ('unattended_exit', 'Unattended Exit',   15),
+    ]
+    contact_cols = [
+        ('contact1_name',  'Contact 1 Name',  22),
+        ('contact1_phone', 'Contact 1 Phone', 16),
+        ('contact1_email', 'Contact 1 Email', 26),
+        ('contact2_name',  'Contact 2 Name',  22),
+        ('contact2_phone', 'Contact 2 Phone', 16),
+        ('contact2_email', 'Contact 2 Email', 26),
+    ]
+    att_cols = [
+        ('total_sessions', 'Total Sessions', 14),
+        ('last_attended',  'Last Attended',  14),
+    ]
+    pay_col_label = f'Paid This Period ({current_period})' if current_period else 'Paid This Period'
+    payment_summary_cols = [
+        ('payment_count',     'Payment Count',   13),
+        ('total_paid',        'Total Paid',       12),
+        ('last_payment_date', 'Last Payment',     14),
+        ('paid_this_period',  pay_col_label,      22),
+    ]
+
+    headers_s1 = (
+        [(k, lbl, w) for k, lbl, w in core_cols       if inc_core]      +
+        [(k, lbl, w) for k, lbl, w in contact_cols     if inc_contacts]  +
+        [(k, lbl, w) for k, lbl, w in att_cols         if inc_attendance]+
+        [(k, lbl, w) for k, lbl, w in payment_summary_cols if inc_payments] +
+        ([('_flags', 'Active Flags', 30)]               if inc_flags     else []) +
+        [('_cf_' + f['key'], f['label'], 18) for f in custom_fields]
+    )
+
+    ws1.append([lbl for _, lbl, _ in headers_s1])
+
+    for m in members:
+        att  = att_map.get(m['id'], {})
+        pay  = payments_map.get(m['id'], {})
+        cfvs = custom_map.get(m['id'], {})
+        paid_flag = 'Yes' if pay.get('paid_this_period') else ('No' if pay else '')
+
+        row_vals = []
+        for key, _, _ in headers_s1:
+            if key.startswith('_cf_'):
+                row_vals.append(cfvs.get(key[4:], '') or '')
+            elif key == '_flags':
+                row_vals.append(flags_map.get(m['id'], '') or '')
+            elif key in ('total_sessions', 'last_attended'):
+                row_vals.append(att.get(key, '') or '')
+            elif key == 'paid_this_period':
+                row_vals.append(paid_flag)
+            elif key in ('payment_count', 'total_paid', 'last_payment_date'):
+                row_vals.append(pay.get(key, '') or '')
+            else:
+                row_vals.append(m.get(key, '') or '')
+        ws1.append(row_vals)
+
+    _style_sheet(ws1, [w for _, _, w in headers_s1])
+
+    # ── Sheet 2: Attendance History ──────────────────────────────────────────
+    ws2 = wb.create_sheet('Attendance History')
+    att_h_headers = ['Member ID', 'First Name', 'Surname', 'Date', 'Session', 'Signed In', 'Signed Out']
+    ws2.append(att_h_headers)
+    for r in att_history:
+        ws2.append([
+            r['member_ref'], r['first_name'], r['surname'],
+            r['session_date'], r['session_type'],
+            r['signed_in_at'] or '', r['signed_out_at'] or '',
+        ])
+    _style_sheet(ws2, [14, 16, 16, 14, 16, 18, 18])
+
+    # ── Sheet 3: Payment History ─────────────────────────────────────────────
+    ws3 = wb.create_sheet('Payment History')
+    pay_h_headers = ['Member ID', 'First Name', 'Surname', 'Period', 'Payment Date',
+                     'Payment Type', 'Method', 'Amount', 'Notes']
+    ws3.append(pay_h_headers)
+    for r in pay_history:
+        ws3.append([
+            r['member_ref'], r['first_name'], r['surname'],
+            r['period'], r['payment_date'] or '',
+            r['payment_type'], r['payment_method'] or '',
+            r['amount'] if r['amount'] is not None else '',
+            r['notes'] or '',
+        ])
+    _style_sheet(ws3, [14, 16, 16, 16, 14, 20, 16, 10, 30])
+
+    # ── Stream response ──────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename  = f'{slug}_members_{timestamp}.xlsx'
+
+    log_action('export_members_xlsx', 'members', None, {
+        'count': len(members), 'status_filter': status_filter,
+        'session_filter': session_filter, 'type_filter': type_filter,
+    })
+
+    return Response(
+        buf.read(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+def _export_order(sort_by):
+    """Return a safe ORDER BY expression for member export queries."""
+    return {
+        'surname':    'm.surname, m.first_name',
+        'first_name': 'm.first_name, m.surname',
+    }.get(sort_by, 'm.member_id')
 
 
 def _export_where(status_filter, session_filter, type_filter):

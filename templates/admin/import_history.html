@@ -1,0 +1,700 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Import History{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:8px">
+  <a href="/admin/settings/import" style="font-size:13px;color:var(--accent);text-decoration:none;font-weight:700">
+    ← Member Import
+  </a>
+</div>
+<div class="page-header" style="margin-bottom:24px">
+  <h1>📜 Import History</h1>
+  <p style="color:var(--muted);font-size:14px;margin-top:4px">
+    Import existing attendance or payment records from a club spreadsheet.
+    All imports are additive — existing records are never overwritten.
+  </p>
+</div>
+
+<!-- ── Progress tabs ─────────────────────────────────────────────────────── -->
+<div style="display:flex;gap:0;margin-bottom:28px;border-radius:10px;overflow:hidden;
+            border:1.5px solid var(--border)">
+  {% for label in ['1. Upload', '2. Configure', '3. Preview', '4. Results'] %}
+  <div class="step-tab" id="htab-{{ loop.index }}"
+       style="flex:1;padding:10px 6px;text-align:center;font-size:13px;font-weight:600;
+              background:{% if loop.first %}var(--navy){% else %}#f8fafc{% endif %};
+              color:{% if loop.first %}#fff{% else %}var(--muted){% endif %};
+              border-right:{% if not loop.last %}1.5px solid var(--border){% else %}none{% endif %}">
+    {{ label }}
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- STEP 1 — Upload                                                         -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="hstep-1">
+  <div class="form-card" style="max-width:560px">
+
+    <div style="margin-bottom:18px">
+      <label class="form-label">What are you importing?</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+        <div class="itype-card on" data-type="attendance" onclick="selectImportType(this)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <span style="font-size:18px;flex-shrink:0">📅</span>
+              <div>
+                <div style="font-size:13px;font-weight:800;color:var(--navy)">Attendance History</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">Session dates and attendance records</div>
+              </div>
+            </div>
+            <span class="itype-tick" style="font-size:14px;flex-shrink:0">✅</span>
+          </div>
+        </div>
+        <div class="itype-card off" data-type="payments" onclick="selectImportType(this)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <span style="font-size:18px;flex-shrink:0">💳</span>
+              <div>
+                <div style="font-size:13px;font-weight:800;color:var(--navy)">Payment History</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">Payment ledger records per member</div>
+              </div>
+            </div>
+            <span class="itype-tick" style="font-size:14px;flex-shrink:0;visibility:hidden">✅</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:18px">
+      <label class="form-label">Spreadsheet File</label>
+      <div style="border:2px dashed var(--border);border-radius:10px;padding:24px;
+                  text-align:center;cursor:pointer;background:#f8fafc"
+           id="h-drop-zone" onclick="document.getElementById('h-file-input').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--navy)'"
+           ondragleave="this.style.borderColor='var(--border)'"
+           ondrop="hHandleDrop(event)">
+        <div style="font-size:28px;margin-bottom:6px">📄</div>
+        <div style="font-size:14px;color:var(--navy);font-weight:600" id="h-drop-label">
+          Click to choose or drag a file here
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Supported: .xlsx, .xls, .csv</div>
+      </div>
+      <input type="file" id="h-file-input" accept=".xlsx,.xls,.csv" style="display:none"
+             onchange="hOnFileSelected(this)">
+    </div>
+
+    <div id="h-sheet-selector" style="display:none;margin-bottom:18px">
+      <label class="form-label">Select Sheet</label>
+      <select id="h-sel-sheet" class="form-input"></select>
+      <button class="btn btn-secondary btn-sm" style="margin-top:8px"
+              onclick="hReAnalyse()">Re-analyse with this sheet</button>
+    </div>
+
+    <button class="btn btn-primary" id="h-btn-analyse" onclick="hDoAnalyse()" disabled>
+      Analyse File →
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- STEP 2 — Configure                                                      -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="hstep-2" style="display:none">
+  <div class="form-card" style="max-width:780px">
+    <div style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
+      Configure Import
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:18px">
+      <span id="h-row-count"></span>
+    </div>
+
+    <!-- ── Attendance config ── -->
+    <div id="h-att-config">
+
+      <div style="margin-bottom:16px">
+        <label class="form-label">Spreadsheet format</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+          <div class="fmt-card on" data-fmt="long" onclick="selectAttFmt(this)">
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <span style="font-size:16px;flex-shrink:0">📋</span>
+              <div>
+                <div style="font-size:12px;font-weight:800;color:var(--navy)">Long format</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">
+                  One row per session — columns include a member identifier and a date
+                </div>
+              </div>
+              <span class="fmt-tick" style="font-size:14px;flex-shrink:0">✅</span>
+            </div>
+          </div>
+          <div class="fmt-card off" data-fmt="wide" onclick="selectAttFmt(this)">
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <span style="font-size:16px;flex-shrink:0">📊</span>
+              <div>
+                <div style="font-size:12px;font-weight:800;color:var(--navy)">Wide format</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">
+                  One row per member — date columns across the top, ticked if attended
+                </div>
+              </div>
+              <span class="fmt-tick" style="font-size:14px;flex-shrink:0;visibility:hidden">✅</span>
+            </div>
+          </div>
+        </div>
+        <div id="h-fmt-hint" style="font-size:12px;color:#1e40af;background:#eff6ff;
+             border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px;margin-top:8px"></div>
+      </div>
+
+      <!-- Long format column mapping -->
+      <div id="h-long-mapping" style="margin-bottom:16px">
+        <label class="form-label">Match members by</label>
+        <select id="h-match-by-att" class="form-input" style="max-width:260px;margin-bottom:12px">
+          <option value="member_id">Member ID (e.g. AYC001)</option>
+          <option value="name">First Name + Surname</option>
+        </select>
+
+        <label class="form-label">Column mapping</label>
+        <div id="h-long-table-wrap" style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px" id="h-long-table">
+            <thead>
+              <tr style="background:#f1f5f9">
+                <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
+                           border-bottom:2px solid var(--border);width:200px">Column</th>
+                <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
+                           border-bottom:2px solid var(--border)">Sample</th>
+                <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
+                           border-bottom:2px solid var(--border);width:220px">Map To</th>
+              </tr>
+            </thead>
+            <tbody id="h-long-tbody"></tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:12px">
+          <label class="form-label">Default session type <span style="font-weight:400;color:var(--muted)">(used if no Session column is mapped)</span></label>
+          <select id="h-default-session-type-long" class="form-input" style="max-width:260px">
+            <option value="">— none —</option>
+            {% for st in session_types %}
+            <option value="{{ st.name }}">{{ st.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <!-- Wide format config -->
+      <div id="h-wide-config" style="display:none;margin-bottom:16px">
+        <label class="form-label">Match members by</label>
+        <select id="h-match-by-wide" class="form-input" style="max-width:260px;margin-bottom:12px">
+          <option value="member_id">Member ID (e.g. AYC001)</option>
+          <option value="name">First Name + Surname</option>
+        </select>
+
+        <label class="form-label">Member identifier column</label>
+        <select id="h-wide-member-col" class="form-input" style="max-width:260px;margin-bottom:12px">
+          <option value="">— select column —</option>
+        </select>
+
+        <label class="form-label">Session type for all imported records</label>
+        <select id="h-default-session-type-wide" class="form-input" style="max-width:260px;margin-bottom:12px">
+          <option value="">— none —</option>
+          {% for st in session_types %}
+          <option value="{{ st.name }}">{{ st.name }}</option>
+          {% endfor %}
+        </select>
+
+        <label class="form-label">Date columns <span style="font-weight:400;color:var(--muted)">(tick the columns that are session dates)</span></label>
+        <div id="h-wide-date-cols" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+      </div>
+
+    </div>
+
+    <!-- ── Payment config ── -->
+    <div id="h-pay-config" style="display:none">
+      <label class="form-label">Match members by</label>
+      <select id="h-match-by-pay" class="form-input" style="max-width:260px;margin-bottom:16px">
+        <option value="member_id">Member ID (e.g. AYC001)</option>
+        <option value="name">First Name + Surname</option>
+      </select>
+
+      <label class="form-label">Column mapping</label>
+      <div style="overflow-x:auto;margin-bottom:16px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#f1f5f9">
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
+                         border-bottom:2px solid var(--border);width:200px">Column</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
+                         border-bottom:2px solid var(--border)">Sample</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
+                         border-bottom:2px solid var(--border);width:220px">Map To</th>
+            </tr>
+          </thead>
+          <tbody id="h-pay-tbody"></tbody>
+        </table>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <label class="form-label">Default period <span style="font-weight:400;color:var(--muted)">(if no Period column mapped)</span></label>
+          <input id="h-default-period" class="form-input" placeholder="e.g. 2024–25">
+        </div>
+        <div>
+          <label class="form-label">Default payment type <span style="font-weight:400;color:var(--muted)">(if no Type column mapped)</span></label>
+          <select id="h-default-pt" class="form-input">
+            <option value="">— select —</option>
+            {% for pt in payment_types %}
+            <option value="{{ pt.name }}">{{ pt.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-ghost" onclick="hGoStep(1)">← Back</button>
+      <button class="btn btn-primary" onclick="hDoPreview()">Preview →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- STEP 3 — Preview                                                        -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="hstep-3" style="display:none">
+  <div class="form-card" style="max-width:560px">
+    <div style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">Ready to Import</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      Review the summary before running.
+    </div>
+
+    <div id="h-preview-summary" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px"></div>
+
+    <div style="font-size:12px;color:#1e40af;background:#eff6ff;border:1.5px solid #bfdbfe;
+                border-radius:8px;padding:10px 12px;margin-bottom:18px">
+      ℹ️ Import is additive — duplicate records will be skipped automatically.
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" onclick="hGoStep(2)">← Back</button>
+      <button class="btn btn-primary" id="h-btn-run" onclick="hDoRun()">Import Now</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- STEP 4 — Results                                                        -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="hstep-4" style="display:none">
+  <div class="form-card" style="max-width:480px">
+    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:18px">Import Complete</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;
+                  background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px">
+        <span style="font-size:24px">✅</span>
+        <div>
+          <div style="font-weight:700;font-size:20px;color:#15803d" id="h-res-imported">0</div>
+          <div style="font-size:13px;color:#166534" id="h-res-label">Records imported</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;
+                  background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px">
+        <span style="font-size:24px">⏭</span>
+        <div>
+          <div style="font-weight:700;font-size:20px;color:#92400e" id="h-res-skipped">0</div>
+          <div style="font-size:13px;color:#92400e">Records skipped (duplicate or unmatched member)</div>
+        </div>
+      </div>
+    </div>
+    <div id="h-error-detail" style="display:none;margin-bottom:20px">
+      <div style="font-weight:600;font-size:13px;color:var(--navy);margin-bottom:8px">Errors:</div>
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;
+                  font-size:12px;font-family:monospace;max-height:200px;overflow-y:auto"
+           id="h-error-list"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <a href="/members" class="btn btn-primary">View Members</a>
+      <button class="btn btn-ghost" onclick="location.reload()">Import Another File</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .itype-card, .fmt-card {
+    padding:10px 12px;border-radius:8px;cursor:pointer;
+    border:1.5px solid var(--border);background:#f8fafc;
+    transition:border-color .15s, background .15s, opacity .15s;
+    user-select:none;
+  }
+  .itype-card.on, .fmt-card.on  { border-color:var(--accent);background:#f0fdf4; }
+  .itype-card.off, .fmt-card.off { opacity:.55; }
+  .itype-card.off .itype-tick, .fmt-card.off .fmt-tick { visibility:hidden; }
+</style>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const hs = {
+  importType:  'attendance',  // 'attendance' | 'payments'
+  attFmt:      'long',        // 'long' | 'wide'
+  fileId:      null,
+  fileExt:     null,
+  sheetName:   '',
+  columns:     [],
+  preview:     [],
+  totalRows:   0,
+  mapping:     {},            // colIndex → role string
+  wideDateCols: [],           // checked date column indices (wide mode)
+};
+
+// ── Step 1 helpers ────────────────────────────────────────────────────────────
+function selectImportType(card) {
+  document.querySelectorAll('.itype-card').forEach(c => {
+    c.classList.toggle('on',  c === card);
+    c.classList.toggle('off', c !== card);
+    c.querySelector('.itype-tick').style.visibility = c === card ? 'visible' : 'hidden';
+  });
+  hs.importType = card.dataset.type;
+  checkHAnalyseReady();
+}
+
+function hHandleDrop(e) {
+  e.preventDefault();
+  document.getElementById('h-drop-zone').style.borderColor = 'var(--border)';
+  const file = e.dataTransfer.files[0];
+  if (file) hSetFile(file);
+}
+function hOnFileSelected(input) { if (input.files[0]) hSetFile(input.files[0]); }
+function hSetFile(file) {
+  document.getElementById('h-drop-label').textContent = `📎 ${file.name}`;
+  document.getElementById('h-file-input')._file = file;
+  checkHAnalyseReady();
+}
+function checkHAnalyseReady() {
+  const hasFile = !!(document.getElementById('h-file-input')._file ||
+                     document.getElementById('h-file-input').files[0]);
+  document.getElementById('h-btn-analyse').disabled = !hasFile;
+}
+
+// ── Step 1 → 2: Analyse ───────────────────────────────────────────────────────
+async function hDoAnalyse() {
+  const file = document.getElementById('h-file-input')._file ||
+               document.getElementById('h-file-input').files[0];
+  if (!file) return;
+
+  const btn = document.getElementById('h-btn-analyse');
+  btn.disabled = true; btn.textContent = 'Analysing…';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  if (hs.sheetName) fd.append('sheet_name', hs.sheetName);
+
+  try {
+    const data = await apiFetch('/api/admin/import/history/analyse', { method: 'POST', body: fd });
+    hs.fileId    = data.file_id;
+    hs.fileExt   = data.file_ext;
+    hs.columns   = data.columns  || [];
+    hs.preview   = data.preview  || [];
+    hs.totalRows = data.total_rows || 0;
+    hs.mapping   = {};
+
+    const sheetNames = data.sheet_names || [];
+    if (sheetNames.length > 1) {
+      const sel = document.getElementById('h-sel-sheet');
+      sel.innerHTML = sheetNames.map(s =>
+        `<option value="${esc(s)}" ${s === data.active_sheet ? 'selected' : ''}>${esc(s)}</option>`
+      ).join('');
+      document.getElementById('h-sheet-selector').style.display = '';
+    } else {
+      document.getElementById('h-sheet-selector').style.display = 'none';
+    }
+
+    // Show hint if likely wide
+    if (hs.importType === 'attendance' && data.likely_wide) {
+      document.querySelectorAll('.fmt-card').forEach(c => {
+        const isWide = c.dataset.fmt === 'wide';
+        c.classList.toggle('on', isWide); c.classList.toggle('off', !isWide);
+        c.querySelector('.fmt-tick').style.visibility = isWide ? 'visible' : 'hidden';
+      });
+      hs.attFmt = 'wide';
+    }
+
+    buildHConfigPanel();
+    hGoStep(2);
+  } catch(e) {
+    showToast('Upload failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Analyse File →';
+  }
+}
+
+async function hReAnalyse() {
+  hs.sheetName = document.getElementById('h-sel-sheet').value;
+  const file = document.getElementById('h-file-input')._file ||
+               document.getElementById('h-file-input').files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('sheet_name', hs.sheetName);
+  try {
+    const data = await apiFetch('/api/admin/import/history/analyse', { method: 'POST', body: fd });
+    hs.fileId = data.file_id; hs.columns = data.columns || [];
+    hs.preview = data.preview || []; hs.totalRows = data.total_rows || 0;
+    hs.mapping = {};
+    buildHConfigPanel();
+    hGoStep(2);
+  } catch(e) { showToast('Re-analysis failed: ' + e.message, 'error'); }
+}
+
+// ── Step 2: Build config panel ────────────────────────────────────────────────
+function selectAttFmt(card) {
+  document.querySelectorAll('.fmt-card').forEach(c => {
+    c.classList.toggle('on',  c === card);
+    c.classList.toggle('off', c !== card);
+    c.querySelector('.fmt-tick').style.visibility = c === card ? 'visible' : 'hidden';
+  });
+  hs.attFmt = card.dataset.fmt;
+  document.getElementById('h-long-mapping').style.display  = hs.attFmt === 'long' ? '' : 'none';
+  document.getElementById('h-wide-config').style.display   = hs.attFmt === 'wide' ? '' : 'none';
+  updateFmtHint();
+}
+
+function updateFmtHint() {
+  const el = document.getElementById('h-fmt-hint');
+  el.textContent = hs.attFmt === 'long'
+    ? 'Long format: each row is one attendance record with a date column.'
+    : 'Wide format: each row is one member, date columns indicate which sessions they attended.';
+}
+
+function buildHConfigPanel() {
+  document.getElementById('h-att-config').style.display = hs.importType === 'attendance' ? '' : 'none';
+  document.getElementById('h-pay-config').style.display = hs.importType === 'payments'   ? '' : 'none';
+  document.getElementById('h-row-count').textContent = `${hs.totalRows.toLocaleString()} rows found`;
+  updateFmtHint();
+
+  if (hs.importType === 'attendance') {
+    buildLongMappingTable();
+    buildWideConfig();
+    document.getElementById('h-long-mapping').style.display = hs.attFmt === 'long' ? '' : 'none';
+    document.getElementById('h-wide-config').style.display  = hs.attFmt === 'wide' ? '' : 'none';
+  } else {
+    buildPayMappingTable();
+  }
+}
+
+function _sampleFor(colIdx) {
+  return hs.preview.map(r => r[colIdx] || '').filter(Boolean).slice(0, 2).join(' · ');
+}
+
+function buildLongMappingTable() {
+  const attRoles = [
+    { value: '_skip',       label: '— Skip —' },
+    { value: 'member_id',   label: 'Member ID' },
+    { value: 'first_name',  label: 'First Name' },
+    { value: 'surname',     label: 'Surname' },
+    { value: 'date',        label: 'Session Date' },
+    { value: 'session_type',label: 'Session Type' },
+  ];
+  const tbody = document.getElementById('h-long-tbody');
+  tbody.innerHTML = hs.columns.map((col, i) => {
+    const suggested = autoSuggestAtt(col);
+    if (suggested) hs.mapping[i] = suggested;
+    const opts = attRoles.map(r =>
+      `<option value="${r.value}" ${r.value === (suggested || '_skip') ? 'selected' : ''}>${r.label}</option>`
+    ).join('');
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px;font-weight:600;color:var(--navy)">${esc(col)}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${esc(_sampleFor(i)) || '—'}</td>
+      <td style="padding:8px 12px">
+        <select class="form-input" style="font-size:13px;padding:6px 8px"
+                onchange="hs.mapping[${i}]=this.value">
+          ${opts}
+        </select>
+      </td></tr>`;
+  }).join('');
+}
+
+function buildWideConfig() {
+  // Member col select
+  const memberSel = document.getElementById('h-wide-member-col');
+  memberSel.innerHTML = '<option value="">— select column —</option>' +
+    hs.columns.map((col, i) => `<option value="${i}">${esc(col)}</option>`).join('');
+
+  // Date column checkboxes
+  const dateWrap = document.getElementById('h-wide-date-cols');
+  dateWrap.innerHTML = hs.columns.map((col, i) => {
+    // Pre-tick if looks like a date
+    const looksLikeDate = /\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]?\d{0,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(col);
+    return `<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;
+                          background:#f1f5f9;border-radius:6px;font-size:13px;cursor:pointer">
+      <input type="checkbox" data-col-i="${i}" ${looksLikeDate ? 'checked' : ''}
+             onchange="updateWideDateCols()" style="width:14px;height:14px">
+      ${esc(col)}
+    </label>`;
+  }).join('');
+  updateWideDateCols();
+}
+
+function updateWideDateCols() {
+  hs.wideDateCols = [...document.querySelectorAll('#h-wide-date-cols input:checked')]
+    .map(el => parseInt(el.dataset.colI));
+}
+
+function buildPayMappingTable() {
+  const payRoles = [
+    { value: '_skip',         label: '— Skip —' },
+    { value: 'member_id',     label: 'Member ID' },
+    { value: 'first_name',    label: 'First Name' },
+    { value: 'surname',       label: 'Surname' },
+    { value: 'date',          label: 'Payment Date' },
+    { value: 'period',        label: 'Period' },
+    { value: 'payment_type',  label: 'Payment Type' },
+    { value: 'method',        label: 'Payment Method' },
+    { value: 'amount',        label: 'Amount' },
+    { value: 'notes',         label: 'Notes' },
+  ];
+  const tbody = document.getElementById('h-pay-tbody');
+  tbody.innerHTML = hs.columns.map((col, i) => {
+    const suggested = autoSuggestPay(col);
+    if (suggested) hs.mapping[i] = suggested;
+    const opts = payRoles.map(r =>
+      `<option value="${r.value}" ${r.value === (suggested || '_skip') ? 'selected' : ''}>${r.label}</option>`
+    ).join('');
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px;font-weight:600;color:var(--navy)">${esc(col)}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${esc(_sampleFor(i)) || '—'}</td>
+      <td style="padding:8px 12px">
+        <select class="form-input" style="font-size:13px;padding:6px 8px"
+                onchange="hs.mapping[${i}]=this.value">
+          ${opts}
+        </select>
+      </td></tr>`;
+  }).join('');
+}
+
+function autoSuggestAtt(col) {
+  const n = col.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (n.includes('memberid') || n === 'id' || n === 'memberref') return 'member_id';
+  if (n.includes('firstname') || n === 'first')  return 'first_name';
+  if (n.includes('surname')   || n === 'last')   return 'surname';
+  if (n.includes('date'))                        return 'date';
+  if (n.includes('session') || n.includes('type')) return 'session_type';
+  return null;
+}
+
+function autoSuggestPay(col) {
+  const n = col.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (n.includes('memberid') || n === 'id' || n === 'memberref') return 'member_id';
+  if (n.includes('firstname') || n === 'first')  return 'first_name';
+  if (n.includes('surname')   || n === 'last')   return 'surname';
+  if (n.includes('date') && !n.includes('period')) return 'date';
+  if (n.includes('period') || n.includes('term') || n.includes('year')) return 'period';
+  if (n.includes('type'))     return 'payment_type';
+  if (n.includes('method') || n.includes('how')) return 'method';
+  if (n.includes('amount') || n.includes('fee') || n.includes('paid')) return 'amount';
+  if (n.includes('note'))     return 'notes';
+  return null;
+}
+
+// ── Step 2 → 3: Preview ───────────────────────────────────────────────────────
+function hDoPreview() {
+  const summary = document.getElementById('h-preview-summary');
+  let lines = [];
+
+  if (hs.importType === 'attendance') {
+    const matchBy = hs.attFmt === 'wide'
+      ? document.getElementById('h-match-by-wide').value
+      : document.getElementById('h-match-by-att').value;
+    const sessionType = hs.attFmt === 'wide'
+      ? document.getElementById('h-default-session-type-wide').value
+      : document.getElementById('h-default-session-type-long').value;
+    lines = [
+      `Format: <strong>${hs.attFmt === 'wide' ? 'Wide (one row per member)' : 'Long (one row per session)'}</strong>`,
+      `Match members by: <strong>${matchBy === 'member_id' ? 'Member ID' : 'Name'}</strong>`,
+      `Session type: <strong>${sessionType || '(none set)'}</strong>`,
+      `Rows to process: <strong>${hs.totalRows.toLocaleString()}</strong>`,
+      hs.attFmt === 'wide' ? `Date columns selected: <strong>${hs.wideDateCols.length}</strong>` : '',
+    ].filter(Boolean);
+  } else {
+    const matchBy = document.getElementById('h-match-by-pay').value;
+    const period  = document.getElementById('h-default-period').value;
+    const pt      = document.getElementById('h-default-pt').value;
+    lines = [
+      `Match members by: <strong>${matchBy === 'member_id' ? 'Member ID' : 'Name'}</strong>`,
+      period ? `Default period: <strong>${period}</strong>` : '',
+      pt     ? `Default payment type: <strong>${pt}</strong>` : '',
+      `Rows to process: <strong>${hs.totalRows.toLocaleString()}</strong>`,
+    ].filter(Boolean);
+  }
+
+  summary.innerHTML = lines.map(l =>
+    `<div style="padding:8px 12px;background:#f8fafc;border:1px solid var(--border);
+                border-radius:8px;font-size:13px;color:var(--navy)">${l}</div>`
+  ).join('');
+  hGoStep(3);
+}
+
+// ── Step 3 → 4: Run ──────────────────────────────────────────────────────────
+async function hDoRun() {
+  const btn = document.getElementById('h-btn-run');
+  btn.disabled = true; btn.textContent = '⏳ Importing…';
+
+  let payload = {
+    file_id:     hs.fileId,
+    file_ext:    hs.fileExt,
+    sheet_name:  hs.sheetName || null,
+    import_type: hs.importType,
+  };
+
+  if (hs.importType === 'attendance') {
+    const isWide = hs.attFmt === 'wide';
+    payload.att_format  = hs.attFmt;
+    payload.match_by    = isWide
+      ? document.getElementById('h-match-by-wide').value
+      : document.getElementById('h-match-by-att').value;
+    payload.default_session_type = isWide
+      ? document.getElementById('h-default-session-type-wide').value
+      : document.getElementById('h-default-session-type-long').value;
+    payload.mapping = Object.fromEntries(Object.entries(hs.mapping).map(([k,v])=>[k,v]));
+    if (isWide) {
+      // For wide, override mapping to mark member col + date cols
+      const memberColI = document.getElementById('h-wide-member-col').value;
+      payload.mapping  = {};
+      if (memberColI !== '') payload.mapping[memberColI] = payload.match_by === 'member_id' ? 'member_id' : 'member_name';
+      hs.wideDateCols.forEach(i => { payload.mapping[i] = 'date_column'; });
+    }
+  } else {
+    payload.match_by        = document.getElementById('h-match-by-pay').value;
+    payload.default_period  = document.getElementById('h-default-period').value;
+    payload.default_payment_type = document.getElementById('h-default-pt').value;
+    payload.mapping = Object.fromEntries(Object.entries(hs.mapping).map(([k,v])=>[k,v]));
+  }
+
+  try {
+    const data = await apiFetch('/api/admin/import/history/run', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    document.getElementById('h-res-imported').textContent = (data.imported || 0).toLocaleString();
+    document.getElementById('h-res-skipped').textContent  = (data.skipped  || 0).toLocaleString();
+    document.getElementById('h-res-label').textContent =
+      hs.importType === 'attendance' ? 'Attendance records imported' : 'Payment records imported';
+
+    if (data.errors && data.errors.length) {
+      document.getElementById('h-error-detail').style.display = '';
+      document.getElementById('h-error-list').innerHTML = data.errors.map(e => esc(e)).join('<br>');
+    }
+    hGoStep(4);
+  } catch(e) {
+    showToast('Import failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Import Now';
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function hGoStep(n) {
+  [1,2,3,4].forEach(i => {
+    document.getElementById(`hstep-${i}`).style.display = i === n ? '' : 'none';
+    const tab = document.getElementById(`htab-${i}`);
+    tab.style.background = i === n ? 'var(--navy)' : (i < n ? '#e8eef8' : '#f8fafc');
+    tab.style.color      = i === n ? '#fff'        : (i < n ? 'var(--navy)' : 'var(--muted)');
+  });
+}
+</script>
+{% endblock %}
