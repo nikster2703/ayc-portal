@@ -260,6 +260,78 @@
   </div>
 </div>
 {% endif %}
+
+<!-- ── Record / Edit Payment modal ──────────────────────────────────── -->
+{% if 'payments.record' in user_permissions %}
+<div class="modal-overlay" id="payment-modal" onclick="if(event.target===this)closePaymentModal()">
+  <div class="modal" style="max-width:480px">
+    <h2 id="payment-modal-title">💳 Record Payment</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group">
+        <label class="form-label">Payment Type <span style="color:var(--red)">*</span></label>
+        <select id="pm-type" class="form-input"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Period <span style="color:var(--red)">*</span></label>
+        <input id="pm-period" class="form-input" placeholder="e.g. 2026/27" maxlength="20">
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group">
+        <label class="form-label">Date Received</label>
+        <input id="pm-date" type="date" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Amount (£)</label>
+        <input id="pm-amount" type="number" min="0" step="0.01" class="form-input" placeholder="e.g. 10.00">
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Payment Method</label>
+      <select id="pm-method" class="form-input">
+        <option value="">— not specified —</option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Notes</label>
+      <input id="pm-notes" class="form-input" placeholder="Optional notes" maxlength="255">
+    </div>
+
+    <p id="payment-modal-err" style="display:none;color:var(--red);font-size:13px;margin-top:8px"></p>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePaymentModal()">Cancel</button>
+      <button class="btn btn-primary" id="payment-modal-save" onclick="savePayment()">Save Payment</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Void Payment confirmation modal ──────────────────────────────── -->
+{% if 'payments.manage' in user_permissions %}
+<div class="modal-overlay" id="void-payment-modal" onclick="if(event.target===this)closeVoidModal()">
+  <div class="modal" style="max-width:420px">
+    <h2>🚫 Void Payment</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+      This will mark the payment as voided. It remains in the history for audit purposes.
+    </p>
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Reason <span style="color:var(--red)">*</span></label>
+      <input id="void-reason" class="form-input" placeholder="e.g. Entered by mistake">
+    </div>
+    <p id="void-modal-err" style="display:none;color:var(--red);font-size:13px;margin-top:8px"></p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeVoidModal()">Cancel</button>
+      <button class="btn btn-danger" id="void-modal-save" onclick="submitVoid()">Void Payment</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -774,7 +846,8 @@
           <option value="contacts"${defaultSection === 'contacts' ? ' selected' : ''}>Contacts</option>
           <option value="attendance"${defaultSection === 'attendance' ? ' selected' : ''}>Attendance</option>
           <option value="activity">Activity</option>
-          ${USER_PERMS.has('members.tags') ? '<option value="tags">Skills &amp; Badges</option>' : ''}
+          ${USER_PERMS.has('members.tags')    ? '<option value="tags">Skills &amp; Badges</option>' : ''}
+          ${USER_PERMS.has('payments.view')   ? '<option value="payments">Payments</option>' : ''}
         </select>
       </div>`;
 
@@ -806,6 +879,12 @@
     <div class="card-section" data-sec="attendance"${defaultSection !== 'attendance' ? ' style="display:none"' : ''}>${attHtml}</div>
     <div class="card-section" data-sec="activity"${defaultSection !== 'activity' ? ' style="display:none"' : ''}>${activityHtml}</div>
     <div class="card-section" data-sec="tags"${defaultSection !== 'tags' ? ' style="display:none"' : ''}>${tagsHtml}</div>
+    ${USER_PERMS.has('payments.view') ? `<div class="card-section" data-sec="payments" style="display:none">
+      <div class="detail-section">
+        <div id="payments-status-${m.id}" style="margin-bottom:8px"></div>
+        <div id="payments-list-${m.id}"><span style="font-size:13px;color:var(--muted)">Loading…</span></div>
+      </div>
+    </div>` : ''}
     ${permDeleteHtml}
   </div>
 </div>`;
@@ -855,6 +934,11 @@
       const tagsEl = card.querySelector('[id^="member-tags-detail-"]');
       if (tagsEl && !tagsEl.dataset.loaded) {
         loadDetailCardTags(memberId, tagsEl);
+      }
+    } else if (section === 'payments') {
+      const listEl = document.getElementById(`payments-list-${memberId}`);
+      if (listEl && !listEl.dataset.loaded) {
+        loadPayments(memberId);
       }
     }
   }
@@ -909,6 +993,259 @@
         </table>`;
     } catch (e) {
       el.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load attendance.</span>`;
+    }
+  }
+
+  /* ── Payments ────────────────────────────────────────── */
+  let _paymentTypes   = null;   // cached per page load
+  let _paymentMethods = null;
+  let _currentPeriod  = null;
+  let _editingPaymentId = null;
+  let _voidingPaymentId = null;
+  let _paymentMemberId  = null;
+
+  async function _ensurePaymentMeta() {
+    if (_paymentTypes && _paymentMethods) return;
+    const [types, methods, periodRes] = await Promise.all([
+      apiFetch('/api/admin/payment-types'),
+      apiFetch('/api/admin/payment-methods'),
+      apiFetch('/api/payments/current-period'),
+    ]);
+    _paymentTypes   = types.filter(t => t.active);
+    _paymentMethods = methods.filter(m => m.active);
+    _currentPeriod  = periodRes.current_period || '';
+  }
+
+  async function loadPayments(memberId) {
+    const listEl   = document.getElementById(`payments-list-${memberId}`);
+    const statusEl = document.getElementById(`payments-status-${memberId}`);
+    if (!listEl) return;
+    listEl.dataset.loaded = '1';
+
+    try {
+      await _ensurePaymentMeta();
+      const data = await apiFetch(`/api/members/${memberId}/payments`);
+      const payments = data.payments || [];
+
+      // Current period badge
+      const period   = data.current_period || '';
+      const isPaid   = data.paid_current;
+      if (statusEl && period) {
+        statusEl.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;
+                         letter-spacing:.06em;color:var(--muted)">Current period: ${esc(period)}</span>
+            <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;
+                         background:${isPaid ? '#22c55e20' : '#ef444420'};
+                         color:${isPaid ? '#16a34a' : '#dc2626'};
+                         border:1px solid ${isPaid ? '#22c55e40' : '#ef444440'}">
+              ${isPaid ? '✓ Paid' : '✗ Unpaid'}
+            </span>
+            ${USER_PERMS.has('payments.record') ? `<button class="btn btn-ghost btn-sm"
+              style="font-size:12px;padding:3px 10px;margin-left:auto"
+              onclick="openPaymentModal(${memberId})">+ Record</button>` : ''}
+          </div>`;
+      } else if (statusEl && USER_PERMS.has('payments.record')) {
+        statusEl.innerHTML = `<button class="btn btn-ghost btn-sm"
+          style="font-size:12px;padding:3px 10px"
+          onclick="openPaymentModal(${memberId})">+ Record Payment</button>`;
+      }
+
+      if (!payments.length) {
+        listEl.innerHTML = `<span style="font-size:13px;color:var(--muted)">No payments recorded yet.</span>`;
+        return;
+      }
+
+      const CAN_MANAGE = USER_PERMS.has('payments.manage');
+      const CAN_RECORD = USER_PERMS.has('payments.record');
+
+      listEl.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:4px 6px 4px 0;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Period</th>
+              <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Type</th>
+              <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Date</th>
+              <th style="text-align:right;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Amount</th>
+              <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Method</th>
+              ${(CAN_RECORD || CAN_MANAGE) ? '<th style="border-bottom:1px solid var(--border)"></th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${payments.map(p => {
+              const voided = !!p.voided_at;
+              const rowStyle = voided
+                ? 'opacity:.45;text-decoration:line-through'
+                : '';
+              const amtStr = p.amount != null ? `£${parseFloat(p.amount).toFixed(2)}` : '—';
+              const voidBadge = voided
+                ? `<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;
+                              background:#ef444420;color:#dc2626;border:1px solid #ef444440;
+                              margin-left:4px">VOID</span>` : '';
+              const actions = (!voided && (CAN_RECORD || CAN_MANAGE))
+                ? `<td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;text-align:right">
+                     ${CAN_RECORD ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px"
+                       onclick="openEditPaymentModal(${memberId},${p.id})">Edit</button>` : ''}
+                     ${CAN_MANAGE ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px;color:var(--red)"
+                       onclick="openVoidModal(${p.id})">Void</button>` : ''}
+                   </td>`
+                : ((CAN_RECORD || CAN_MANAGE) ? '<td style="border-bottom:1px solid var(--border)"></td>' : '');
+              const noteTitle = p.notes ? ` title="${esc(p.notes)}"` : '';
+              const voidTitle = voided && p.void_reason ? ` title="Voided: ${esc(p.void_reason)}"` : '';
+              return `<tr style="${rowStyle}"${voidTitle}${noteTitle}>
+                <td style="padding:5px 6px 5px 0;border-bottom:1px solid var(--border)">${esc(p.period)}${voidBadge}</td>
+                <td style="padding:5px 6px;border-bottom:1px solid var(--border)">${esc(p.payment_type)}</td>
+                <td style="padding:5px 6px;border-bottom:1px solid var(--border)">${p.payment_date ? fmtDate(p.payment_date) : '—'}</td>
+                <td style="padding:5px 6px;border-bottom:1px solid var(--border);text-align:right">${amtStr}</td>
+                <td style="padding:5px 6px;border-bottom:1px solid var(--border)">${esc(p.payment_method || '—')}</td>
+                ${actions}
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    } catch(e) {
+      listEl.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load payments.</span>`;
+    }
+  }
+
+  function _reloadPayments(memberId) {
+    const listEl = document.getElementById(`payments-list-${memberId}`);
+    if (listEl) { listEl.dataset.loaded = ''; listEl.innerHTML = '<span style="font-size:13px;color:var(--muted)">Loading…</span>'; }
+    const statusEl = document.getElementById(`payments-status-${memberId}`);
+    if (statusEl) statusEl.innerHTML = '';
+    loadPayments(memberId);
+  }
+
+  async function openPaymentModal(memberId, paymentId) {
+    _paymentMemberId  = memberId;
+    _editingPaymentId = paymentId || null;
+
+    await _ensurePaymentMeta();
+
+    // Populate type select
+    const typeEl = document.getElementById('pm-type');
+    typeEl.innerHTML = _paymentTypes.map(t =>
+      `<option value="${t.id}">${esc(t.name)}</option>`
+    ).join('');
+
+    // Populate method select
+    const methEl = document.getElementById('pm-method');
+    methEl.innerHTML = `<option value="">— not specified —</option>` +
+      _paymentMethods.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+
+    // Pre-fill period with current
+    document.getElementById('pm-period').value  = _currentPeriod || '';
+    document.getElementById('pm-date').value    = '';
+    document.getElementById('pm-amount').value  = '';
+    document.getElementById('pm-notes').value   = '';
+    document.getElementById('payment-modal-err').style.display = 'none';
+
+    if (paymentId) {
+      // Edit mode — fetch existing payment
+      document.getElementById('payment-modal-title').textContent = '✏️ Edit Payment';
+      try {
+        const data = await apiFetch(`/api/members/${memberId}/payments?include_voided=1`);
+        const pay  = (data.payments || []).find(p => p.id === paymentId);
+        if (pay) {
+          typeEl.value  = pay.payment_type_id;
+          document.getElementById('pm-period').value = pay.period;
+          document.getElementById('pm-date').value   = pay.payment_date || '';
+          document.getElementById('pm-amount').value = pay.amount != null ? pay.amount : '';
+          methEl.value  = pay.method_id || '';
+          document.getElementById('pm-notes').value  = pay.notes || '';
+        }
+      } catch(e) { /* ignore */ }
+    } else {
+      document.getElementById('payment-modal-title').textContent = '💳 Record Payment';
+    }
+
+    document.getElementById('payment-modal').classList.add('active');
+  }
+
+  function openEditPaymentModal(memberId, paymentId) {
+    openPaymentModal(memberId, paymentId);
+  }
+
+  function closePaymentModal() {
+    document.getElementById('payment-modal').classList.remove('active');
+    _editingPaymentId = null;
+    _paymentMemberId  = null;
+  }
+
+  async function savePayment() {
+    const typeId  = document.getElementById('pm-type').value;
+    const period  = document.getElementById('pm-period').value.trim();
+    const date    = document.getElementById('pm-date').value || null;
+    const amount  = document.getElementById('pm-amount').value;
+    const methId  = document.getElementById('pm-method').value || null;
+    const notes   = document.getElementById('pm-notes').value.trim() || null;
+    const errEl   = document.getElementById('payment-modal-err');
+
+    errEl.style.display = 'none';
+    if (!typeId) { errEl.textContent = 'Please select a payment type.'; errEl.style.display = ''; return; }
+    if (!period) { errEl.textContent = 'Period is required.'; errEl.style.display = ''; return; }
+
+    const body = {
+      payment_type_id: parseInt(typeId),
+      period,
+      payment_date: date,
+      amount:       amount !== '' ? parseFloat(amount) : null,
+      method_id:    methId ? parseInt(methId) : null,
+      notes,
+    };
+
+    const btn = document.getElementById('payment-modal-save');
+    btn.disabled = true;
+    try {
+      if (_editingPaymentId) {
+        await apiFetch(`/api/payments/${_editingPaymentId}`, { method: 'PUT', body: JSON.stringify(body) });
+      } else {
+        await apiFetch(`/api/members/${_paymentMemberId}/payments`, { method: 'POST', body: JSON.stringify(body) });
+      }
+      closePaymentModal();
+      _reloadPayments(_paymentMemberId);
+    } catch(e) {
+      errEl.textContent = e.message || 'Could not save payment.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function openVoidModal(paymentId) {
+    _voidingPaymentId = paymentId;
+    document.getElementById('void-reason').value = '';
+    document.getElementById('void-modal-err').style.display = 'none';
+    document.getElementById('void-payment-modal').classList.add('active');
+  }
+
+  function closeVoidModal() {
+    document.getElementById('void-payment-modal').classList.remove('active');
+    _voidingPaymentId = null;
+  }
+
+  async function submitVoid() {
+    const reason = document.getElementById('void-reason').value.trim();
+    const errEl  = document.getElementById('void-modal-err');
+    errEl.style.display = 'none';
+    if (!reason) { errEl.textContent = 'Please enter a reason.'; errEl.style.display = ''; return; }
+
+    const btn = document.getElementById('void-modal-save');
+    btn.disabled = true;
+    try {
+      await apiFetch(`/api/payments/${_voidingPaymentId}/void`, {
+        method: 'POST', body: JSON.stringify({ reason })
+      });
+      closeVoidModal();
+      // Find which member this payment belonged to and reload their section
+      document.querySelectorAll('[id^="payments-list-"]').forEach(el => {
+        if (el.dataset.loaded) _reloadPayments(parseInt(el.id.replace('payments-list-', '')));
+      });
+    } catch(e) {
+      errEl.textContent = e.message || 'Could not void payment.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false;
     }
   }
 

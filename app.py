@@ -19,6 +19,7 @@ All routes live in blueprints/:
   alerts        — /api/alert-rules/*, /api/alerts/*, /api/members/*/flags*
   notifications — /api/notifications/*
   qr_signin     — /api/quick-signin/*
+  payments      — /api/members/*/payments, /api/payments/*, /api/admin/payment-*
 """
 
 import logging
@@ -184,6 +185,7 @@ from blueprints.admin         import bp as admin_bp
 from blueprints.alerts        import bp as alerts_bp
 from blueprints.notifications import bp as notifications_bp
 from blueprints.qr_signin     import bp as qr_signin_bp
+from blueprints.payments      import bp as payments_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pages_bp)
@@ -198,6 +200,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(alerts_bp)
 app.register_blueprint(notifications_bp)
 app.register_blueprint(qr_signin_bp)
+app.register_blueprint(payments_bp)
 
 
 # ── Database initialisation ───────────────────────────────────────────────────

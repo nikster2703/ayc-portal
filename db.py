@@ -246,6 +246,39 @@ def ensure_tables():
         CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_notifications_sender  ON notifications(sender_id);
         CREATE INDEX IF NOT EXISTS idx_notification_reads    ON notification_reads(user_id);
+        -- v11.6: payments system
+        CREATE TABLE IF NOT EXISTS payment_types (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            description TEXT,
+            active      INTEGER NOT NULL DEFAULT 1,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS payment_methods (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            active      INTEGER NOT NULL DEFAULT 1,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS member_payments (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id       INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+            payment_type_id INTEGER NOT NULL REFERENCES payment_types(id),
+            period          TEXT    NOT NULL,
+            payment_date    TEXT,
+            amount          REAL,
+            method_id       INTEGER REFERENCES payment_methods(id),
+            notes           TEXT,
+            voided_at       TEXT,
+            voided_by       INTEGER REFERENCES users(id),
+            void_reason     TEXT,
+            recorded_by     INTEGER REFERENCES users(id),
+            created_at      TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_member_payments_member ON member_payments(member_id);
+        CREATE INDEX IF NOT EXISTS idx_member_payments_period ON member_payments(period);
         -- v10.4: configurable member statuses
         CREATE TABLE IF NOT EXISTS member_statuses (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -500,6 +533,12 @@ def ensure_tables():
     for key, val in BRAND_KEYS.items():
         if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
             sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
+    # v11.6: current membership period (admin-configurable)
+    if not sdb.execute("SELECT key FROM settings WHERE key = 'current_membership_period'").fetchone():
+        from datetime import date as _date
+        _yr = _date.today().year
+        _period = f'{_yr}/{str(_yr + 1)[-2:]}'
+        sdb.execute("INSERT INTO settings (key, value) VALUES ('current_membership_period', ?)", (_period,))
     sdb.commit()
     sdb.close()
 
@@ -792,3 +831,85 @@ def ensure_tables():
                 )
     mtdb.commit()
     mtdb.close()
+
+    # ── Seed default payment types ─────────────────────────────────────────────
+    ptdb = _connect_db()
+    ptdb.row_factory = _sc3.Row
+    _default_payment_types = [
+        ('Membership', 'Annual membership fee',          0),
+        ('Trip',       'Day trip or residential outing', 1),
+        ('Equipment',  'Equipment or kit purchase',      2),
+        ('Event',      'One-off event or activity fee',  3),
+        ('Other',      'Miscellaneous payment',          4),
+    ]
+    for name, desc, sort_order in _default_payment_types:
+        ptdb.execute(
+            'INSERT OR IGNORE INTO payment_types (name, description, sort_order) VALUES (?,?,?)',
+            (name, desc, sort_order),
+        )
+    _default_payment_methods = [
+        ('Cash',            0),
+        ('Bank Transfer',   1),
+        ('Standing Order',  2),
+        ('Online',          3),
+        ('Other',           4),
+    ]
+    for name, sort_order in _default_payment_methods:
+        ptdb.execute(
+            'INSERT OR IGNORE INTO payment_methods (name, sort_order) VALUES (?,?)',
+            (name, sort_order),
+        )
+    ptdb.commit()
+    ptdb.close()
+
+    # ── Migrate legacy boolean "paid" fields → member_payments rows ────────────
+    # Finds any field_definitions with a key matching *_paid_* or *_membership_paid*
+    # (e.g. "membership_paid_2526", "ara_membership_paid_2526") that store a
+    # boolean value. For each member with value '1' or 'true', inserts a
+    # member_payments row (amount=NULL, payment_date=NULL) so the history is
+    # preserved.  Original field values are left untouched.
+    try:
+        migdb = _connect_db()
+        migdb.row_factory = _sc3.Row
+        paid_fields = migdb.execute(
+            "SELECT id, key, label FROM field_definitions "
+            "WHERE (key LIKE '%_paid_%' OR key LIKE '%membership_paid%') "
+            "  AND field_type = 'boolean' AND active = 1"
+        ).fetchall()
+        membership_type = migdb.execute(
+            "SELECT id FROM payment_types WHERE name = 'Membership'"
+        ).fetchone()
+        if paid_fields and membership_type:
+            mt_id = membership_type['id']
+            for pf in paid_fields:
+                # Derive period from label: e.g. "2025/26 Membership Paid" → "2025/26"
+                import re as _re
+                period_match = _re.search(r'(\d{4}/\d{2,4})', pf['label'])
+                period = period_match.group(1) if period_match else pf['key']
+
+                truthy_members = migdb.execute(
+                    "SELECT member_id FROM member_field_values "
+                    "WHERE field_id = ? AND LOWER(TRIM(value)) IN ('1','true','yes')",
+                    (pf['id'],)
+                ).fetchall()
+                for row in truthy_members:
+                    existing = migdb.execute(
+                        "SELECT id FROM member_payments "
+                        "WHERE member_id = ? AND payment_type_id = ? AND period = ? AND voided_at IS NULL",
+                        (row['member_id'], mt_id, period)
+                    ).fetchone()
+                    if not existing:
+                        migdb.execute(
+                            "INSERT INTO member_payments "
+                            "(member_id, payment_type_id, period, recorded_by) "
+                            "VALUES (?,?,?,NULL)",
+                            (row['member_id'], mt_id, period)
+                        )
+                        logger.info(
+                            'Migration: inserted payment for member_id=%s period=%s from field %s',
+                            row['member_id'], period, pf['key']
+                        )
+            migdb.commit()
+        migdb.close()
+    except Exception as _mig_exc:
+        logger.warning('Payment field migration skipped: %s', _mig_exc)

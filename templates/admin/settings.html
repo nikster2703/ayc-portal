@@ -145,6 +145,14 @@
     </a>
     {% endif %}
 
+    {% if 'payments.manage' in user_permissions %}
+    <a href="/admin/payments" class="settings-card">
+      <div class="settings-card__icon">💳</div>
+      <div class="settings-card__title">Payments</div>
+      <div class="settings-card__desc">Set the current membership period, and manage payment types and payment methods available when recording member payments.</div>
+    </a>
+    {% endif %}
+
     <a href="/admin/member-types" class="settings-card">
       <div class="settings-card__icon">🗂</div>
       <div class="settings-card__title">Member Types &amp; Fields</div>

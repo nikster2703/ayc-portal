@@ -420,6 +420,12 @@ def member_statuses_page():
     return render_template('admin/member_statuses.html', active_page='settings', **tpl_ctx())
 
 
+@bp.route('/admin/payments')
+@permission_required('payments.manage')
+def payments_admin_page():
+    return render_template('admin/payments.html', active_page='settings', **tpl_ctx())
+
+
 @bp.route('/admin/document-categories')
 @permission_required('admin.settings')
 def document_categories_page():

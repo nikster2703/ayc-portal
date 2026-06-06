@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Payment Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>💳 Payment Settings</h1>
+</div>
+
+<!-- ── Current Membership Period ──────────────────────────────────────── -->
+<div class="form-card" style="max-width:560px;margin-bottom:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Current Membership Period
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    This controls the "Paid / Unpaid" badge shown on member cards. Set it to the
+    membership year you're currently collecting for — e.g. <strong>2026/27</strong>.
+  </p>
+  <div style="display:flex;gap:10px;align-items:flex-end">
+    <div class="form-group" style="margin-bottom:0;flex:1">
+      <label class="form-label">Current period</label>
+      <input id="period-input" class="form-input" placeholder="e.g. 2026/27" maxlength="20">
+    </div>
+    <button class="btn btn-primary" onclick="savePeriod()" style="flex-shrink:0">Save</button>
+  </div>
+  <p id="period-msg" style="display:none;font-size:13px;margin-top:8px"></p>
+</div>
+
+<!-- ── Payment Types ───────────────────────────────────────────────────── -->
+<div class="form-card" style="max-width:680px;margin-bottom:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Payment Types
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Define the categories of payment that can be recorded on member cards —
+    Membership, trips, equipment, events, and so on.
+  </p>
+
+  <div id="types-list" style="margin-bottom:16px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:16px">
+    <button class="btn btn-primary" onclick="openTypeModal()">+ Add Payment Type</button>
+  </div>
+</div>
+
+<!-- ── Payment Methods ─────────────────────────────────────────────────── -->
+<div class="form-card" style="max-width:680px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Payment Methods
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Define how payments are made — Cash, Bank Transfer, Standing Order, and so on.
+  </p>
+
+  <div id="methods-list" style="margin-bottom:16px">
+    <div class="loading-state" style="padding:12px 0">
+      <div class="spinner"></div><p>Loading…</p>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:16px">
+    <button class="btn btn-primary" onclick="openMethodModal()">+ Add Payment Method</button>
+  </div>
+</div>
+
+<!-- ── Payment Type modal ──────────────────────────────────────────────── -->
+<div id="type-modal" class="modal-overlay" onclick="if(event.target===this)closeTypeModal()">
+  <div class="modal" style="max-width:440px">
+    <h2 id="type-modal-title">Add Payment Type</h2>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Name <span style="color:var(--red)">*</span></label>
+      <input id="t-name" class="form-input" placeholder="e.g. Trip" maxlength="80">
+    </div>
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Description</label>
+      <input id="t-desc" class="form-input" placeholder="Optional description" maxlength="200">
+    </div>
+    <p id="type-modal-err" style="display:none;color:var(--red);font-size:13px;margin-top:8px"></p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTypeModal()">Cancel</button>
+      <button class="btn btn-primary" id="type-modal-save" onclick="saveType()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Payment Method modal ────────────────────────────────────────────── -->
+<div id="method-modal" class="modal-overlay" onclick="if(event.target===this)closeMethodModal()">
+  <div class="modal" style="max-width:380px">
+    <h2 id="method-modal-title">Add Payment Method</h2>
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Name <span style="color:var(--red)">*</span></label>
+      <input id="m-name" class="form-input" placeholder="e.g. Standing Order" maxlength="80">
+    </div>
+    <p id="method-modal-err" style="display:none;color:var(--red);font-size:13px;margin-top:8px"></p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeMethodModal()">Cancel</button>
+      <button class="btn btn-primary" id="method-modal-save" onclick="saveMethod()">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let _types   = [];
+  let _methods = [];
+  let _editingTypeId   = null;
+  let _editingMethodId = null;
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+
+  async function loadAll() {
+    const [periodRes, types, methods] = await Promise.all([
+      apiFetch('/api/payments/current-period'),
+      apiFetch('/api/admin/payment-types'),
+      apiFetch('/api/admin/payment-methods'),
+    ]);
+    document.getElementById('period-input').value = periodRes.current_period || '';
+    _types   = types;
+    _methods = methods;
+    renderTypes();
+    renderMethods();
+  }
+
+  function renderTypes() {
+    const el = document.getElementById('types-list');
+    if (!_types.length) {
+      el.innerHTML = `<p style="font-size:13px;color:var(--muted)">No payment types defined yet.</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:4px 8px 4px 0;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Name</th>
+            <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Description</th>
+            <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Status</th>
+            <th style="border-bottom:1px solid var(--border)"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${_types.map(t => `
+            <tr>
+              <td style="padding:7px 8px 7px 0;border-bottom:1px solid var(--border);font-weight:600">${esc(t.name)}</td>
+              <td style="padding:7px 8px;border-bottom:1px solid var(--border);color:var(--muted)">${esc(t.description || '—')}</td>
+              <td style="padding:7px 8px;border-bottom:1px solid var(--border)">
+                <span style="font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;
+                             background:${t.active ? '#22c55e20' : '#64748b20'};
+                             color:${t.active ? '#16a34a' : '#64748b'};
+                             border:1px solid ${t.active ? '#22c55e40' : '#64748b40'}">
+                  ${t.active ? 'Active' : 'Inactive'}
+                </span>
+              </td>
+              <td style="padding:7px 0 7px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap">
+                <button class="btn btn-ghost btn-sm" style="font-size:12px" onclick="openTypeModal(${t.id})">Edit</button>
+                <button class="btn btn-ghost btn-sm" style="font-size:12px;color:${t.active ? 'var(--red)' : 'var(--navy)'}"
+                        onclick="toggleType(${t.id})">${t.active ? 'Deactivate' : 'Activate'}</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function renderMethods() {
+    const el = document.getElementById('methods-list');
+    if (!_methods.length) {
+      el.innerHTML = `<p style="font-size:13px;color:var(--muted)">No payment methods defined yet.</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:4px 8px 4px 0;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Name</th>
+            <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Status</th>
+            <th style="border-bottom:1px solid var(--border)"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${_methods.map(m => `
+            <tr>
+              <td style="padding:7px 8px 7px 0;border-bottom:1px solid var(--border);font-weight:600">${esc(m.name)}</td>
+              <td style="padding:7px 8px;border-bottom:1px solid var(--border)">
+                <span style="font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;
+                             background:${m.active ? '#22c55e20' : '#64748b20'};
+                             color:${m.active ? '#16a34a' : '#64748b'};
+                             border:1px solid ${m.active ? '#22c55e40' : '#64748b40'}">
+                  ${m.active ? 'Active' : 'Inactive'}
+                </span>
+              </td>
+              <td style="padding:7px 0 7px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap">
+                <button class="btn btn-ghost btn-sm" style="font-size:12px" onclick="openMethodModal(${m.id})">Edit</button>
+                <button class="btn btn-ghost btn-sm" style="font-size:12px;color:${m.active ? 'var(--red)' : 'var(--navy)'}"
+                        onclick="toggleMethod(${m.id})">${m.active ? 'Deactivate' : 'Activate'}</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // ── Current period ─────────────────────────────────────────────────────────
+
+  async function savePeriod() {
+    const period = document.getElementById('period-input').value.trim();
+    const msgEl  = document.getElementById('period-msg');
+    msgEl.style.display = 'none';
+    if (!period) { msgEl.textContent = 'Please enter a period.'; msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return; }
+    try {
+      await apiFetch('/api/payments/current-period', {
+        method: 'POST', body: JSON.stringify({ period })
+      });
+      msgEl.textContent = `✓ Current period set to "${period}"`;
+      msgEl.style.color = '#16a34a';
+      msgEl.style.display = '';
+    } catch(e) {
+      msgEl.textContent = e.message || 'Could not save period.';
+      msgEl.style.color = 'var(--red)';
+      msgEl.style.display = '';
+    }
+  }
+
+  // ── Payment Types ──────────────────────────────────────────────────────────
+
+  function openTypeModal(id) {
+    _editingTypeId = id || null;
+    const t = id ? _types.find(x => x.id === id) : null;
+    document.getElementById('type-modal-title').textContent = id ? 'Edit Payment Type' : 'Add Payment Type';
+    document.getElementById('t-name').value = t ? t.name : '';
+    document.getElementById('t-desc').value = t ? (t.description || '') : '';
+    document.getElementById('type-modal-err').style.display = 'none';
+    document.getElementById('type-modal').classList.add('active');
+  }
+
+  function closeTypeModal() {
+    document.getElementById('type-modal').classList.remove('active');
+    _editingTypeId = null;
+  }
+
+  async function saveType() {
+    const name = document.getElementById('t-name').value.trim();
+    const desc = document.getElementById('t-desc').value.trim() || null;
+    const errEl = document.getElementById('type-modal-err');
+    errEl.style.display = 'none';
+    if (!name) { errEl.textContent = 'Name is required.'; errEl.style.display = ''; return; }
+
+    const btn = document.getElementById('type-modal-save');
+    btn.disabled = true;
+    try {
+      if (_editingTypeId) {
+        await apiFetch(`/api/admin/payment-types/${_editingTypeId}`, {
+          method: 'PUT', body: JSON.stringify({ name, description: desc })
+        });
+      } else {
+        await apiFetch('/api/admin/payment-types', {
+          method: 'POST', body: JSON.stringify({ name, description: desc })
+        });
+      }
+      closeTypeModal();
+      _types = await apiFetch('/api/admin/payment-types');
+      renderTypes();
+    } catch(e) {
+      errEl.textContent = e.message || 'Could not save.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function toggleType(id) {
+    try {
+      await apiFetch(`/api/admin/payment-types/${id}/deactivate`, { method: 'POST' });
+      _types = await apiFetch('/api/admin/payment-types');
+      renderTypes();
+    } catch(e) {
+      alert(e.message || 'Could not update payment type.');
+    }
+  }
+
+  // ── Payment Methods ────────────────────────────────────────────────────────
+
+  function openMethodModal(id) {
+    _editingMethodId = id || null;
+    const m = id ? _methods.find(x => x.id === id) : null;
+    document.getElementById('method-modal-title').textContent = id ? 'Edit Payment Method' : 'Add Payment Method';
+    document.getElementById('m-name').value = m ? m.name : '';
+    document.getElementById('method-modal-err').style.display = 'none';
+    document.getElementById('method-modal').classList.add('active');
+  }
+
+  function closeMethodModal() {
+    document.getElementById('method-modal').classList.remove('active');
+    _editingMethodId = null;
+  }
+
+  async function saveMethod() {
+    const name  = document.getElementById('m-name').value.trim();
+    const errEl = document.getElementById('method-modal-err');
+    errEl.style.display = 'none';
+    if (!name) { errEl.textContent = 'Name is required.'; errEl.style.display = ''; return; }
+
+    const btn = document.getElementById('method-modal-save');
+    btn.disabled = true;
+    try {
+      if (_editingMethodId) {
+        await apiFetch(`/api/admin/payment-methods/${_editingMethodId}`, {
+          method: 'PUT', body: JSON.stringify({ name })
+        });
+      } else {
+        await apiFetch('/api/admin/payment-methods', {
+          method: 'POST', body: JSON.stringify({ name })
+        });
+      }
+      closeMethodModal();
+      _methods = await apiFetch('/api/admin/payment-methods');
+      renderMethods();
+    } catch(e) {
+      errEl.textContent = e.message || 'Could not save.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function toggleMethod(id) {
+    try {
+      await apiFetch(`/api/admin/payment-methods/${id}/deactivate`, { method: 'POST' });
+      _methods = await apiFetch('/api/admin/payment-methods');
+      renderMethods();
+    } catch(e) {
+      alert(e.message || 'Could not update payment method.');
+    }
+  }
+
+  loadAll();
+</script>
+{% endblock %}
