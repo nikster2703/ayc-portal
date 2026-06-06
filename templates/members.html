@@ -615,7 +615,7 @@
   }
 
   function getColCount() {
-    return window.innerWidth >= 1200 ? 4 : window.innerWidth >= 768 ? 2 : 1;
+    return window.innerWidth >= 1100 ? 3 : window.innerWidth >= 680 ? 2 : 1;
   }
 
   function renderMembers(list) {
@@ -1068,38 +1068,37 @@
               <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Date</th>
               <th style="text-align:right;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Amount</th>
               <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Method</th>
-              ${(CAN_RECORD || CAN_MANAGE) ? '<th style="border-bottom:1px solid var(--border)"></th>' : ''}
             </tr>
           </thead>
           <tbody>
             ${payments.map(p => {
               const voided = !!p.voided_at;
-              const rowStyle = voided
-                ? 'opacity:.45;text-decoration:line-through'
-                : '';
+              const hasActions = !voided && (CAN_RECORD || CAN_MANAGE);
+              const rowStyle = voided ? 'opacity:.45;text-decoration:line-through' : '';
               const amtStr = p.amount != null ? `£${parseFloat(p.amount).toFixed(2)}` : '—';
               const voidBadge = voided
                 ? `<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;
                               background:#ef444420;color:#dc2626;border:1px solid #ef444440;
                               margin-left:4px">VOID</span>` : '';
-              const actions = (!voided && (CAN_RECORD || CAN_MANAGE))
-                ? `<td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;text-align:right">
-                     ${CAN_RECORD ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px"
-                       onclick="event.stopPropagation();openEditPaymentModal(${memberId},${p.id})">Edit</button>` : ''}
-                     ${CAN_MANAGE ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px;color:var(--red)"
-                       onclick="event.stopPropagation();openVoidModal(${p.id})">Void</button>` : ''}
-                   </td>`
-                : ((CAN_RECORD || CAN_MANAGE) ? '<td style="border-bottom:1px solid var(--border)"></td>' : '');
+              const cellBorder = hasActions ? 'border-bottom:none' : 'border-bottom:1px solid var(--border)';
+              const actionRow = hasActions
+                ? `<tr>
+                     <td colspan="5" style="padding:1px 0 5px 0;border-bottom:1px solid var(--border);text-align:right">
+                       ${CAN_RECORD ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px"
+                         onclick="event.stopPropagation();openEditPaymentModal(${memberId},${p.id})">Edit</button>` : ''}
+                       ${CAN_MANAGE ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px;color:var(--red)"
+                         onclick="event.stopPropagation();openVoidModal(${p.id})">Void</button>` : ''}
+                     </td>
+                   </tr>` : '';
               const noteTitle = p.notes ? ` title="${esc(p.notes)}"` : '';
               const voidTitle = voided && p.void_reason ? ` title="Voided: ${esc(p.void_reason)}"` : '';
               return `<tr style="${rowStyle}"${voidTitle}${noteTitle}>
-                <td style="padding:5px 6px 5px 0;border-bottom:1px solid var(--border)">${esc(p.period)}${voidBadge}</td>
-                <td style="padding:5px 6px;border-bottom:1px solid var(--border)">${esc(p.payment_type)}</td>
-                <td style="padding:5px 6px;border-bottom:1px solid var(--border)">${p.payment_date ? fmtDate(p.payment_date) : '—'}</td>
-                <td style="padding:5px 6px;border-bottom:1px solid var(--border);text-align:right">${amtStr}</td>
-                <td style="padding:5px 6px;border-bottom:1px solid var(--border)">${esc(p.payment_method || '—')}</td>
-                ${actions}
-              </tr>`;
+                <td style="padding:5px 6px 3px 0;${cellBorder}">${esc(p.period)}${voidBadge}</td>
+                <td style="padding:5px 6px 3px;${cellBorder}">${esc(p.payment_type)}</td>
+                <td style="padding:5px 6px 3px;${cellBorder}">${p.payment_date ? fmtDate(p.payment_date) : '—'}</td>
+                <td style="padding:5px 6px 3px;text-align:right;${cellBorder}">${amtStr}</td>
+                <td style="padding:5px 6px 3px;${cellBorder}">${esc(p.payment_method || '—')}</td>
+              </tr>${actionRow}`;
             }).join('')}
           </tbody>
         </table>`;
