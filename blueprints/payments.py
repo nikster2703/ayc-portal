@@ -245,29 +245,55 @@ def api_payment_void(payment_id):
 @bp.route('/api/payments/current-period')
 @permission_required('payments.view')
 def api_current_period_get():
-    return jsonify({'current_period': _current_period()})
+    db = get_db()
+    rows = db.execute(
+        "SELECT key, value FROM settings WHERE key IN (?,?,?)",
+        ('current_membership_period', 'current_period_start', 'current_period_end'),
+    ).fetchall()
+    vals = {r['key']: r['value'] for r in rows}
+    return jsonify({
+        'current_period': vals.get('current_membership_period', ''),
+        'period_start':   vals.get('current_period_start', ''),
+        'period_end':     vals.get('current_period_end', ''),
+    })
 
 
 @bp.route('/api/payments/current-period', methods=['POST'])
 @permission_required('payments.manage')
 def api_current_period_set():
-    data   = request.get_json() or {}
-    period = (data.get('period') or '').strip()
+    data         = request.get_json() or {}
+    period       = (data.get('period') or '').strip()
+    period_start = (data.get('period_start') or '').strip() or None
+    period_end   = (data.get('period_end')   or '').strip() or None
+
     if not period:
         return jsonify({'error': 'period is required'}), 400
+    if period_start and period_end and period_end < period_start:
+        return jsonify({'error': 'period_end cannot be before period_start'}), 400
 
     db      = get_db()
     user_id = session.get('user_id')
     now     = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    db.execute(
+
+    upsert = (
         'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?,?,?,?) '
-        'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by',
-        ('current_membership_period', period, now, user_id)
+        'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by'
     )
+    db.execute(upsert, ('current_membership_period', period, now, user_id))
+    db.execute(upsert, ('current_period_start', period_start or '', now, user_id))
+    db.execute(upsert, ('current_period_end',   period_end   or '', now, user_id))
     db.commit()
 
-    log_action('setting_change', 'settings', None, {'key': 'current_membership_period', 'value': period})
-    return jsonify({'ok': True, 'current_period': period})
+    log_action('setting_change', 'settings', None, {
+        'key': 'current_membership_period', 'value': period,
+        'period_start': period_start, 'period_end': period_end,
+    })
+    return jsonify({
+        'ok':            True,
+        'current_period': period,
+        'period_start':   period_start or '',
+        'period_end':     period_end   or '',
+    })
 
 
 # ── Payment types admin ───────────────────────────────────────────────────────

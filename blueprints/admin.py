@@ -1810,9 +1810,12 @@ def api_import_fields(type_id):
         WHERE   mtf.member_type_id = ? AND fd.active = 1
         ORDER   BY mtf.sort_order, fd.label
     ''', (type_id,)).fetchall()
+    core    = [f for f in _IMPORT_CORE_FIELDS if not f['key'].startswith('_payment')]
+    payment = [f for f in _IMPORT_CORE_FIELDS if f['key'].startswith('_payment')]
     return jsonify({
-        'core_fields':   _IMPORT_CORE_FIELDS,
-        'custom_fields': [dict(f) for f in custom],
+        'core_fields':    core,
+        'payment_fields': payment,
+        'custom_fields':  [dict(f) for f in custom],
     })
 
 

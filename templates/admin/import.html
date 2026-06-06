@@ -291,19 +291,20 @@
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
-  typeId:      null,
-  fileId:      null,
-  fileExt:     null,
-  sheetNames:  [],
-  activeSheet: '',
-  columns:     [],
-  preview:     [],
-  totalRows:   0,
-  coreFields:  [],
-  customFields:[],
-  mapping:     {},   // { colIndex: fieldKey }
-  aycExport:   false,
-  aycSheets:   {},
+  typeId:        null,
+  fileId:        null,
+  fileExt:       null,
+  sheetNames:    [],
+  activeSheet:   '',
+  columns:       [],
+  preview:       [],
+  totalRows:     0,
+  coreFields:    [],
+  paymentFields: [],
+  customFields:  [],
+  mapping:       {},   // { colIndex: fieldKey }
+  aycExport:     false,
+  aycSheets:     {},
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -335,8 +336,9 @@ async function onTypeChange() {
   if (!state.typeId) return;
   try {
     const data = await apiFetch(`/api/admin/import/fields/${state.typeId}`);
-    state.coreFields   = data.core_fields   || [];
-    state.customFields = data.custom_fields || [];
+    state.coreFields    = data.core_fields    || [];
+    state.paymentFields = data.payment_fields || [];
+    state.customFields  = data.custom_fields  || [];
   } catch(e) {
     showToast('Could not load fields: ' + e.message, 'error');
   }
@@ -508,19 +510,26 @@ function buildFieldOptions() {
     `<option value="${esc(f.key)}">${esc(f.label)}${f.required ? ' *' : ''}</option>`
   ).join('');
 
-  const custom = state.customFields.length
-    ? state.customFields.map(f =>
-        `<option value="${esc(f.key)}">${esc(f.label)}</option>`
-      ).join('')
+  const paymentGroup = state.paymentFields.length
+    ? `<optgroup label="── Payment Options ──">${
+        state.paymentFields.map(f =>
+          `<option value="${esc(f.key)}">${esc(f.label)}</option>`
+        ).join('')
+      }</optgroup>`
     : '';
 
-  const customGroup = custom
-    ? `<optgroup label="── Custom Fields ──">${custom}</optgroup>`
+  const customGroup = state.customFields.length
+    ? `<optgroup label="── Custom Fields ──">${
+        state.customFields.map(f =>
+          `<option value="${esc(f.key)}">${esc(f.label)}</option>`
+        ).join('')
+      }</optgroup>`
     : '';
 
   return `
     <option value="_skip">— Skip this column —</option>
     <optgroup label="── Core Fields ──">${core}</optgroup>
+    ${paymentGroup}
     ${customGroup}
   `;
 }
@@ -530,6 +539,7 @@ function autoSuggest(colName) {
   const norm = colName.toLowerCase().replace(/[^a-z0-9]/g, '');
   const candidates = [
     ...state.coreFields.map(f => ({ key: f.key, label: f.label })),
+    ...state.paymentFields.map(f => ({ key: f.key, label: f.label })),
     ...state.customFields.map(f => ({ key: f.key, label: f.label })),
   ];
   for (const f of candidates) {

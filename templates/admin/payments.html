@@ -14,14 +14,30 @@
   <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
     This controls the "Paid / Unpaid" badge shown on member cards. Set it to the
     membership year you're currently collecting for — e.g. <strong>2026/27</strong>.
+    The date range is optional and intended for future automations.
   </p>
-  <div style="display:flex;gap:10px;align-items:flex-end">
-    <div class="form-group" style="margin-bottom:0;flex:1">
-      <label class="form-label">Current period</label>
-      <input id="period-input" class="form-input" placeholder="e.g. 2026/27" maxlength="20">
-    </div>
-    <button class="btn btn-primary" onclick="savePeriod()" style="flex-shrink:0">Save</button>
+
+  <div class="form-group" style="margin-bottom:14px">
+    <label class="form-label">Period title <span style="color:var(--red)">*</span></label>
+    <input id="period-input" class="form-input" placeholder="e.g. 2026/27" maxlength="20"
+           style="max-width:180px">
+    <p style="font-size:12px;color:var(--muted);margin:4px 0 0">
+      Matched against payment records to determine paid status.
+    </p>
   </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Period start <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <input id="period-start" class="form-input" type="date">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Period end <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <input id="period-end" class="form-input" type="date">
+    </div>
+  </div>
+
+  <button class="btn btn-primary" onclick="savePeriod()">Save Period</button>
   <p id="period-msg" style="display:none;font-size:13px;margin-top:8px"></p>
 </div>
 
@@ -123,6 +139,8 @@
       apiFetch('/api/admin/payment-methods'),
     ]);
     document.getElementById('period-input').value = periodRes.current_period || '';
+    document.getElementById('period-start').value  = periodRes.period_start || '';
+    document.getElementById('period-end').value    = periodRes.period_end   || '';
     _types   = types;
     _methods = methods;
     renderTypes();
@@ -208,13 +226,20 @@
   // ── Current period ─────────────────────────────────────────────────────────
 
   async function savePeriod() {
-    const period = document.getElementById('period-input').value.trim();
-    const msgEl  = document.getElementById('period-msg');
+    const period      = document.getElementById('period-input').value.trim();
+    const periodStart = document.getElementById('period-start').value.trim();
+    const periodEnd   = document.getElementById('period-end').value.trim();
+    const msgEl       = document.getElementById('period-msg');
     msgEl.style.display = 'none';
-    if (!period) { msgEl.textContent = 'Please enter a period.'; msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return; }
+    if (!period) { msgEl.textContent = 'Please enter a period title.'; msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return; }
+    if (periodStart && periodEnd && periodEnd < periodStart) {
+      msgEl.textContent = 'Period end cannot be before period start.';
+      msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return;
+    }
     try {
       await apiFetch('/api/payments/current-period', {
-        method: 'POST', body: JSON.stringify({ period })
+        method: 'POST',
+        body: JSON.stringify({ period, period_start: periodStart || null, period_end: periodEnd || null }),
       });
       msgEl.textContent = `✓ Current period set to "${period}"`;
       msgEl.style.color = '#16a34a';
