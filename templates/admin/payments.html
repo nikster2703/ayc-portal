@@ -235,11 +235,11 @@
     document.getElementById('t-name').value = t ? t.name : '';
     document.getElementById('t-desc').value = t ? (t.description || '') : '';
     document.getElementById('type-modal-err').style.display = 'none';
-    document.getElementById('type-modal').classList.add('active');
+    document.getElementById('type-modal').classList.add('open');
   }
 
   function closeTypeModal() {
-    document.getElementById('type-modal').classList.remove('active');
+    document.getElementById('type-modal').classList.remove('open');
     _editingTypeId = null;
   }
 
@@ -291,11 +291,11 @@
     document.getElementById('method-modal-title').textContent = id ? 'Edit Payment Method' : 'Add Payment Method';
     document.getElementById('m-name').value = m ? m.name : '';
     document.getElementById('method-modal-err').style.display = 'none';
-    document.getElementById('method-modal').classList.add('active');
+    document.getElementById('method-modal').classList.add('open');
   }
 
   function closeMethodModal() {
-    document.getElementById('method-modal').classList.remove('active');
+    document.getElementById('method-modal').classList.remove('open');
     _editingMethodId = null;
   }
 

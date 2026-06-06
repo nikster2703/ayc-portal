@@ -1159,7 +1159,7 @@
       document.getElementById('payment-modal-title').textContent = '💳 Record Payment';
     }
 
-    document.getElementById('payment-modal').classList.add('active');
+    document.getElementById('payment-modal').classList.add('open');
   }
 
   function openEditPaymentModal(memberId, paymentId) {
@@ -1167,7 +1167,7 @@
   }
 
   function closePaymentModal() {
-    document.getElementById('payment-modal').classList.remove('active');
+    document.getElementById('payment-modal').classList.remove('open');
     _editingPaymentId = null;
     _paymentMemberId  = null;
   }
@@ -1216,11 +1216,11 @@
     _voidingPaymentId = paymentId;
     document.getElementById('void-reason').value = '';
     document.getElementById('void-modal-err').style.display = 'none';
-    document.getElementById('void-payment-modal').classList.add('active');
+    document.getElementById('void-payment-modal').classList.add('open');
   }
 
   function closeVoidModal() {
-    document.getElementById('void-payment-modal').classList.remove('active');
+    document.getElementById('void-payment-modal').classList.remove('open');
     _voidingPaymentId = null;
   }
 
