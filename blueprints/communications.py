@@ -187,8 +187,8 @@ def api_mailshots_preview():
 def api_mailshots_send():
     """Send a mailshot via Gmail SMTP and log it."""
     data           = request.get_json() or {}
-    subject        = data.get('subject', '').strip()
-    body           = data.get('body_html', '').strip()
+    subject        = (data.get('subject') or '').strip()
+    body           = (data.get('body_html') or '').strip()
     template_id    = data.get('template_id')
     explicit_recip = data.get('recipients')        # list of {email, name} from frontend checklist
     document_ids   = data.get('document_ids', [])  # list of document IDs to attach
@@ -235,9 +235,17 @@ def api_mailshots_send():
     emails_sent = 0
     errors      = []
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
+        # Port 465 uses implicit SSL; all other ports (e.g. 587) use STARTTLS
+        if SMTP_PORT == 465:
+            ctx = smtplib.ssl.create_default_context()
+            srv_cm = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=ctx)
+        else:
+            srv_cm = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+        with srv_cm as srv:
             srv.ehlo()
-            srv.starttls()
+            if SMTP_PORT != 465:
+                srv.starttls()
+                srv.ehlo()
             srv.login(SMTP_USER, SMTP_PASS)
             for r in recipients:
                 try:
