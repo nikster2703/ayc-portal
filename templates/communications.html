@@ -1,68 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ club_short_name }} Portal — Communications{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css">
-<style>
-  /* Override Quill toolbar to fit our theme */
-  .ql-toolbar.ql-snow {
-    border: 1.5px solid var(--border);
-    border-bottom: none;
-    border-radius: 8px 8px 0 0;
-    background: #f8f9fb;
-    padding: 6px 8px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px;
-    align-items: center;
-  }
-  .ql-container.ql-snow {
-    border: 1.5px solid var(--border);
-    border-radius: 0 0 8px 8px;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .ql-editor {
-    min-height: 220px;
-    max-height: 420px;
-    overflow-y: auto;
-    padding: 12px 14px;
-  }
-  .ql-editor.ql-blank::before {
-    color: var(--muted);
-    font-style: normal;
-  }
-
-  /* Merge field picker in toolbar */
-  .merge-field-picker {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: var(--accent-light);
-    border: 1.5px solid var(--accent);
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--accent);
-    cursor: pointer;
-    position: relative;
-  }
-  .merge-field-picker select {
-    appearance: none;
-    background: transparent;
-    border: none;
-    outline: none;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--accent);
-    cursor: pointer;
-    padding: 0;
-    max-width: 140px;
-  }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="page-header">
   <h1>✉️ Communications</h1>
@@ -79,11 +17,10 @@
      TAB: Send Mailshot
      ═════════════════════════════════════════════════════ -->
 <div id="tab-send">
+  <div class="comms-grid">
 
-  <div style="display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start">
-
-    <!-- Compose panel -->
-    <div class="comms-panel">
+    <!-- ── Compose panel ─────────────────────────────── -->
+    <div class="comms-panel comms-panel-compose">
       <div class="comms-panel-title">Compose</div>
 
       <div class="form-group">
@@ -98,52 +35,114 @@
         <input type="text" id="s-subject" placeholder="e.g. {{ club_short_name }} Session Update — this week">
       </div>
 
-      <div class="form-group">
+      <div class="form-group form-group-message">
         <label>Message <span style="color:var(--red)">*</span></label>
-
-        <!-- Rich text toolbar -->
-        <div id="s-toolbar">
-          <select class="ql-font">
-            <option selected></option>
-            <option value="serif">Serif</option>
-            <option value="monospace">Monospace</option>
-          </select>
-          <select class="ql-size">
-            <option value="small">Small</option>
-            <option selected></option>
-            <option value="large">Large</option>
-            <option value="huge">Huge</option>
-          </select>
-          <span class="ql-formats">
-            <button class="ql-bold"></button>
-            <button class="ql-italic"></button>
-            <button class="ql-underline"></button>
-          </span>
-          <span class="ql-formats">
-            <select class="ql-color"></select>
-            <select class="ql-background"></select>
-          </span>
-          <span class="ql-formats">
-            <button class="ql-link"></button>
-            <button class="ql-image" title="Insert image (URL)"></button>
-          </span>
-          <span class="ql-formats">
-            <button class="ql-list" value="ordered"></button>
-            <button class="ql-list" value="bullet"></button>
-          </span>
-          <!-- Merge field picker -->
-          <span class="merge-field-picker" title="Insert a personalisation field at the cursor">
-            <span>&#123;&#125;</span>
-            <select id="s-merge-picker" onchange="insertMergeField('compose', this)">
-              <option value="">Insert field…</option>
+        <!-- Rich text editor wrapper -->
+        <div class="rte-wrap">
+          <!-- Toolbar -->
+          <div class="rte-toolbar" id="s-rte-toolbar">
+            <!-- Font family -->
+            <select class="rte-select" title="Font family"
+                    onmousedown="event.stopPropagation()"
+                    onchange="rteExec('s-editor','fontName',this.value);this.blur()">
+              <option value="Arial" selected>Arial</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Verdana">Verdana</option>
+              <option value="'Courier New'">Courier</option>
+              <option value="'Times New Roman'">Times</option>
             </select>
-          </span>
-        </div>
-        <!-- Editor div — Quill mounts here -->
-        <div id="s-body-editor"></div>
+            <!-- Font size -->
+            <select class="rte-select rte-select-sm" title="Size"
+                    onmousedown="event.stopPropagation()"
+                    onchange="rteExec('s-editor','fontSize',this.value);this.blur()">
+              <option value="1">XS</option>
+              <option value="2">S</option>
+              <option value="3" selected>M</option>
+              <option value="4">L</option>
+              <option value="5">XL</option>
+              <option value="6">XXL</option>
+            </select>
 
-        <div style="font-size:12px;color:var(--muted);margin-top:6px">
-          Use the <strong>Insert field</strong> picker to personalise messages with member data, e.g. <code>{Forename}</code>.
+            <span class="rte-sep"></span>
+
+            <!-- Bold -->
+            <button class="rte-btn" title="Bold"
+                    onmousedown="event.preventDefault();rteExec('s-editor','bold')">
+              <b>B</b>
+            </button>
+            <!-- Italic -->
+            <button class="rte-btn" title="Italic"
+                    onmousedown="event.preventDefault();rteExec('s-editor','italic')">
+              <i>I</i>
+            </button>
+            <!-- Underline -->
+            <button class="rte-btn" title="Underline"
+                    onmousedown="event.preventDefault();rteExec('s-editor','underline')">
+              <u>U</u>
+            </button>
+
+            <span class="rte-sep"></span>
+
+            <!-- Text colour -->
+            <label class="rte-btn rte-color-wrap" title="Text colour"
+                   onmousedown="rteSaveSel('s-editor')">
+              <span class="rte-color-a" id="s-color-a">A</span>
+              <input type="color" id="s-color-pick" value="#000000"
+                     onchange="rteApplyColor('s-editor','foreColor',this.value);
+                               document.getElementById('s-color-a').style.borderBottomColor=this.value">
+            </label>
+
+            <!-- Highlight / background colour -->
+            <label class="rte-btn rte-color-wrap" title="Highlight"
+                   onmousedown="rteSaveSel('s-editor')">
+              <span style="font-size:13px">🖍</span>
+              <input type="color" id="s-bg-pick" value="#ffff00"
+                     onchange="rteApplyColor('s-editor','hiliteColor',this.value)">
+            </label>
+
+            <span class="rte-sep"></span>
+
+            <!-- Link -->
+            <button class="rte-btn" title="Insert link"
+                    onmousedown="event.preventDefault();rteInsertLink('s-editor')">
+              <span style="font-size:13px">🔗</span>
+            </button>
+
+            <!-- Image -->
+            <button class="rte-btn" title="Insert image"
+                    onmousedown="event.preventDefault();rteInsertImage('s-editor')">
+              <span style="font-size:13px">🖼</span>
+            </button>
+
+            <!-- Lists -->
+            <button class="rte-btn" title="Ordered list"
+                    onmousedown="event.preventDefault();rteExec('s-editor','insertOrderedList')">
+              <span style="font-size:11px;font-weight:700">1≡</span>
+            </button>
+            <button class="rte-btn" title="Bullet list"
+                    onmousedown="event.preventDefault();rteExec('s-editor','insertUnorderedList')">
+              <span style="font-size:13px">☰</span>
+            </button>
+
+            <span class="rte-sep"></span>
+
+            <!-- Merge field picker -->
+            <span class="rte-merge-wrap" title="Insert personalisation field">
+              <span class="rte-merge-badge">{}</span>
+              <select id="s-merge-picker"
+                      onmousedown="event.stopPropagation()"
+                      onchange="insertMergeField('s-editor',this)">
+                <option value="">Insert field…</option>
+              </select>
+            </span>
+          </div>
+          <!-- Editable area -->
+          <div class="rte-editor" id="s-editor" contenteditable="true"
+               data-placeholder="Write your message here…"></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:5px">
+          Use <strong>Insert field</strong> to personalise messages, e.g. <code>{Forename}</code>.
           Recipients see their own email only (BCC-style).
         </div>
       </div>
@@ -156,7 +155,7 @@
         </label>
         <div id="s-preview"
              style="display:none;border:1.5px solid var(--border);border-radius:8px;
-                    padding:16px;background:white;min-height:80px;font-size:14px;
+                    padding:16px;background:white;min-height:60px;font-size:14px;
                     line-height:1.6"></div>
       </div>
 
@@ -171,17 +170,16 @@
         <div id="attachment-list" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
-      <button class="btn btn-primary" style="width:100%;padding:13px"
+      <button class="btn btn-primary" style="width:100%;padding:13px;margin-top:auto"
               id="send-btn" onclick="sendMailshot()">
         📤 Send to Recipients
       </button>
     </div>
 
-    <!-- Recipients panel -->
-    <div class="comms-panel">
+    <!-- ── Recipients panel ───────────────────────────── -->
+    <div class="comms-panel comms-panel-recipients">
       <div class="comms-panel-title">Recipients</div>
 
-      <!-- Member type filter -->
       <div class="form-group">
         <label>Member type</label>
         <select id="s-member-type" onchange="previewRecipients()">
@@ -192,7 +190,6 @@
         </select>
       </div>
 
-      <!-- Session filter -->
       <div class="form-group">
         <label>Session</label>
         {% if not current_session %}
@@ -210,7 +207,6 @@
         {% endif %}
       </div>
 
-      <!-- Status filter — populated dynamically from member_statuses -->
       <div class="form-group">
         <label>Status</label>
         <select id="s-status" onchange="previewRecipients()">
@@ -218,17 +214,15 @@
         </select>
       </div>
 
-      <!-- Alert flag filter -->
       <div class="form-group" id="s-flags-group">
-        <label>Alert flags <span style="color:var(--muted);font-weight:600">(optional — filter to flagged members)</span></label>
+        <label>Alert flags <span style="color:var(--muted);font-weight:600">(optional)</span></label>
         <div id="s-flags-list"
              style="border:1.5px solid var(--border);border-radius:8px;
-                    background:white;max-height:140px;overflow-y:auto;
-                    font-size:13px">
+                    background:white;max-height:140px;overflow-y:auto;font-size:13px">
           <div style="padding:10px;color:var(--muted)">Loading flags…</div>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">
-          Tick one or more flags to send only to members with those flags raised. Leave all unticked to ignore flags.
+          Tick one or more flags to restrict to members with those flags raised.
         </div>
       </div>
 
@@ -246,8 +240,7 @@
       </div>
 
       <div id="recipient-list"
-           style="margin-top:8px;max-height:320px;overflow-y:auto;
-                  font-size:13px;border:1.5px solid var(--border);
+           style="margin-top:8px;font-size:13px;border:1.5px solid var(--border);
                   border-radius:8px;background:white"></div>
     </div>
 
@@ -289,45 +282,76 @@
     </div>
     <div class="form-group">
       <label>Message Body</label>
-      <!-- Template modal rich text toolbar -->
-      <div id="t-toolbar">
-        <select class="ql-font">
-          <option selected></option>
-          <option value="serif">Serif</option>
-          <option value="monospace">Monospace</option>
-        </select>
-        <select class="ql-size">
-          <option value="small">Small</option>
-          <option selected></option>
-          <option value="large">Large</option>
-          <option value="huge">Huge</option>
-        </select>
-        <span class="ql-formats">
-          <button class="ql-bold"></button>
-          <button class="ql-italic"></button>
-          <button class="ql-underline"></button>
-        </span>
-        <span class="ql-formats">
-          <select class="ql-color"></select>
-          <select class="ql-background"></select>
-        </span>
-        <span class="ql-formats">
-          <button class="ql-link"></button>
-          <button class="ql-image" title="Insert image (URL)"></button>
-        </span>
-        <span class="ql-formats">
-          <button class="ql-list" value="ordered"></button>
-          <button class="ql-list" value="bullet"></button>
-        </span>
-        <!-- Merge field picker -->
-        <span class="merge-field-picker" title="Insert a personalisation field at the cursor">
-          <span>&#123;&#125;</span>
-          <select id="t-merge-picker" onchange="insertMergeField('template', this)">
-            <option value="">Insert field…</option>
+      <div class="rte-wrap">
+        <div class="rte-toolbar">
+          <select class="rte-select" title="Font family"
+                  onmousedown="event.stopPropagation()"
+                  onchange="rteExec('t-editor','fontName',this.value);this.blur()">
+            <option value="Arial" selected>Arial</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Tahoma">Tahoma</option>
+            <option value="Verdana">Verdana</option>
+            <option value="'Courier New'">Courier</option>
+            <option value="'Times New Roman'">Times</option>
           </select>
-        </span>
+          <select class="rte-select rte-select-sm" title="Size"
+                  onmousedown="event.stopPropagation()"
+                  onchange="rteExec('t-editor','fontSize',this.value);this.blur()">
+            <option value="1">XS</option>
+            <option value="2">S</option>
+            <option value="3" selected>M</option>
+            <option value="4">L</option>
+            <option value="5">XL</option>
+            <option value="6">XXL</option>
+          </select>
+          <span class="rte-sep"></span>
+          <button class="rte-btn" title="Bold"
+                  onmousedown="event.preventDefault();rteExec('t-editor','bold')"><b>B</b></button>
+          <button class="rte-btn" title="Italic"
+                  onmousedown="event.preventDefault();rteExec('t-editor','italic')"><i>I</i></button>
+          <button class="rte-btn" title="Underline"
+                  onmousedown="event.preventDefault();rteExec('t-editor','underline')"><u>U</u></button>
+          <span class="rte-sep"></span>
+          <label class="rte-btn rte-color-wrap" title="Text colour"
+                 onmousedown="rteSaveSel('t-editor')">
+            <span class="rte-color-a" id="t-color-a">A</span>
+            <input type="color" value="#000000"
+                   onchange="rteApplyColor('t-editor','foreColor',this.value);
+                             document.getElementById('t-color-a').style.borderBottomColor=this.value">
+          </label>
+          <label class="rte-btn rte-color-wrap" title="Highlight"
+                 onmousedown="rteSaveSel('t-editor')">
+            <span style="font-size:13px">🖍</span>
+            <input type="color" value="#ffff00"
+                   onchange="rteApplyColor('t-editor','hiliteColor',this.value)">
+          </label>
+          <span class="rte-sep"></span>
+          <button class="rte-btn" title="Insert link"
+                  onmousedown="event.preventDefault();rteInsertLink('t-editor')">
+            <span style="font-size:13px">🔗</span></button>
+          <button class="rte-btn" title="Insert image"
+                  onmousedown="event.preventDefault();rteInsertImage('t-editor')">
+            <span style="font-size:13px">🖼</span></button>
+          <button class="rte-btn" title="Ordered list"
+                  onmousedown="event.preventDefault();rteExec('t-editor','insertOrderedList')">
+            <span style="font-size:11px;font-weight:700">1≡</span></button>
+          <button class="rte-btn" title="Bullet list"
+                  onmousedown="event.preventDefault();rteExec('t-editor','insertUnorderedList')">
+            <span style="font-size:13px">☰</span></button>
+          <span class="rte-sep"></span>
+          <span class="rte-merge-wrap" title="Insert personalisation field">
+            <span class="rte-merge-badge">{}</span>
+            <select id="t-merge-picker"
+                    onmousedown="event.stopPropagation()"
+                    onchange="insertMergeField('t-editor',this)">
+              <option value="">Insert field…</option>
+            </select>
+          </span>
+        </div>
+        <div class="rte-editor" id="t-editor" contenteditable="true"
+             data-placeholder="Write your reusable message here…"
+             style="min-height:200px"></div>
       </div>
-      <div id="t-body-editor"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeTmplModal()">Cancel</button>
@@ -338,7 +362,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
 <script>
   let allTemplates  = [];
   let editingTmplId = null;
@@ -346,31 +369,65 @@
   let selectedDocs  = [];
   let mergeFields   = { standard: [], custom: [] };
 
-  /* ── Quill editor instances ────────────────────────────────── */
-  let composeQuill  = null;
-  let templateQuill = null;
+  /* ── Rich text editor helpers ────────────────────────────── */
+  // saved selection per-editor (keyed by editorId)
+  const _savedSels = {};
 
-  function initQuill(toolbarId, editorId, placeholder) {
-    // Override image handler to prompt for URL instead of file picker
-    const imageHandler = function() {
-      const url = prompt('Enter image URL:');
-      if (url) {
-        const range = this.quill.getSelection();
-        this.quill.insertEmbed(range ? range.index : 0, 'image', url);
-      }
-    };
+  function rteSaveSel(editorId) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount) {
+      _savedSels[editorId] = sel.getRangeAt(0).cloneRange();
+    }
+  }
 
-    const q = new Quill('#' + editorId, {
-      modules: {
-        toolbar: {
-          container: '#' + toolbarId,
-          handlers:  { image: imageHandler },
-        },
-      },
-      theme: 'snow',
-      placeholder: placeholder || '',
-    });
-    return q;
+  function rteRestoreSel(editorId) {
+    const saved = _savedSels[editorId];
+    if (!saved) return;
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(saved);
+  }
+
+  function rteExec(editorId, cmd, value) {
+    document.getElementById(editorId).focus();
+    document.execCommand(cmd, false, value !== undefined ? value : null);
+  }
+
+  function rteApplyColor(editorId, cmd, value) {
+    rteRestoreSel(editorId);
+    document.getElementById(editorId).focus();
+    document.execCommand(cmd, false, value);
+  }
+
+  function rteInsertLink(editorId) {
+    const url = prompt('Enter URL (include https://):');
+    if (!url) return;
+    document.getElementById(editorId).focus();
+    document.execCommand('createLink', false, url);
+    // Make link open in new tab
+    const links = document.getElementById(editorId).querySelectorAll('a:not([target])');
+    links.forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
+  }
+
+  function rteInsertImage(editorId) {
+    const url = prompt('Enter image URL:');
+    if (!url) return;
+    document.getElementById(editorId).focus();
+    document.execCommand('insertHTML', false,
+      `<img src="${url.replace(/"/g,'&quot;')}" style="max-width:100%;height:auto">`);
+  }
+
+  function rteGetHTML(editorId) {
+    return document.getElementById(editorId).innerHTML || '';
+  }
+
+  function rteSetHTML(editorId, html) {
+    document.getElementById(editorId).innerHTML = html || '';
+  }
+
+  function rteIsEmpty(editorId) {
+    const el = document.getElementById(editorId);
+    return !el || !el.innerText.trim();
   }
 
   /* ── Merge fields ────────────────────────────────────────── */
@@ -379,51 +436,58 @@
       mergeFields = await apiFetch('/api/mailshots/merge-fields');
       populateMergePicker('s-merge-picker');
       populateMergePicker('t-merge-picker');
-    } catch (_) {}
+    } catch (e) {
+      console.warn('Could not load merge fields:', e);
+    }
   }
 
   function populateMergePicker(pickerId) {
     const sel = document.getElementById(pickerId);
     if (!sel) return;
-    // Clear existing except placeholder
     while (sel.options.length > 1) sel.remove(1);
 
-    if (mergeFields.standard.length) {
+    if (mergeFields.standard && mergeFields.standard.length) {
       const grp = document.createElement('optgroup');
       grp.label = 'Standard fields';
       mergeFields.standard.forEach(f => {
         const opt = document.createElement('option');
         opt.value = f.token;
-        opt.text  = f.label + '  →  ' + f.token;
+        opt.text  = f.label + '   ' + f.token;
         grp.appendChild(opt);
       });
       sel.appendChild(grp);
     }
-    if (mergeFields.custom.length) {
+    if (mergeFields.custom && mergeFields.custom.length) {
       const grp = document.createElement('optgroup');
       grp.label = 'Custom fields';
       mergeFields.custom.forEach(f => {
         const opt = document.createElement('option');
         opt.value = f.token;
-        opt.text  = f.label + '  →  ' + f.token;
+        opt.text  = f.label + '   ' + f.token;
         grp.appendChild(opt);
       });
       sel.appendChild(grp);
     }
   }
 
-  function insertMergeField(target, selectEl) {
+  function insertMergeField(editorId, selectEl) {
     const token = selectEl.value;
     if (!token) return;
-    const q = target === 'compose' ? composeQuill : templateQuill;
-    if (!q) return;
-    const range = q.getSelection(true);
-    const idx   = range ? range.index : q.getLength();
-    q.insertText(idx, token, 'user');
-    q.setSelection(idx + token.length);
-    // Reset picker
+    rteRestoreSel(editorId);
+    document.getElementById(editorId).focus();
+    document.execCommand('insertText', false, token);
     selectEl.value = '';
   }
+
+  // Save selection whenever the editor loses focus (before picker opens)
+  ['s-editor', 't-editor'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('blur', () => rteSaveSel(id));
+      el.addEventListener('mouseup', () => rteSaveSel(id));
+      el.addEventListener('keyup', () => rteSaveSel(id));
+    }
+  });
 
   /* ── Document picker ─────────────────────────────── */
   async function loadDocumentPicker() {
@@ -456,10 +520,7 @@
     const sel = document.getElementById('s-doc-picker');
     const id  = parseInt(sel.value);
     if (!id) return;
-    if (selectedDocs.find(d => d.id === id)) {
-      showToast('That document is already added.', true);
-      return;
-    }
+    if (selectedDocs.find(d => d.id === id)) { showToast('Already added.', true); return; }
     const doc = allDocs.find(d => d.id === id);
     if (!doc) return;
     selectedDocs.push({ id: doc.id, title: doc.title, filename: doc.filename });
@@ -486,21 +547,17 @@
 
   /* ── Tab switching ───────────────────────────────── */
   function switchTab(tab) {
-    ['send', 'templates', 'history'].forEach(t => {
-      document.getElementById('tab-' + t).style.display = t === tab ? '' : 'none';
+    ['send','templates','history'].forEach(t => {
+      document.getElementById('tab-'+t).style.display = t===tab ? '' : 'none';
     });
     document.querySelectorAll('.tab-btn[data-tab]').forEach(b =>
-      b.classList.toggle('active', b.dataset.tab === tab));
-    if (tab === 'templates') loadTemplates();
-    if (tab === 'history')   loadHistory();
+      b.classList.toggle('active', b.dataset.tab===tab));
+    if (tab==='templates') loadTemplates();
+    if (tab==='history')   loadHistory();
   }
 
   /* ── Init ────────────────────────────────────────── */
   (async function init() {
-    // Init Quill editors first (DOM must be ready)
-    composeQuill = initQuill('s-toolbar', 's-body-editor',
-      'Write your message here. Use the Insert field picker to personalise it.');
-
     await Promise.all([
       loadTemplateDropdown(),
       loadDocumentPicker(),
@@ -524,12 +581,11 @@
     } catch (_) {}
   }
 
-  /* ── Alert flag checkboxes ───────────────────────── */
   async function loadAlertFlags() {
     const container = document.getElementById('s-flags-list');
     try {
       const rules = await apiFetch('/api/alert-rules');
-      const active = (rules || []).filter(r => r.active !== false);
+      const active = (rules||[]).filter(r => r.active !== false);
       if (!active.length) {
         container.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">No alert rules configured.</div>`;
         return;
@@ -546,7 +602,7 @@
   }
 
   function getSelectedFlagIds() {
-    return [...document.querySelectorAll('.flag-chk:checked')].map(c => parseInt(c.value));
+    return [...document.querySelectorAll('.flag-chk:checked')].map(c=>parseInt(c.value));
   }
 
   async function loadTemplateDropdown() {
@@ -565,24 +621,23 @@
 
   function loadTemplate() {
     const id   = document.getElementById('s-template').value;
-    const tmpl = allTemplates.find(t => String(t.id) === id);
+    const tmpl = allTemplates.find(t => String(t.id)===id);
     if (!tmpl) return;
     document.getElementById('s-subject').value = tmpl.subject;
-    // Set Quill content
-    composeQuill.clipboard.dangerouslyPasteHTML(tmpl.body_html || '');
+    rteSetHTML('s-editor', tmpl.body_html);
     updatePreview();
   }
 
-  /* ── Recipients checklist ───────────────────────── */
+  /* ── Recipients ──────────────────────────────────── */
   let allRecipients = [];
 
   function updateCount() {
     const checked = document.querySelectorAll('.recip-chk:checked').length;
-    document.getElementById('recipient-count').textContent = checked || '—';
+    document.getElementById('recipient-count').textContent = checked||'—';
   }
 
-  function selectAll()   { document.querySelectorAll('.recip-chk').forEach(c => c.checked = true);  updateCount(); }
-  function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c => c.checked = false); updateCount(); }
+  function selectAll()   { document.querySelectorAll('.recip-chk').forEach(c=>c.checked=true);  updateCount(); }
+  function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c=>c.checked=false); updateCount(); }
 
   async function previewRecipients() {
     const memberType = document.getElementById('s-member-type').value;
@@ -594,8 +649,8 @@
     document.getElementById('recipient-count').textContent = '—';
     try {
       const res = await apiFetch('/api/mailshots/preview', {
-        method: 'POST',
-        body:   JSON.stringify({
+        method:'POST',
+        body: JSON.stringify({
           member_type_filter: memberType,
           session_filter:     sess,
           status_filter:      status,
@@ -604,11 +659,11 @@
       });
       allRecipients = res.recipients;
       if (!allRecipients.length) {
-        listEl.innerHTML = `<div style="padding:12px;color:var(--muted)">No active members with emails found.</div>`;
+        listEl.innerHTML = `<div style="padding:12px;color:var(--muted)">No members with emails found.</div>`;
         updateCount();
         return;
       }
-      listEl.innerHTML = allRecipients.map((r, i) => `
+      listEl.innerHTML = allRecipients.map((r,i) => `
         <label class="recip-row" for="chk-${i}">
           <input type="checkbox" class="recip-chk" id="chk-${i}"
                  data-email="${esc(r.email)}" data-name="${esc(r.name)}"
@@ -622,16 +677,16 @@
     }
   }
 
-  /* ── Preview toggle ──────────────────────────────── */
+  /* ── Preview ─────────────────────────────────────── */
   function togglePreview() {
     const el = document.getElementById('s-preview');
-    if (el.style.display === 'none') { updatePreview(); el.style.display = ''; }
-    else                              { el.style.display = 'none'; }
+    if (el.style.display==='none') { updatePreview(); el.style.display=''; }
+    else                           { el.style.display='none'; }
   }
   function updatePreview() {
-    const html = composeQuill ? composeQuill.root.innerHTML : '';
+    const html = rteGetHTML('s-editor');
     document.getElementById('s-preview').innerHTML =
-      (html && html !== '<p><br></p>')
+      html && !rteIsEmpty('s-editor')
         ? html
         : '<em style="color:var(--muted)">Nothing yet.</em>';
   }
@@ -639,43 +694,39 @@
   /* ── Send mailshot ───────────────────────────────── */
   async function sendMailshot() {
     const subject = document.getElementById('s-subject').value.trim();
-    const body    = composeQuill ? composeQuill.root.innerHTML.trim() : '';
-    const tmplId  = document.getElementById('s-template').value || null;
+    const body    = rteGetHTML('s-editor');
+    const tmplId  = document.getElementById('s-template').value||null;
 
-    // Collect checked recipients
     const checked    = [...document.querySelectorAll('.recip-chk:checked')];
-    const recipients = checked.map(c => ({ email: c.dataset.email, name: c.dataset.name }));
+    const recipients = checked.map(c=>({ email:c.dataset.email, name:c.dataset.name }));
     const count      = recipients.length;
 
-    if (!subject)              { showToast('Please enter a subject.', true); return; }
-    if (!body || body === '<p><br></p>') { showToast('Please write a message.', true); return; }
-    if (!count)                { showToast('No recipients selected — tick at least one.', true); return; }
+    if (!subject)           { showToast('Please enter a subject.', true); return; }
+    if (rteIsEmpty('s-editor')) { showToast('Please write a message.', true); return; }
+    if (!count)             { showToast('No recipients selected.', true); return; }
 
-    if (!confirm(`Send to ${count} recipient${count !== 1 ? 's' : ''}?\n\nSubject: ${subject}`)) return;
+    if (!confirm(`Send to ${count} recipient${count!==1?'s':''}?\n\nSubject: ${subject}`)) return;
 
     const btn = document.getElementById('send-btn');
-    btn.disabled    = true;
-    btn.textContent = '⏳ Sending…';
+    btn.disabled=true; btn.textContent='⏳ Sending…';
 
     try {
       const res = await apiFetch('/api/mailshots/send', {
-        method: 'POST',
-        body:   JSON.stringify({
+        method:'POST',
+        body: JSON.stringify({
           subject, body_html: body,
           recipients,
-          document_ids: selectedDocs.map(d => d.id),
+          document_ids: selectedDocs.map(d=>d.id),
           template_id: tmplId ? parseInt(tmplId) : null,
         }),
       });
-      let msg = `✅ Sent to ${res.sent} recipient${res.sent !== 1 ? 's' : ''}.`;
+      let msg = `✅ Sent to ${res.sent} recipient${res.sent!==1?'s':''}.`;
       if (res.errors?.length) msg += ` (${res.errors.length} failed)`;
       showToast(msg);
-      if (res.errors?.length) console.warn('Mailshot errors:', res.errors);
     } catch (e) {
       showToast(e.message, true);
     } finally {
-      btn.disabled    = false;
-      btn.textContent = '📤 Send to Recipients';
+      btn.disabled=false; btn.textContent='📤 Send to Recipients';
     }
   }
 
@@ -694,18 +745,16 @@
             <th>Name</th><th>Subject</th><th>Created by</th><th style="width:130px"></th>
           </tr></thead>
           <tbody>
-            ${allTemplates.map(t => `
+            ${allTemplates.map(t=>`
               <tr>
                 <td><strong>${esc(t.name)}</strong></td>
                 <td style="color:var(--muted)">${esc(t.subject)}</td>
-                <td style="color:var(--muted)">${esc(t.created_by_name || '—')}</td>
+                <td style="color:var(--muted)">${esc(t.created_by_name||'—')}</td>
                 <td>
-                  <button class="btn btn-ghost btn-sm"
-                    data-id="${t.id}"
-                    onclick="editTmpl(${t.id})">✏️ Edit</button>
+                  <button class="btn btn-ghost btn-sm" onclick="editTmpl(${t.id})">✏️ Edit</button>
                   <button class="btn btn-danger btn-sm"
                     data-id="${t.id}" data-name="${esc(t.name)}"
-                    onclick="deleteTmpl(this.dataset.id, this.dataset.name)">🗑</button>
+                    onclick="deleteTmpl(this.dataset.id,this.dataset.name)">🗑</button>
                 </td>
               </tr>`).join('')}
           </tbody>
@@ -717,58 +766,43 @@
   }
 
   function openTmplModal(id, name, subject, body) {
-    editingTmplId = id || null;
+    editingTmplId = id||null;
     document.getElementById('tmpl-modal-title').textContent = id ? 'Edit Template' : 'New Template';
-    document.getElementById('t-name').value    = name    || '';
-    document.getElementById('t-subject').value = subject || '';
+    document.getElementById('t-name').value    = name||'';
+    document.getElementById('t-subject').value = subject||'';
+    rteSetHTML('t-editor', body||'');
     document.getElementById('tmpl-modal').classList.add('open');
-
-    // Init template Quill editor (lazy — only when modal first opens)
-    if (!templateQuill) {
-      templateQuill = initQuill('t-toolbar', 't-body-editor', 'Write your reusable message here…');
-      // Populate merge picker for template editor
-      populateMergePicker('t-merge-picker');
-    }
-    // Set content
-    templateQuill.clipboard.dangerouslyPasteHTML(body || '');
-    // Focus
-    setTimeout(() => templateQuill.focus(), 50);
+    setTimeout(() => document.getElementById('t-editor').focus(), 50);
   }
 
   function editTmpl(id) {
-    const t = allTemplates.find(x => x.id === id);
+    const t = allTemplates.find(x=>x.id===id);
     if (!t) return;
     openTmplModal(t.id, t.name, t.subject, t.body_html);
   }
 
   function closeTmplModal() {
     document.getElementById('tmpl-modal').classList.remove('open');
-    editingTmplId = null;
+    editingTmplId=null;
   }
 
   async function saveTemplate() {
     const name    = document.getElementById('t-name').value.trim();
     const subject = document.getElementById('t-subject').value.trim();
-    const body    = templateQuill ? templateQuill.root.innerHTML.trim() : '';
-    if (!name || !subject || !body || body === '<p><br></p>') {
-      showToast('All fields are required.', true);
-      return;
+    const body    = rteGetHTML('t-editor');
+    if (!name||!subject||rteIsEmpty('t-editor')) {
+      showToast('All fields are required.', true); return;
     }
-
     const btn = document.getElementById('tmpl-save-btn');
-    btn.disabled = true;
+    btn.disabled=true;
     try {
       if (editingTmplId) {
-        await apiFetch(`/api/email-templates/${editingTmplId}`, {
-          method: 'PUT',
-          body:   JSON.stringify({ name, subject, body_html: body }),
-        });
+        await apiFetch(`/api/email-templates/${editingTmplId}`,{
+          method:'PUT', body:JSON.stringify({name,subject,body_html:body})});
         showToast('Template updated.');
       } else {
-        await apiFetch('/api/email-templates', {
-          method: 'POST',
-          body:   JSON.stringify({ name, subject, body_html: body }),
-        });
+        await apiFetch('/api/email-templates',{
+          method:'POST', body:JSON.stringify({name,subject,body_html:body})});
         showToast('Template saved.');
       }
       closeTmplModal();
@@ -776,19 +810,17 @@
     } catch (e) {
       showToast(e.message, true);
     } finally {
-      btn.disabled = false;
+      btn.disabled=false;
     }
   }
 
   async function deleteTmpl(id, name) {
     if (!confirm(`Delete template "${name}"?`)) return;
     try {
-      await apiFetch(`/api/email-templates/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/email-templates/${id}`,{method:'DELETE'});
       showToast('Template deleted.');
       loadTemplates();
-    } catch (e) {
-      showToast(e.message, true);
-    }
+    } catch (e) { showToast(e.message, true); }
   }
 
   /* ── History tab ─────────────────────────────────── */
@@ -806,39 +838,30 @@
             <th>Subject</th><th>Sent</th><th>Recipients</th><th>Sent by</th><th>Notes</th>
           </tr></thead>
           <tbody>
-            ${rows.map(r => {
-              const attachedTitles = (() => {
-                try {
-                  const f = JSON.parse(r.filter_criteria || '{}');
-                  const ids = f.document_ids || [];
-                  if (!ids.length) return [];
-                  return ids.map(id => {
-                    const doc = allDocs.find(d => d.id === id);
-                    return doc ? doc.title : `Document #${id}`;
-                  });
-                } catch { return []; }
+            ${rows.map(r=>{
+              const attachedTitles=(()=>{
+                try{
+                  const f=JSON.parse(r.filter_criteria||'{}');
+                  const ids=f.document_ids||[];
+                  return ids.map(id=>{const doc=allDocs.find(d=>d.id===id);return doc?doc.title:`Document #${id}`;});
+                }catch{return[];}
               })();
-              const sent = r.sent_at
-                ? new Date(r.sent_at + 'Z').toLocaleString('en-GB',
-                    { dateStyle:'short', timeStyle:'short' })
-                : '—';
-              return `
-                <tr>
-                  <td>
-                    <strong>${esc(r.subject)}</strong>
-                    ${r.template_name ? `<div style="font-size:12px;color:var(--muted)">Template: ${esc(r.template_name)}</div>` : ''}
-                    ${attachedTitles.length ? `
-                      <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
-                        ${attachedTitles.map(t =>
-                          `<span class="history-attachment-chip">📎 ${esc(t)}</span>`
-                        ).join('')}
-                      </div>` : ''}
-                  </td>
-                  <td style="white-space:nowrap;color:var(--muted)">${sent}</td>
-                  <td><strong>${r.recipient_count || 0}</strong></td>
-                  <td style="color:var(--muted)">${esc(r.sent_by_name || '—')}</td>
-                  <td style="color:var(--muted);font-size:12px">${esc(r.notes || '')}</td>
-                </tr>`;
+              const sent=r.sent_at
+                ?new Date(r.sent_at+'Z').toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'})
+                :'—';
+              return `<tr>
+                <td>
+                  <strong>${esc(r.subject)}</strong>
+                  ${r.template_name?`<div style="font-size:12px;color:var(--muted)">Template: ${esc(r.template_name)}</div>`:''}
+                  ${attachedTitles.length?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+                    ${attachedTitles.map(t=>`<span class="history-attachment-chip">📎 ${esc(t)}</span>`).join('')}
+                  </div>`:''}
+                </td>
+                <td style="white-space:nowrap;color:var(--muted)">${sent}</td>
+                <td><strong>${r.recipient_count||0}</strong></td>
+                <td style="color:var(--muted)">${esc(r.sent_by_name||'—')}</td>
+                <td style="color:var(--muted);font-size:12px">${esc(r.notes||'')}</td>
+              </tr>`;
             }).join('')}
           </tbody>
         </table>`;
@@ -847,17 +870,58 @@
     }
   }
 
-  document.getElementById('tmpl-modal').addEventListener('click', function(e) {
-    if (e.target === this) closeTmplModal();
+  document.getElementById('tmpl-modal').addEventListener('click', function(e){
+    if(e.target===this) closeTmplModal();
   });
 </script>
 
 <style>
+  /* ── Layout ─────────────────────────────────────────── */
+  .comms-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 24px;
+    align-items: stretch;
+  }
   .comms-panel {
     background: white;
     border: 2px solid var(--border);
     border-radius: 14px;
     padding: 20px;
+    /* Fixed height: neither panel can grow beyond the viewport */
+    max-height: calc(100vh - 220px);
+    min-height: 500px;
+    overflow: hidden;
+  }
+  /* Recipients panel scrolls its list internally */
+  .comms-panel-recipients {
+    display: flex;
+    flex-direction: column;
+  }
+  #recipient-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .comms-panel-compose {
+    display: flex;
+    flex-direction: column;
+  }
+  .comms-panel-compose .form-group-message {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .comms-panel-compose .form-group-message .rte-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .comms-panel-compose .form-group-message .rte-editor {
+    flex: 1;
+    min-height: 120px;
   }
   .comms-panel-title {
     font-size: 12px;
@@ -867,6 +931,141 @@
     color: var(--muted);
     margin-bottom: 16px;
   }
+
+  /* ── Rich text editor ──────────────────────────────── */
+  .rte-wrap {
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .rte-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px;
+    background: #f8f9fb;
+    border-bottom: 1px solid var(--border);
+  }
+  .rte-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333;
+    transition: background .1s;
+    flex-shrink: 0;
+  }
+  .rte-btn:hover { background: #e4e8ee; }
+  .rte-btn b  { font-size: 14px; font-weight: 900; }
+  .rte-btn i  { font-size: 14px; font-style: italic; }
+  .rte-btn u  { font-size: 14px; text-decoration: underline; }
+
+  .rte-select {
+    height: 28px;
+    padding: 0 4px;
+    border: 1.5px solid var(--border);
+    border-radius: 5px;
+    font-size: 12px;
+    background: white;
+    cursor: pointer;
+    max-width: 90px;
+  }
+  .rte-select-sm { max-width: 52px; }
+  .rte-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 3px;
+    flex-shrink: 0;
+  }
+
+  /* Colour button */
+  .rte-color-wrap {
+    position: relative;
+    cursor: pointer;
+  }
+  .rte-color-wrap input[type="color"] {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+  }
+  .rte-color-wrap:active input[type="color"],
+  .rte-color-wrap:focus-within input[type="color"] {
+    pointer-events: auto;
+  }
+  /* Clicking the label triggers the color input */
+  .rte-color-wrap { display: inline-flex; }
+  .rte-color-a {
+    font-size: 14px;
+    font-weight: 900;
+    border-bottom: 3px solid #000;
+    line-height: 1;
+    padding-bottom: 1px;
+  }
+
+  /* Editor area */
+  .rte-editor {
+    min-height: 180px;
+    padding: 12px 14px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    outline: none;
+    overflow-y: auto;
+    color: #1a1a1a;
+    background: white;
+    flex: 1;
+  }
+  .rte-editor:empty::before {
+    content: attr(data-placeholder);
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .rte-editor img { max-width: 100%; height: auto; }
+  .rte-editor a   { color: var(--accent); }
+
+  /* Merge field picker */
+  .rte-merge-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: var(--accent-light);
+    border: 1.5px solid var(--accent);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .rte-merge-badge {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .rte-merge-wrap select {
+    appearance: none;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 0;
+    max-width: 130px;
+  }
+
+  /* ── Recipients ─────────────────────────────────────── */
   .recip-row {
     display: flex;
     align-items: center;
@@ -878,67 +1077,39 @@
   }
   .recip-row:last-child { border-bottom: none; }
   .recip-row:hover { background: var(--accent-light); }
-  .recip-chk { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
-  .recip-name { font-weight: 700; flex-shrink: 0; }
-  .recip-email { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recip-chk  { width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;cursor:pointer; }
+  .recip-name { font-weight:700;flex-shrink:0; }
+  .recip-email{ color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 
-  /* Alert flag checkboxes */
   .flag-chk-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: background .12s;
+    display:flex;align-items:center;gap:8px;padding:6px 12px;
+    border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;
   }
-  .flag-chk-row:last-child { border-bottom: none; }
-  .flag-chk-row:hover { background: var(--accent-light); }
-  .flag-chk { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
-  .flag-chip {
-    display: inline-block;
-    padding: 2px 9px;
-    border-radius: 20px;
-    color: white;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .2px;
-  }
+  .flag-chk-row:last-child{border-bottom:none;}
+  .flag-chk-row:hover{background:var(--accent-light);}
+  .flag-chk{width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;cursor:pointer;}
+  .flag-chip{display:inline-block;padding:2px 9px;border-radius:20px;color:white;
+             font-size:11px;font-weight:700;letter-spacing:.2px;}
 
-  /* Attachment chips — compose panel */
-  .attachment-chip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 10px;
-    background: #f0f9ff;
-    border: 1.5px solid #bae6fd;
-    border-radius: 8px;
-    font-size: 13px;
-  }
-  .attachment-icon { flex-shrink: 0; }
-  .attachment-title { font-weight: 700; flex: 1; }
-  .attachment-filename { color: var(--muted); font-size: 11px; flex-shrink: 0; }
-  .attachment-remove {
-    background: none; border: none; cursor: pointer; color: var(--muted);
-    font-size: 14px; padding: 0 2px; line-height: 1; flex-shrink: 0;
-  }
-  .attachment-remove:hover { color: var(--red); }
+  /* ── Attachments ─────────────────────────────────────── */
+  .attachment-chip{display:flex;align-items:center;gap:8px;padding:7px 10px;
+    background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;font-size:13px;}
+  .attachment-icon{flex-shrink:0;}
+  .attachment-title{font-weight:700;flex:1;}
+  .attachment-filename{color:var(--muted);font-size:11px;flex-shrink:0;}
+  .attachment-remove{background:none;border:none;cursor:pointer;color:var(--muted);
+    font-size:14px;padding:0 2px;line-height:1;flex-shrink:0;}
+  .attachment-remove:hover{color:var(--red);}
 
-  /* Attachment chips — history tab */
-  .history-attachment-chip {
-    display: inline-block;
-    padding: 2px 8px;
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
-    border-radius: 20px;
-    font-size: 11px;
-    color: #0369a1;
-    font-weight: 600;
-  }
+  .history-attachment-chip{display:inline-block;padding:2px 8px;background:#f0f9ff;
+    border:1px solid #bae6fd;border-radius:20px;font-size:11px;color:#0369a1;font-weight:600;}
 
-  @media (max-width: 768px) {
-    #tab-send > div { grid-template-columns: 1fr !important; }
+  /* ── Color picker click trick ─────────────────────── */
+  /* We trigger the hidden input via label click; override pointer-events on hover */
+  .rte-color-wrap:hover input[type="color"] { pointer-events: auto; }
+
+  @media (max-width:768px) {
+    .comms-grid { grid-template-columns: 1fr !important; }
   }
 </style>
 {% endblock %}
