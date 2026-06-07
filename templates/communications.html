@@ -124,10 +124,32 @@
         <div id="attachment-list" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
-      <button class="btn btn-primary" style="width:100%;padding:13px;margin-top:auto"
-              id="send-btn" onclick="sendMailshot()">
-        📤 Send to Recipients
-      </button>
+      <div style="display:flex;gap:8px;margin-top:auto">
+        <button class="btn btn-primary" style="flex:1;padding:13px"
+                id="send-btn" onclick="sendMailshot()">
+          📤 Send to Recipients
+        </button>
+        <button class="btn btn-ghost" style="padding:13px;white-space:nowrap"
+                title="Save current message as a reusable template"
+                onclick="openSaveAsTemplate()">
+          💾 Save as Template
+        </button>
+      </div>
+
+      <!-- Inline save-as-template form (hidden until button clicked) -->
+      <div id="save-tmpl-bar" style="display:none;margin-top:10px;
+           background:var(--accent-light);border:1.5px solid var(--accent);
+           border-radius:10px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px">
+          Save as Template
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="save-tmpl-name" placeholder="Template name…"
+                 style="flex:1" onkeydown="if(event.key==='Enter')doSaveAsTemplate()">
+          <button class="btn btn-primary btn-sm" onclick="doSaveAsTemplate()">Save</button>
+          <button class="btn btn-ghost btn-sm"   onclick="closeSaveAsTemplate()">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <!-- ── Recipients panel ───────────────────────────── -->
@@ -204,9 +226,6 @@
      TAB: Templates
      ═════════════════════════════════════════════════════ -->
 <div id="tab-templates" style="display:none">
-  <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-    <button class="btn btn-primary" onclick="openTmplModal()">＋ New Template</button>
-  </div>
   <div id="templates-container">
     <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
   </div>
@@ -850,9 +869,44 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     }
   }
 
+  /* ── Save current compose as template ─────────────── */
+  function openSaveAsTemplate() {
+    const subject = document.getElementById('s-subject').value.trim();
+    const body    = rteGetHTML('s-editor');
+    if (!subject && rteIsEmpty('s-editor')) {
+      showToast('Write a subject and message first.', true); return;
+    }
+    const bar = document.getElementById('save-tmpl-bar');
+    bar.style.display = '';
+    document.getElementById('save-tmpl-name').value = subject || '';
+    document.getElementById('save-tmpl-name').focus();
+    document.getElementById('save-tmpl-name').select();
+  }
+
+  function closeSaveAsTemplate() {
+    document.getElementById('save-tmpl-bar').style.display = 'none';
+  }
+
+  async function doSaveAsTemplate() {
+    const name    = document.getElementById('save-tmpl-name').value.trim();
+    const subject = document.getElementById('s-subject').value.trim();
+    const body    = rteGetHTML('s-editor');
+    if (!name)    { showToast('Enter a template name.', true); return; }
+    if (!subject) { showToast('Add a subject before saving.', true); return; }
+    if (rteIsEmpty('s-editor')) { showToast('Write a message before saving.', true); return; }
+    try {
+      await apiFetch('/api/email-templates',
+        {method:'POST', body:JSON.stringify({name, subject, body_html: body})});
+      showToast(`Template "${name}" saved.`);
+      closeSaveAsTemplate();
+      loadTemplateDropdown();
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  /* ── Edit existing template (modal) ───────────────── */
   function openTmplModal(id, name, subject, body) {
     editingTmplId = id || null;
-    document.getElementById('tmpl-modal-title').textContent = id ? 'Edit Template' : 'New Template';
+    document.getElementById('tmpl-modal-title').textContent = 'Edit Template';
     document.getElementById('t-name').value    = name    || '';
     document.getElementById('t-subject').value = subject || '';
     rteSetHTML('t-editor', body || '');
