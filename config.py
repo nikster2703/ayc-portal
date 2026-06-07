@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.19'  # v11.19: Replace New Template modal with inline Save as Template in compose panel; modal kept for editing only
+APP_VERSION = 'v11.20'  # v11.20: Settings page reordered — Access & People (Users, Roles, Staff Roles, Branding), Club Config (Types & Fields, Alerts, Badges, Payments, Statuses, Sessions, Register, Docs), System
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

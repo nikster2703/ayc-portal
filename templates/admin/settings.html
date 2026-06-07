@@ -88,12 +88,6 @@
     {% endif %}
 
     {% if 'admin.settings' in user_permissions %}
-    <a href="/admin/branding" class="settings-card">
-      <div class="settings-card__icon">🎨</div>
-      <div class="settings-card__title">Branding</div>
-      <div class="settings-card__desc">Customise the portal accent colour, navigation bar style, and upload your organisation's logo.</div>
-    </a>
-
     <a href="/admin/roles" class="settings-card">
       <div class="settings-card__icon">🔐</div>
       <div class="settings-card__title">Roles &amp; Permissions</div>
@@ -106,6 +100,11 @@
       <div class="settings-card__desc">Customise the role list shown on staff registration and the reception display.</div>
     </a>
 
+    <a href="/admin/branding" class="settings-card">
+      <div class="settings-card__icon">🎨</div>
+      <div class="settings-card__title">Branding</div>
+      <div class="settings-card__desc">Customise the portal accent colour, navigation bar style, and upload your organisation's logo.</div>
+    </a>
     {% endif %}
 
   </div>
@@ -119,22 +118,10 @@
   <div class="settings-grid">
 
     {% if 'admin.settings' in user_permissions %}
-    <a href="/admin/member-statuses" class="settings-card">
-      <div class="settings-card__icon">🔄</div>
-      <div class="settings-card__title">Member Statuses</div>
-      <div class="settings-card__desc">Define the statuses available to members — Active, Inactive, Leaver, and any custom statuses your organisation needs. Each maps to a behaviour that controls register, alerts, and QR sign-in access.</div>
-    </a>
-
-    <a href="/admin/tags" class="settings-card">
-      <div class="settings-card__icon">🎖</div>
-      <div class="settings-card__title">Skills &amp; Badges</div>
-      <div class="settings-card__desc">Define the tags that can be assigned to members — colour-coded badges shown on member cards and the register.</div>
-    </a>
-
-    <a href="/admin/document-categories" class="settings-card">
-      <div class="settings-card__icon">📁</div>
-      <div class="settings-card__title">Document Categories</div>
-      <div class="settings-card__desc">Configure the categories used to organise the Document Repository — add, edit, reorder, and deactivate categories as your needs evolve.</div>
+    <a href="/admin/member-types" class="settings-card">
+      <div class="settings-card__icon">🗂</div>
+      <div class="settings-card__title">Member Types &amp; Fields</div>
+      <div class="settings-card__desc">Manage member types (icons, colours, registration access) and configure the custom fields that appear on registration forms, member cards, and the register.</div>
     </a>
 
     {% if 'alerts.view' in user_permissions %}
@@ -145,6 +132,12 @@
     </a>
     {% endif %}
 
+    <a href="/admin/tags" class="settings-card">
+      <div class="settings-card__icon">🎖</div>
+      <div class="settings-card__title">Skills &amp; Badges</div>
+      <div class="settings-card__desc">Define the tags that can be assigned to members — colour-coded badges shown on member cards and the register.</div>
+    </a>
+
     {% if 'payments.manage' in user_permissions %}
     <a href="/admin/payments" class="settings-card">
       <div class="settings-card__icon">💳</div>
@@ -153,10 +146,18 @@
     </a>
     {% endif %}
 
-    <a href="/admin/member-types" class="settings-card">
-      <div class="settings-card__icon">🗂</div>
-      <div class="settings-card__title">Member Types &amp; Fields</div>
-      <div class="settings-card__desc">Manage member types (icons, colours, registration access) and configure the custom fields that appear on registration forms, member cards, and the register.</div>
+    <a href="/admin/member-statuses" class="settings-card">
+      <div class="settings-card__icon">🔄</div>
+      <div class="settings-card__title">Member Statuses</div>
+      <div class="settings-card__desc">Define the statuses available to members — Active, Inactive, Leaver, and any custom statuses your organisation needs. Each maps to a behaviour that controls register, alerts, and QR sign-in access.</div>
+    </a>
+    {% endif %}
+
+    {% if 'admin.session_types' in user_permissions %}
+    <a href="/admin/settings/session-types" class="settings-card">
+      <div class="settings-card__icon">📅</div>
+      <div class="settings-card__title">Session Types</div>
+      <div class="settings-card__desc">Define which nights the club runs and which weekday each maps to for auto-detection.</div>
     </a>
     {% endif %}
 
@@ -166,13 +167,11 @@
       <div class="settings-card__title">Register &amp; QR Sign-In</div>
       <div class="settings-card__desc">Set attendance alert thresholds and configure the QR quick sign-in — enable sign-out, and customise the welcome messages shown to members.</div>
     </a>
-    {% endif %}
 
-    {% if 'admin.session_types' in user_permissions %}
-    <a href="/admin/settings/session-types" class="settings-card">
-      <div class="settings-card__icon">📅</div>
-      <div class="settings-card__title">Session Types</div>
-      <div class="settings-card__desc">Define which nights the club runs and which weekday each maps to for auto-detection.</div>
+    <a href="/admin/document-categories" class="settings-card">
+      <div class="settings-card__icon">📁</div>
+      <div class="settings-card__title">Document Categories</div>
+      <div class="settings-card__desc">Configure the categories used to organise the Document Repository — add, edit, reorder, and deactivate categories as your needs evolve.</div>
     </a>
     {% endif %}
 
