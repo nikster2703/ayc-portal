@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.16'  # v11.16: Preview highlights unresolved tokens (no member value) in amber with '— no value'
+APP_VERSION = 'v11.17'  # v11.17: _build_member_lookup now covers all first-class member columns (postcode, address, DOB, mobile etc) and both contacts — previously only member_field_values rows were resolved
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

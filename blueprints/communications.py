@@ -34,10 +34,35 @@ STANDARD_MERGE_FIELDS = [
 ]
 
 
+# Maps first-class members table columns → field_definition labels used as merge tokens
+_FC_LABELS = {
+    'date_of_birth':      'Date of Birth',
+    'address':            'Home Address',
+    'postcode':           'Postcode',
+    'ethnicity_religion': 'Ethnicity / Religion',
+    'medical_sen':        'Medical Needs, Allergies or SEN',
+    'gp_contact':         'GP / Doctor Surgery Contact',
+    'unattended_exit':    'Unattended Exit',
+    'gdpr_consent':       'Communications Consent',
+    'status':             'Status',
+    'session':            'Session',
+    'staff_role':         'Staff Role',
+    'mobile':             'Mobile Number',
+    'date_registered':    'Date Registered',
+    'comments':           'Internal Notes',
+}
+
+
 def _build_member_lookup(emails):
     """
     Given a list of email addresses, return a dict keyed by email with member
     data and custom field values.  Used for per-recipient merge substitution.
+
+    Covers three sources:
+      1. Standard tokens  — first_name, surname, member_type, email (top-level keys)
+      2. First-class cols — all columns in _FC_LABELS fetched directly from members
+      3. Custom fields    — member_field_values rows for truly custom field_definitions
+      4. Contacts         — primary and secondary contact details from member_contacts
     """
     if not emails:
         return {}
@@ -45,15 +70,35 @@ def _build_member_lookup(emails):
     ph = ','.join('?' * len(emails))
     rows = db.execute(f'''
         SELECT  m.id, m.first_name, m.surname, m.member_type,
-                c.contact_email AS email
+                m.date_of_birth, m.address, m.postcode, m.ethnicity_religion,
+                m.medical_sen, m.gp_contact, m.unattended_exit, m.gdpr_consent,
+                m.status, m.session, m.staff_role, m.mobile,
+                m.date_registered, m.comments,
+                c.contact_email AS email,
+                c.contact_name  AS c1_name,
+                c.contact_phone AS c1_phone
         FROM    members m
         JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
         WHERE   lower(c.contact_email) IN ({ph})
     ''', [e.lower() for e in emails]).fetchall()
 
+    if not rows:
+        return {}
+
+    # Batch-fetch secondary contacts
+    member_ids = [r['id'] for r in rows]
+    c2_ph  = ','.join('?' * len(member_ids))
+    c2_map = {}
+    for c2 in db.execute(
+        f'SELECT member_id, contact_name, contact_phone, contact_email '
+        f'FROM member_contacts WHERE member_id IN ({c2_ph}) AND contact_order = 2',
+        member_ids
+    ).fetchall():
+        c2_map[c2['member_id']] = c2
+
     lookup = {}
     for r in rows:
-        # Fetch custom field values for this member
+        # ── Custom (truly custom) field values from member_field_values ──
         field_rows = db.execute('''
             SELECT fd.label, mfv.value
             FROM   member_field_values mfv
@@ -61,11 +106,32 @@ def _build_member_lookup(emails):
             WHERE  mfv.member_id = ?
         ''', (r['id'],)).fetchall()
         custom = {fr['label']: (fr['value'] or '') for fr in field_rows}
+
+        # ── First-class member columns ────────────────────────────────────
+        for col, label in _FC_LABELS.items():
+            val = r[col]
+            if val is None:
+                val = ''
+            elif isinstance(val, int):
+                val = 'Yes' if val else 'No'
+            custom[label] = str(val)
+
+        # ── Contact 1 ─────────────────────────────────────────────────────
+        custom['Primary Contact — Full Name'] = r['c1_name']  or ''
+        custom['Primary Contact — Phone']     = r['c1_phone'] or ''
+        custom['Primary Contact — Email']     = r['email']    or ''
+
+        # ── Contact 2 ─────────────────────────────────────────────────────
+        c2 = c2_map.get(r['id'])
+        custom['Second Contact — Full Name'] = (c2['contact_name']  if c2 else '') or ''
+        custom['Second Contact — Phone']     = (c2['contact_phone'] if c2 else '') or ''
+        custom['Second Contact — Email']     = (c2['contact_email'] if c2 else '') or ''
+
         lookup[r['email'].lower()] = {
             'first_name':  r['first_name'] or '',
-            'surname':     r['surname'] or '',
+            'surname':     r['surname']    or '',
             'member_type': r['member_type'] or '',
-            'email':       r['email'] or '',
+            'email':       r['email']      or '',
             'custom':      custom,
         }
     return lookup
