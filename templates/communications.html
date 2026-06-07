@@ -85,21 +85,17 @@
             <span class="rte-sep"></span>
 
             <!-- Text colour -->
-            <label class="rte-btn rte-color-wrap" title="Text colour"
-                   onmousedown="rteSaveSel('s-editor')">
+            <button class="rte-btn" title="Text colour"
+                    onmousedown="event.preventDefault();rteSaveSel('s-editor')"
+                    onclick="document.getElementById('s-color-pick').click()">
               <span class="rte-color-a" id="s-color-a">A</span>
-              <input type="color" id="s-color-pick" value="#000000"
-                     onchange="rteApplyColor('s-editor','foreColor',this.value);
-                               document.getElementById('s-color-a').style.borderBottomColor=this.value">
-            </label>
-
-            <!-- Highlight / background colour -->
-            <label class="rte-btn rte-color-wrap" title="Highlight"
-                   onmousedown="rteSaveSel('s-editor')">
+            </button>
+            <!-- Highlight -->
+            <button class="rte-btn" title="Highlight colour"
+                    onmousedown="event.preventDefault();rteSaveSel('s-editor')"
+                    onclick="document.getElementById('s-bg-pick').click()">
               <span style="font-size:13px">🖍</span>
-              <input type="color" id="s-bg-pick" value="#ffff00"
-                     onchange="rteApplyColor('s-editor','hiliteColor',this.value)">
-            </label>
+            </button>
 
             <span class="rte-sep"></span>
 
@@ -148,15 +144,13 @@
       </div>
 
       <div class="form-group">
-        <label>
-          <span>Message Preview</span>
-          <button class="btn btn-ghost btn-sm" style="margin-left:8px"
-                  onclick="togglePreview()">👁 Toggle preview</button>
+        <label id="s-preview-label" style="color:var(--muted);font-size:12px">
+          Live preview — start typing to see your message
         </label>
         <div id="s-preview"
-             style="display:none;border:1.5px solid var(--border);border-radius:8px;
-                    padding:16px;background:white;min-height:60px;font-size:14px;
-                    line-height:1.6"></div>
+             style="border:1.5px solid var(--border);border-radius:8px;
+                    padding:12px 14px;background:#fafbfc;height:100px;overflow-y:auto;
+                    font-size:14px;line-height:1.6;color:#1a1a1a"></div>
       </div>
 
       <div class="form-group">
@@ -312,19 +306,16 @@
           <button class="rte-btn" title="Underline"
                   onmousedown="event.preventDefault();rteExec('t-editor','underline')"><u>U</u></button>
           <span class="rte-sep"></span>
-          <label class="rte-btn rte-color-wrap" title="Text colour"
-                 onmousedown="rteSaveSel('t-editor')">
+          <button class="rte-btn" title="Text colour"
+                  onmousedown="event.preventDefault();rteSaveSel('t-editor')"
+                  onclick="document.getElementById('t-color-pick').click()">
             <span class="rte-color-a" id="t-color-a">A</span>
-            <input type="color" value="#000000"
-                   onchange="rteApplyColor('t-editor','foreColor',this.value);
-                             document.getElementById('t-color-a').style.borderBottomColor=this.value">
-          </label>
-          <label class="rte-btn rte-color-wrap" title="Highlight"
-                 onmousedown="rteSaveSel('t-editor')">
+          </button>
+          <button class="rte-btn" title="Highlight colour"
+                  onmousedown="event.preventDefault();rteSaveSel('t-editor')"
+                  onclick="document.getElementById('t-bg-pick').click()">
             <span style="font-size:13px">🖍</span>
-            <input type="color" value="#ffff00"
-                   onchange="rteApplyColor('t-editor','hiliteColor',this.value)">
-          </label>
+          </button>
           <span class="rte-sep"></span>
           <button class="rte-btn" title="Insert link"
                   onmousedown="event.preventDefault();rteInsertLink('t-editor')">
@@ -360,6 +351,16 @@
   </div>
 </div>
 {% endblock %}
+
+<!-- Off-screen colour pickers — positioned outside the toolbar so they don't affect layout -->
+<input type="color" id="s-color-pick" value="#000000"
+       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
+<input type="color" id="s-bg-pick"    value="#ffff00"
+       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
+<input type="color" id="t-color-pick" value="#000000"
+       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
+<input type="color" id="t-bg-pick"    value="#ffff00"
+       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
 
 {% block scripts %}
 <script>
@@ -410,11 +411,21 @@
   }
 
   function rteInsertImage(editorId) {
-    const url = prompt('Enter image URL:');
-    if (!url) return;
-    document.getElementById(editorId).focus();
-    document.execCommand('insertHTML', false,
-      `<img src="${url.replace(/"/g,'&quot;')}" style="max-width:100%;height:auto">`);
+    const input = document.createElement('input');
+    input.type   = 'file';
+    input.accept = 'image/*';
+    input.onchange = function() {
+      const file = this.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById(editorId).focus();
+        document.execCommand('insertHTML', false,
+          `<img src="${e.target.result}" style="max-width:100%;height:auto">`);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
   }
 
   function rteGetHTML(editorId) {
@@ -479,14 +490,42 @@
     selectEl.value = '';
   }
 
-  // Save selection whenever the editor loses focus (before picker opens)
+  // Save selection on blur/mouseup/keyup so colour pickers can restore it
   ['s-editor', 't-editor'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('blur', () => rteSaveSel(id));
-      el.addEventListener('mouseup', () => rteSaveSel(id));
-      el.addEventListener('keyup', () => rteSaveSel(id));
-    }
+    if (!el) return;
+    el.addEventListener('blur',   () => rteSaveSel(id));
+    el.addEventListener('mouseup',() => rteSaveSel(id));
+    el.addEventListener('keyup',  () => rteSaveSel(id));
+  });
+
+  // Wire off-screen colour inputs
+  document.getElementById('s-color-pick').addEventListener('change', function() {
+    rteApplyColor('s-editor','foreColor', this.value);
+    document.getElementById('s-color-a').style.borderBottomColor = this.value;
+  });
+  document.getElementById('s-bg-pick').addEventListener('change', function() {
+    rteApplyColor('s-editor','hiliteColor', this.value);
+  });
+  document.getElementById('t-color-pick').addEventListener('change', function() {
+    rteApplyColor('t-editor','foreColor', this.value);
+    document.getElementById('t-color-a').style.borderBottomColor = this.value;
+  });
+  document.getElementById('t-bg-pick').addEventListener('change', function() {
+    rteApplyColor('t-editor','hiliteColor', this.value);
+  });
+
+  // Image click-to-resize in either editor
+  ['s-editor','t-editor'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', function(e) {
+      if (e.target.tagName !== 'IMG') return;
+      const img = e.target;
+      const current = img.style.width || '100%';
+      const val = prompt('Image width (e.g. 50%, 300px):', current);
+      if (val !== null) { img.style.width = val; img.style.height = 'auto'; }
+    });
   });
 
   /* ── Document picker ─────────────────────────────── */
@@ -625,7 +664,7 @@
     if (!tmpl) return;
     document.getElementById('s-subject').value = tmpl.subject;
     rteSetHTML('s-editor', tmpl.body_html);
-    updatePreview();
+    updateLivePreview();
   }
 
   /* ── Recipients ──────────────────────────────────── */
@@ -634,6 +673,7 @@
   function updateCount() {
     const checked = document.querySelectorAll('.recip-chk:checked').length;
     document.getElementById('recipient-count').textContent = checked||'—';
+    updateLivePreview();
   }
 
   function selectAll()   { document.querySelectorAll('.recip-chk').forEach(c=>c.checked=true);  updateCount(); }
@@ -677,19 +717,51 @@
     }
   }
 
-  /* ── Preview ─────────────────────────────────────── */
-  function togglePreview() {
-    const el = document.getElementById('s-preview');
-    if (el.style.display==='none') { updatePreview(); el.style.display=''; }
-    else                           { el.style.display='none'; }
+  /* ── Live preview ────────────────────────────────── */
+  // Client-side merge field substitution for preview (standard fields only)
+  function previewSubstitute(html) {
+    // Find first checked recipient
+    const first = document.querySelector('.recip-chk:checked');
+    if (!first) return html;
+    const name    = first.dataset.name || '';
+    const email   = first.dataset.email || '';
+    const parts   = name.split(' ');
+    const forename = parts[0] || '';
+    const surname  = parts.slice(1).join(' ') || '';
+    return html
+      .replace(/\{Forename\}/g,    forename)
+      .replace(/\{Surname\}/g,     surname)
+      .replace(/\{Full Name\}/g,   name)
+      .replace(/\{Email\}/g,       email)
+      .replace(/\{Member Type\}/g, '—');
   }
-  function updatePreview() {
-    const html = rteGetHTML('s-editor');
-    document.getElementById('s-preview').innerHTML =
-      html && !rteIsEmpty('s-editor')
-        ? html
-        : '<em style="color:var(--muted)">Nothing yet.</em>';
+
+  let _previewTimer = null;
+  function schedulePreview() {
+    clearTimeout(_previewTimer);
+    _previewTimer = setTimeout(updateLivePreview, 350);
   }
+
+  function updateLivePreview() {
+    const html  = rteGetHTML('s-editor');
+    const prev  = document.getElementById('s-preview');
+    const label = document.getElementById('s-preview-label');
+    if (!html || rteIsEmpty('s-editor')) {
+      prev.innerHTML = '<em style="color:var(--muted)">Start typing to see a preview…</em>';
+      label.textContent = 'Live preview';
+      return;
+    }
+    const first = document.querySelector('.recip-chk:checked');
+    if (first) {
+      label.textContent = `Live preview — as it will appear to ${first.dataset.name}`;
+    } else {
+      label.textContent = 'Live preview — no recipients selected';
+    }
+    prev.innerHTML = previewSubstitute(html);
+  }
+
+  // Hook up live preview to editor input events
+  document.getElementById('s-editor').addEventListener('input', schedulePreview);
 
   /* ── Send mailshot ───────────────────────────────── */
   async function sendMailshot() {
@@ -889,8 +961,8 @@
     border-radius: 14px;
     padding: 20px;
     /* Fixed height: neither panel can grow beyond the viewport */
-    max-height: calc(100vh - 220px);
-    min-height: 500px;
+    max-height: calc(100vh - 380px);
+    min-height: 460px;
     overflow: hidden;
   }
   /* Recipients panel scrolls its list internally */
@@ -986,26 +1058,6 @@
     flex-shrink: 0;
   }
 
-  /* Colour button */
-  .rte-color-wrap {
-    position: relative;
-    cursor: pointer;
-  }
-  .rte-color-wrap input[type="color"] {
-    position: absolute;
-    opacity: 0;
-    width: 1px;
-    height: 1px;
-    left: 0;
-    top: 0;
-    pointer-events: none;
-  }
-  .rte-color-wrap:active input[type="color"],
-  .rte-color-wrap:focus-within input[type="color"] {
-    pointer-events: auto;
-  }
-  /* Clicking the label triggers the color input */
-  .rte-color-wrap { display: inline-flex; }
   .rte-color-a {
     font-size: 14px;
     font-weight: 900;
@@ -1104,9 +1156,6 @@
   .history-attachment-chip{display:inline-block;padding:2px 8px;background:#f0f9ff;
     border:1px solid #bae6fd;border-radius:20px;font-size:11px;color:#0369a1;font-weight:600;}
 
-  /* ── Color picker click trick ─────────────────────── */
-  /* We trigger the hidden input via label click; override pointer-events on hover */
-  .rte-color-wrap:hover input[type="color"] { pointer-events: auto; }
 
   @media (max-width:768px) {
     .comms-grid { grid-template-columns: 1fr !important; }
