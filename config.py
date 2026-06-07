@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.20'  # v11.20: Settings page reordered — Access & People (Users, Roles, Staff Roles, Branding), Club Config (Types & Fields, Alerts, Badges, Payments, Statuses, Sessions, Register, Docs), System
+APP_VERSION = 'v11.22'  # v11.22: Remove legacy leader role; fix Docker session-access bug; guard member type/field seeding to fresh installs only
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
