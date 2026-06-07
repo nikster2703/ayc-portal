@@ -457,13 +457,13 @@
 
       // Populate status filter dropdown dynamically
       const sel = document.getElementById('status-filter');
-      const current = sel ? sel.value : 'active';
+      const current = sel ? sel.value : 'all';
       if (sel && memberStatuses.length) {
         sel.innerHTML =
+          `<option value="all"${current === 'all' ? ' selected' : ''}>All Members</option>` +
           memberStatuses.map(s =>
             `<option value="${esc(s.behaviour)}"${s.behaviour === current ? ' selected' : ''}>${esc(s.name)}</option>`
-          ).join('') +
-          `<option value="all"${current === 'all' ? ' selected' : ''}>All Members</option>`;
+          ).join('');
       }
 
       updateFlagDropdown();
