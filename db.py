@@ -685,24 +685,28 @@ def ensure_tables():
     rdb.commit()
     rdb.close()
 
-    # ── Seed member types ──────────────────────────────────────────────────────
+    # ── Seed member types (fresh install only) ────────────────────────────────
+    # Only runs when the table is completely empty — never overwrites deliberate
+    # additions, renames, or deletions made by the club admin.
     mtdb = _connect_db()
     mtdb.row_factory = _sc3.Row
-    for slug, name, icon, colour, description, public_registration, sort_order in [
-        ('member', 'Member', '👦', '#1b2d4f', 'Young people attending club sessions', 1, 0),
-        ('staff',  'Staff',  '🧑', '#0f766e', 'Leaders, coaches and volunteers',      0, 1),
-    ]:
+    if not mtdb.execute('SELECT id FROM member_types LIMIT 1').fetchone():
+        for slug, name, icon, colour, description, public_registration, sort_order in [
+            ('member', 'Member', '👦', '#1b2d4f', 'Young people attending club sessions', 1, 0),
+            ('staff',  'Staff',  '🧑', '#0f766e', 'Leaders, coaches and volunteers',      0, 1),
+        ]:
+            mtdb.execute(
+                '''INSERT OR IGNORE INTO member_types
+                   (slug, name, icon, colour, description, public_registration, sort_order)
+                   VALUES (?,?,?,?,?,?,?)''',
+                (slug, name, icon, colour, description, public_registration, sort_order),
+            )
         mtdb.execute(
-            '''INSERT OR IGNORE INTO member_types
-               (slug, name, icon, colour, description, public_registration, sort_order)
-               VALUES (?,?,?,?,?,?,?)''',
-            (slug, name, icon, colour, description, public_registration, sort_order),
+            "UPDATE member_types SET registration_style = 'staff' "
+            "WHERE slug = 'staff' AND (registration_style IS NULL OR registration_style = 'member')"
         )
-    mtdb.execute(
-        "UPDATE member_types SET registration_style = 'staff' "
-        "WHERE slug = 'staff' AND (registration_style IS NULL OR registration_style = 'member')"
-    )
-    mtdb.commit()
+        mtdb.commit()
+        logger.info('Seeded default member types (fresh install)')
 
     # ── Seed system field definitions ──────────────────────────────────────────
     for key, label, field_type, column_name, placeholder, help_text, sort_order in [
@@ -783,7 +787,10 @@ def ensure_tables():
         )
     mtdb.commit()
 
-    # ── Seed default member_type_fields ───────────────────────────────────────
+    # ── Seed default member_type_fields (fresh install only per member type) ───
+    # Only seeds show_on values for a member type that has no existing field
+    # configurations — once an admin has configured fields for a type, we never
+    # overwrite their choices (even for fields not yet linked to that type).
     _default_fields = {
         'member': [
             # key,                   req, reg, list, card, detail, print, sort
@@ -833,6 +840,13 @@ def ensure_tables():
         if not type_row:
             continue
         type_id = type_row['id']
+        # Skip entirely if this member type already has any field configurations
+        already_configured = mtdb.execute(
+            'SELECT id FROM member_type_fields WHERE member_type_id = ? LIMIT 1',
+            (type_id,)
+        ).fetchone()
+        if already_configured:
+            continue
         for field_key, req, reg, lst, card, detail, prnt, sort in fields:
             fd = mtdb.execute(
                 'SELECT id FROM field_definitions WHERE key = ?', (field_key,)
@@ -840,18 +854,13 @@ def ensure_tables():
             if not fd:
                 continue
             field_id = fd['id']
-            existing = mtdb.execute(
-                'SELECT id FROM member_type_fields WHERE member_type_id = ? AND field_id = ?',
-                (type_id, field_id)
-            ).fetchone()
-            if not existing:
-                mtdb.execute(
-                    '''INSERT OR IGNORE INTO member_type_fields
-                       (member_type_id, field_id, required, show_on_registration, show_on_list,
-                        show_on_card, show_on_detail, show_on_print, sort_order)
-                       VALUES (?,?,?,?,?,?,?,?,?)''',
-                    (type_id, field_id, req, reg, lst, card, detail, prnt, sort),
-                )
+            mtdb.execute(
+                '''INSERT OR IGNORE INTO member_type_fields
+                   (member_type_id, field_id, required, show_on_registration, show_on_list,
+                    show_on_card, show_on_detail, show_on_print, sort_order)
+                   VALUES (?,?,?,?,?,?,?,?,?)''',
+                (type_id, field_id, req, reg, lst, card, detail, prnt, sort),
+            )
     mtdb.commit()
     mtdb.close()
 
