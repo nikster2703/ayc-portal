@@ -207,6 +207,12 @@ app.register_blueprint(payments_bp)
 
 ensure_tables()
 
+# Sync default role permissions from config on every startup.
+# This keeps Docker/gunicorn instances up to date without requiring a full
+# init-db — fixes stale permissions accumulating across upgrades.
+from db import sync_default_roles
+sync_default_roles()
+
 
 # ── Flask CLI ─────────────────────────────────────────────────────────────────
 

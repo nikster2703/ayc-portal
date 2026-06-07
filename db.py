@@ -33,6 +33,55 @@ def init_db():
     print(f'Database initialised at {DATABASE}')
 
 
+def sync_default_roles():
+    """Sync default role permissions and display names from config to the DB.
+
+    Called on every startup (not just fresh installs) so Docker/gunicorn
+    instances stay up to date when config changes between deploys.
+
+    Rules:
+    - Default roles (is_default=1) always have their permissions replaced
+      from DEFAULT_ROLE_PERMISSIONS — this prevents stale permissions
+      accumulating across upgrades.
+    - Custom roles (is_default=0) are never touched.
+    - The retired 'leader' role is migrated to 'readonly' and deleted.
+    """
+    import sqlcipher3 as _sc3
+    db = _connect_db()
+    db.row_factory = _sc3.Row
+
+    # ── Retire legacy 'leader' role ────────────────────────────────────────────
+    readonly_row = db.execute("SELECT id FROM roles WHERE name = 'readonly'").fetchone()
+    leader_row   = db.execute("SELECT id FROM roles WHERE name = 'leader'").fetchone()
+    if leader_row:
+        if readonly_row:
+            db.execute(
+                "UPDATE users SET role = 'readonly', role_id = ? WHERE role = 'leader'",
+                (readonly_row['id'],),
+            )
+        else:
+            db.execute("UPDATE users SET role = 'readonly' WHERE role = 'leader'")
+        db.execute("DELETE FROM roles WHERE name = 'leader'")
+        logger.info("sync_default_roles: retired 'leader' role, users moved to 'readonly'.")
+
+    # ── Sync permissions and display name for every default role ───────────────
+    for role_name, perms in DEFAULT_ROLE_PERMISSIONS.items():
+        display = ROLE_DISPLAY_NAMES.get(role_name, role_name)
+        # Ensure the row exists (idempotent insert)
+        db.execute(
+            'INSERT OR IGNORE INTO roles (name, permissions, is_default, display_name) VALUES (?,?,1,?)',
+            (role_name, json.dumps(perms), display),
+        )
+        # Always overwrite permissions and display name for system-managed roles
+        db.execute(
+            'UPDATE roles SET permissions = ?, display_name = ? WHERE name = ? AND is_default = 1',
+            (json.dumps(perms), display, role_name),
+        )
+
+    db.commit()
+    db.close()
+
+
 def ensure_tables():
     """Create any tables added after initial deploy without requiring a full init-db.
     Safe to run on every startup — all operations are idempotent."""
@@ -612,41 +661,15 @@ def ensure_tables():
     pdb.commit()
     pdb.close()
 
-    # ── Seed default roles + display names ────────────────────────────────────
-    rdb = _connect_db()
-    rdb.row_factory = _sc3.Row
-    for role_name, perms in DEFAULT_ROLE_PERMISSIONS.items():
-        display = ROLE_DISPLAY_NAMES.get(role_name, role_name)
-        rdb.execute(
-            'INSERT OR IGNORE INTO roles (name, permissions, is_default, display_name) VALUES (?,?,1,?)',
-            (role_name, json.dumps(perms), display),
-        )
-        rdb.execute(
-            'UPDATE roles SET display_name = ? WHERE name = ? AND (display_name IS NULL OR display_name = "")',
-            (display, role_name),
-        )
-        # Merge newly added permissions into existing role records (union only)
-        existing_row = rdb.execute(
-            'SELECT permissions FROM roles WHERE name = ?', (role_name,)
-        ).fetchone()
-        if existing_row:
-            try:
-                existing_perms = set(json.loads(existing_row['permissions'] or '[]'))
-            except (ValueError, TypeError):
-                existing_perms = set()
-            new_perms = set(perms)
-            if not new_perms.issubset(existing_perms):
-                merged = sorted(
-                    existing_perms | new_perms,
-                    key=lambda p: perms.index(p) if p in perms else 999
-                )
-                rdb.execute(
-                    'UPDATE roles SET permissions = ? WHERE name = ?',
-                    (json.dumps(merged), role_name),
-                )
-    rdb.commit()
+    # ── Seed / sync default roles ──────────────────────────────────────────────
+    # Delegated to sync_default_roles() which also runs on every startup,
+    # ensuring Docker/gunicorn instances stay current without a full init-db.
+    sync_default_roles()
 
-    # Migrate existing users → role_id
+    # ── Migrate existing users → role_id ───────────────────────────────────────
+    import sqlcipher3 as _sc3r
+    rdb = _connect_db()
+    rdb.row_factory = _sc3r.Row
     users_needing_migration = rdb.execute(
         'SELECT id, role FROM users WHERE role_id IS NULL'
     ).fetchall()

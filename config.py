@@ -52,13 +52,11 @@ BRAND_KEYS = {
 # ── Role slug constants ────────────────────────────────────────────────────────
 ROLE_ADMIN    = 'admin'
 ROLE_EDITOR   = 'editor'
-ROLE_LEADER   = 'leader'
 ROLE_READONLY = 'readonly'
 
 ROLE_DISPLAY_NAMES = {
     'admin':    'Admin',
     'editor':   'Editor',
-    'leader':   'User',
     'readonly': 'Read Only',
 }
 
@@ -156,14 +154,6 @@ DEFAULT_ROLE_PERMISSIONS = {
         'alerts.view', 'alerts.manage', 'alerts.run', 'alerts.dismiss',
         'notifications.view', 'notifications.send',
         'payments.view', 'payments.record', 'payments.manage',
-    ],
-    'leader': [
-        'members.view',
-        'register.signin', 'register.signout', 'register.notes',
-        'activities.manage',
-        'alerts.view',
-        'notifications.view',
-        'payments.view', 'payments.record',
     ],
     'readonly': [
         'register.signout',
