@@ -37,11 +37,9 @@
 
       <div class="form-group form-group-message">
         <label>Message <span style="color:var(--red)">*</span></label>
-        <!-- Rich text editor wrapper -->
         <div class="rte-wrap">
           <!-- Toolbar -->
-          <div class="rte-toolbar" id="s-rte-toolbar">
-            <!-- Font family -->
+          <div class="rte-toolbar" id="s-toolbar">
             <select class="rte-select" title="Font family"
                     onmousedown="event.stopPropagation()"
                     onchange="rteExec('s-editor','fontName',this.value);this.blur()">
@@ -52,7 +50,6 @@
               <option value="'Courier New'">Courier</option>
               <option value="'Times New Roman'">Times</option>
             </select>
-            <!-- Font size -->
             <select class="rte-select rte-select-sm" title="Size"
                     onmousedown="event.stopPropagation()"
                     onchange="rteExec('s-editor','fontSize',this.value);this.blur()">
@@ -63,94 +60,57 @@
               <option value="5">XL</option>
               <option value="6">XXL</option>
             </select>
-
             <span class="rte-sep"></span>
-
-            <!-- Bold -->
-            <button class="rte-btn" title="Bold"
-                    onmousedown="event.preventDefault();rteExec('s-editor','bold')">
-              <b>B</b>
-            </button>
-            <!-- Italic -->
-            <button class="rte-btn" title="Italic"
-                    onmousedown="event.preventDefault();rteExec('s-editor','italic')">
-              <i>I</i>
-            </button>
-            <!-- Underline -->
-            <button class="rte-btn" title="Underline"
-                    onmousedown="event.preventDefault();rteExec('s-editor','underline')">
-              <u>U</u>
-            </button>
-
+            <button class="rte-btn" title="Bold"       onmousedown="event.preventDefault();rteExec('s-editor','bold')"><b>B</b></button>
+            <button class="rte-btn" title="Italic"     onmousedown="event.preventDefault();rteExec('s-editor','italic')"><i>I</i></button>
+            <button class="rte-btn" title="Underline"  onmousedown="event.preventDefault();rteExec('s-editor','underline')"><u>U</u></button>
             <span class="rte-sep"></span>
-
-            <!-- Text colour -->
-            <button class="rte-btn" title="Text colour"
-                    onmousedown="event.preventDefault();rteSaveSel('s-editor')"
-                    onclick="document.getElementById('s-color-pick').click()">
+            <!-- Text colour — input INSIDE button, position:absolute so button height unaffected -->
+            <button class="rte-btn rte-color-btn" title="Text colour">
               <span class="rte-color-a" id="s-color-a">A</span>
+              <input type="color" id="s-color-pick" value="#000000"
+                     onmousedown="rteSaveSel('s-editor')"
+                     onchange="rteApplyColor('s-editor','foreColor',this.value);
+                               document.getElementById('s-color-a').style.borderBottomColor=this.value">
             </button>
-            <!-- Highlight -->
-            <button class="rte-btn" title="Highlight colour"
-                    onmousedown="event.preventDefault();rteSaveSel('s-editor')"
-                    onclick="document.getElementById('s-bg-pick').click()">
-              <span style="font-size:13px">🖍</span>
+            <!-- Highlight colour -->
+            <button class="rte-btn rte-color-btn" title="Highlight colour">
+              <span style="font-size:13px;line-height:1">🖍</span>
+              <input type="color" id="s-bg-pick" value="#ffff00"
+                     onmousedown="rteSaveSel('s-editor')"
+                     onchange="rteApplyColor('s-editor','hiliteColor',this.value)">
             </button>
-
             <span class="rte-sep"></span>
-
-            <!-- Link -->
-            <button class="rte-btn" title="Insert link"
-                    onmousedown="event.preventDefault();rteInsertLink('s-editor')">
-              <span style="font-size:13px">🔗</span>
-            </button>
-
-            <!-- Image -->
-            <button class="rte-btn" title="Insert image"
-                    onmousedown="event.preventDefault();rteInsertImage('s-editor')">
-              <span style="font-size:13px">🖼</span>
-            </button>
-
-            <!-- Lists -->
-            <button class="rte-btn" title="Ordered list"
-                    onmousedown="event.preventDefault();rteExec('s-editor','insertOrderedList')">
-              <span style="font-size:11px;font-weight:700">1≡</span>
-            </button>
-            <button class="rte-btn" title="Bullet list"
-                    onmousedown="event.preventDefault();rteExec('s-editor','insertUnorderedList')">
-              <span style="font-size:13px">☰</span>
-            </button>
-
+            <button class="rte-btn" title="Link"       onmousedown="event.preventDefault();rteInsertLink('s-editor')"><span style="font-size:13px">🔗</span></button>
+            <button class="rte-btn" title="Image"      onmousedown="event.preventDefault();rteInsertImage('s-editor')"><span style="font-size:13px">🖼</span></button>
+            <button class="rte-btn" title="Ordered list"   onmousedown="event.preventDefault();rteExec('s-editor','insertOrderedList')"><span style="font-size:11px;font-weight:700">1≡</span></button>
+            <button class="rte-btn" title="Bullet list"    onmousedown="event.preventDefault();rteExec('s-editor','insertUnorderedList')"><span style="font-size:13px">☰</span></button>
             <span class="rte-sep"></span>
-
-            <!-- Merge field picker -->
+            <!-- Merge field -->
             <span class="rte-merge-wrap" title="Insert personalisation field">
               <span class="rte-merge-badge">{}</span>
               <select id="s-merge-picker"
-                      onmousedown="event.stopPropagation()"
+                      onmousedown="rteSaveSel('s-editor');event.stopPropagation()"
                       onchange="insertMergeField('s-editor',this)">
                 <option value="">Insert field…</option>
               </select>
             </span>
+            <span class="rte-sep"></span>
+            <!-- Preview toggle -->
+            <button class="rte-btn rte-preview-btn" id="s-preview-btn" title="Preview message"
+                    onmousedown="event.preventDefault()"
+                    onclick="togglePreviewMode('s-editor','s-toolbar','s-preview-btn')">
+              <span style="font-size:12px">👁</span>
+            </button>
           </div>
-          <!-- Editable area -->
+          <!-- Editor -->
           <div class="rte-editor" id="s-editor" contenteditable="true"
                data-placeholder="Write your message here…"></div>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:5px">
-          Use <strong>Insert field</strong> to personalise messages, e.g. <code>{Forename}</code>.
-          Recipients see their own email only (BCC-style).
+          Use <strong>Insert field</strong> to personalise, e.g. <code>{Forename}</code>.
+          Click 👁 to preview as the first recipient. Recipients see their own email only (BCC-style).
         </div>
-      </div>
-
-      <div class="form-group">
-        <label id="s-preview-label" style="color:var(--muted);font-size:12px">
-          Live preview — start typing to see your message
-        </label>
-        <div id="s-preview"
-             style="border:1.5px solid var(--border);border-radius:8px;
-                    padding:12px 14px;background:#fafbfc;height:100px;overflow-y:auto;
-                    font-size:14px;line-height:1.6;color:#1a1a1a"></div>
       </div>
 
       <div class="form-group">
@@ -189,8 +149,7 @@
         {% if not current_session %}
         <select id="s-session" onchange="previewRecipients()">
           <option value="all">All sessions</option>
-          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }} only</option>
-          {% endfor %}
+          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }} only</option>{% endfor %}
         </select>
         {% else %}
         <input type="hidden" id="s-session" value="{{ current_session }}">
@@ -208,7 +167,7 @@
         </select>
       </div>
 
-      <div class="form-group" id="s-flags-group">
+      <div class="form-group">
         <label>Alert flags <span style="color:var(--muted);font-weight:600">(optional)</span></label>
         <div id="s-flags-list"
              style="border:1.5px solid var(--border);border-radius:8px;
@@ -216,7 +175,7 @@
           <div style="padding:10px;color:var(--muted)">Loading flags…</div>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">
-          Tick one or more flags to restrict to members with those flags raised.
+          Tick flags to restrict to members with those flags raised.
         </div>
       </div>
 
@@ -262,7 +221,7 @@
   </div>
 </div>
 
-<!-- ── Template modal ──────────────────────────────────────────── -->
+<!-- ── Template modal ─────────────────────────────────── -->
 <div class="modal-overlay" id="tmpl-modal">
   <div class="modal" style="max-width:640px">
     <h2 id="tmpl-modal-title">New Template</h2>
@@ -277,9 +236,8 @@
     <div class="form-group">
       <label>Message Body</label>
       <div class="rte-wrap">
-        <div class="rte-toolbar">
-          <select class="rte-select" title="Font family"
-                  onmousedown="event.stopPropagation()"
+        <div class="rte-toolbar" id="t-toolbar">
+          <select class="rte-select" onmousedown="event.stopPropagation()"
                   onchange="rteExec('t-editor','fontName',this.value);this.blur()">
             <option value="Arial" selected>Arial</option>
             <option value="Georgia">Georgia</option>
@@ -288,52 +246,40 @@
             <option value="'Courier New'">Courier</option>
             <option value="'Times New Roman'">Times</option>
           </select>
-          <select class="rte-select rte-select-sm" title="Size"
-                  onmousedown="event.stopPropagation()"
+          <select class="rte-select rte-select-sm" onmousedown="event.stopPropagation()"
                   onchange="rteExec('t-editor','fontSize',this.value);this.blur()">
-            <option value="1">XS</option>
-            <option value="2">S</option>
-            <option value="3" selected>M</option>
-            <option value="4">L</option>
-            <option value="5">XL</option>
-            <option value="6">XXL</option>
+            <option value="1">XS</option><option value="2">S</option>
+            <option value="3" selected>M</option><option value="4">L</option>
+            <option value="5">XL</option><option value="6">XXL</option>
           </select>
           <span class="rte-sep"></span>
-          <button class="rte-btn" title="Bold"
-                  onmousedown="event.preventDefault();rteExec('t-editor','bold')"><b>B</b></button>
-          <button class="rte-btn" title="Italic"
-                  onmousedown="event.preventDefault();rteExec('t-editor','italic')"><i>I</i></button>
-          <button class="rte-btn" title="Underline"
-                  onmousedown="event.preventDefault();rteExec('t-editor','underline')"><u>U</u></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteExec('t-editor','bold')"><b>B</b></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteExec('t-editor','italic')"><i>I</i></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteExec('t-editor','underline')"><u>U</u></button>
           <span class="rte-sep"></span>
-          <button class="rte-btn" title="Text colour"
-                  onmousedown="event.preventDefault();rteSaveSel('t-editor')"
-                  onclick="document.getElementById('t-color-pick').click()">
+          <button class="rte-btn rte-color-btn" title="Text colour">
             <span class="rte-color-a" id="t-color-a">A</span>
+            <input type="color" id="t-color-pick" value="#000000"
+                   onmousedown="rteSaveSel('t-editor')"
+                   onchange="rteApplyColor('t-editor','foreColor',this.value);
+                             document.getElementById('t-color-a').style.borderBottomColor=this.value">
           </button>
-          <button class="rte-btn" title="Highlight colour"
-                  onmousedown="event.preventDefault();rteSaveSel('t-editor')"
-                  onclick="document.getElementById('t-bg-pick').click()">
-            <span style="font-size:13px">🖍</span>
+          <button class="rte-btn rte-color-btn" title="Highlight colour">
+            <span style="font-size:13px;line-height:1">🖍</span>
+            <input type="color" id="t-bg-pick" value="#ffff00"
+                   onmousedown="rteSaveSel('t-editor')"
+                   onchange="rteApplyColor('t-editor','hiliteColor',this.value)">
           </button>
           <span class="rte-sep"></span>
-          <button class="rte-btn" title="Insert link"
-                  onmousedown="event.preventDefault();rteInsertLink('t-editor')">
-            <span style="font-size:13px">🔗</span></button>
-          <button class="rte-btn" title="Insert image"
-                  onmousedown="event.preventDefault();rteInsertImage('t-editor')">
-            <span style="font-size:13px">🖼</span></button>
-          <button class="rte-btn" title="Ordered list"
-                  onmousedown="event.preventDefault();rteExec('t-editor','insertOrderedList')">
-            <span style="font-size:11px;font-weight:700">1≡</span></button>
-          <button class="rte-btn" title="Bullet list"
-                  onmousedown="event.preventDefault();rteExec('t-editor','insertUnorderedList')">
-            <span style="font-size:13px">☰</span></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteInsertLink('t-editor')"><span style="font-size:13px">🔗</span></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteInsertImage('t-editor')"><span style="font-size:13px">🖼</span></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteExec('t-editor','insertOrderedList')"><span style="font-size:11px;font-weight:700">1≡</span></button>
+          <button class="rte-btn" onmousedown="event.preventDefault();rteExec('t-editor','insertUnorderedList')"><span style="font-size:13px">☰</span></button>
           <span class="rte-sep"></span>
-          <span class="rte-merge-wrap" title="Insert personalisation field">
+          <span class="rte-merge-wrap">
             <span class="rte-merge-badge">{}</span>
             <select id="t-merge-picker"
-                    onmousedown="event.stopPropagation()"
+                    onmousedown="rteSaveSel('t-editor');event.stopPropagation()"
                     onchange="insertMergeField('t-editor',this)">
               <option value="">Insert field…</option>
             </select>
@@ -350,17 +296,8 @@
     </div>
   </div>
 </div>
-{% endblock %}
 
-<!-- Off-screen colour pickers — positioned outside the toolbar so they don't affect layout -->
-<input type="color" id="s-color-pick" value="#000000"
-       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
-<input type="color" id="s-bg-pick"    value="#ffff00"
-       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
-<input type="color" id="t-color-pick" value="#000000"
-       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
-<input type="color" id="t-bg-pick"    value="#ffff00"
-       style="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;width:1px;height:1px">
+{% endblock %}
 
 {% block scripts %}
 <script>
@@ -370,9 +307,12 @@
   let selectedDocs  = [];
   let mergeFields   = { standard: [], custom: [] };
 
-  /* ── Rich text editor helpers ────────────────────────────── */
-  // saved selection per-editor (keyed by editorId)
-  const _savedSels = {};
+  /* ════════════════════════════════════════════════════
+     RICH TEXT EDITOR
+     ════════════════════════════════════════════════════ */
+  const _savedSels  = {};   // saved selection range per editorId
+  const _previewOn  = {};   // preview mode state per editorId
+  const _rawHtmlBak = {};   // raw HTML backup when in preview mode
 
   function rteSaveSel(editorId) {
     const sel = window.getSelection();
@@ -383,10 +323,11 @@
 
   function rteRestoreSel(editorId) {
     const saved = _savedSels[editorId];
-    if (!saved) return;
+    if (!saved) return false;
     const sel = window.getSelection();
     sel.removeAllRanges();
-    sel.addRange(saved);
+    sel.addRange(saved.cloneRange());
+    return true;
   }
 
   function rteExec(editorId, cmd, value) {
@@ -405,23 +346,29 @@
     if (!url) return;
     document.getElementById(editorId).focus();
     document.execCommand('createLink', false, url);
-    // Make link open in new tab
-    const links = document.getElementById(editorId).querySelectorAll('a:not([target])');
-    links.forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
+    document.getElementById(editorId).querySelectorAll('a:not([target])').forEach(a => {
+      a.target = '_blank'; a.rel = 'noopener';
+    });
   }
 
   function rteInsertImage(editorId) {
     const input = document.createElement('input');
-    input.type   = 'file';
+    input.type = 'file';
     input.accept = 'image/*';
     input.onchange = function() {
       const file = this.files[0];
       if (!file) return;
+      const widthVal = prompt('Image width (e.g. 50%, 300px, or leave blank for full width):', '100%');
+      const widthStyle = widthVal ? `width:${widthVal};` : 'max-width:100%;';
       const reader = new FileReader();
       reader.onload = function(e) {
         document.getElementById(editorId).focus();
+        // Inline onclick on the img lets the user click it later to resize
+        const src = e.target.result;
         document.execCommand('insertHTML', false,
-          `<img src="${e.target.result}" style="max-width:100%;height:auto">`);
+          `<img src="${src}" style="${widthStyle}height:auto;cursor:pointer" ` +
+          `title="Click to resize" ` +
+          `onclick="var w=prompt('New width (e.g. 50%, 300px):',this.style.width||'100%');if(w!==null)this.style.width=w;">`);
       };
       reader.readAsDataURL(file);
     };
@@ -437,33 +384,95 @@
   }
 
   function rteIsEmpty(editorId) {
-    const el = document.getElementById(editorId);
-    return !el || !el.innerText.trim();
+    return !document.getElementById(editorId).innerText.trim();
   }
 
-  /* ── Merge fields ────────────────────────────────────────── */
+  // Save selection on blur/mouseup/keyup
+  ['s-editor','t-editor'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('blur',    () => rteSaveSel(id));
+    el.addEventListener('mouseup', () => rteSaveSel(id));
+    el.addEventListener('keyup',   () => rteSaveSel(id));
+  });
+
+  /* ── Preview mode toggle ─────────────────────────── */
+  function previewSubstitute(html) {
+    const first = document.querySelector('.recip-chk:checked');
+    if (!first) return html;
+    const name    = first.dataset.name  || '';
+    const email   = first.dataset.email || '';
+    const parts   = name.split(' ');
+    return html
+      .replace(/\{Forename\}/g,    parts[0] || '')
+      .replace(/\{Surname\}/g,     parts.slice(1).join(' ') || '')
+      .replace(/\{Full Name\}/g,   name)
+      .replace(/\{Email\}/g,       email)
+      .replace(/\{Member Type\}/g, '—');
+  }
+
+  function togglePreviewMode(editorId, toolbarId, btnId) {
+    const editor  = document.getElementById(editorId);
+    const toolbar = document.getElementById(toolbarId);
+    const btn     = document.getElementById(btnId);
+    if (_previewOn[editorId]) {
+      // ── Back to edit ──
+      editor.innerHTML      = _rawHtmlBak[editorId] || '';
+      editor.contentEditable = 'true';
+      _previewOn[editorId]  = false;
+      btn.classList.remove('rte-preview-active');
+      btn.title = 'Preview message';
+      toolbar.querySelectorAll('button:not(.rte-preview-btn), select, span.rte-merge-wrap select')
+             .forEach(el => el.disabled = false);
+    } else {
+      // ── Preview ──
+      const first = document.querySelector('.recip-chk:checked');
+      _rawHtmlBak[editorId] = editor.innerHTML;
+      editor.innerHTML      = previewSubstitute(editor.innerHTML);
+      editor.contentEditable = 'false';
+      _previewOn[editorId]  = true;
+      btn.classList.add('rte-preview-active');
+      btn.title = 'Back to editing';
+      toolbar.querySelectorAll('button:not(.rte-preview-btn), select')
+             .forEach(el => el.disabled = true);
+      if (first) showToast(`Preview: showing as it would appear to ${first.dataset.name}`);
+      else       showToast('No recipient selected — merge fields shown as tokens', true);
+    }
+  }
+
+  /* ── Merge fields ────────────────────────────────── */
   async function loadMergeFields() {
     try {
-      mergeFields = await apiFetch('/api/mailshots/merge-fields');
-      populateMergePicker('s-merge-picker');
-      populateMergePicker('t-merge-picker');
+      const data = await apiFetch('/api/mailshots/merge-fields');
+      mergeFields = data;
     } catch (e) {
-      console.warn('Could not load merge fields:', e);
+      // Fallback to standard fields so picker always has something
+      mergeFields = {
+        standard: [
+          {token:'{Forename}',    label:'Forename'},
+          {token:'{Surname}',     label:'Surname'},
+          {token:'{Full Name}',   label:'Full Name'},
+          {token:'{Email}',       label:'Email Address'},
+          {token:'{Member Type}', label:'Member Type'},
+        ],
+        custom: []
+      };
     }
+    populateMergePicker('s-merge-picker');
+    populateMergePicker('t-merge-picker');
   }
 
   function populateMergePicker(pickerId) {
     const sel = document.getElementById(pickerId);
     if (!sel) return;
     while (sel.options.length > 1) sel.remove(1);
-
     if (mergeFields.standard && mergeFields.standard.length) {
       const grp = document.createElement('optgroup');
       grp.label = 'Standard fields';
       mergeFields.standard.forEach(f => {
         const opt = document.createElement('option');
         opt.value = f.token;
-        opt.text  = f.label + '   ' + f.token;
+        opt.text  = `${f.label}   ${f.token}`;
         grp.appendChild(opt);
       });
       sel.appendChild(grp);
@@ -474,7 +483,7 @@
       mergeFields.custom.forEach(f => {
         const opt = document.createElement('option');
         opt.value = f.token;
-        opt.text  = f.label + '   ' + f.token;
+        opt.text  = `${f.label}   ${f.token}`;
         grp.appendChild(opt);
       });
       sel.appendChild(grp);
@@ -483,71 +492,45 @@
 
   function insertMergeField(editorId, selectEl) {
     const token = selectEl.value;
-    if (!token) return;
-    rteRestoreSel(editorId);
-    document.getElementById(editorId).focus();
-    document.execCommand('insertText', false, token);
     selectEl.value = '';
+    if (!token) return;
+    // Use Range API directly — works even if editor isn't currently focused
+    const saved = _savedSels[editorId];
+    if (saved) {
+      const range = saved.cloneRange();
+      range.deleteContents();
+      range.insertNode(document.createTextNode(token));
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      _savedSels[editorId] = range.cloneRange();
+    } else {
+      // Fallback: append to end of editor
+      const el = document.getElementById(editorId);
+      el.focus();
+      document.execCommand('insertText', false, token);
+    }
+    document.getElementById(editorId).focus();
   }
 
-  // Save selection on blur/mouseup/keyup so colour pickers can restore it
-  ['s-editor', 't-editor'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('blur',   () => rteSaveSel(id));
-    el.addEventListener('mouseup',() => rteSaveSel(id));
-    el.addEventListener('keyup',  () => rteSaveSel(id));
-  });
-
-  // Wire off-screen colour inputs
-  document.getElementById('s-color-pick').addEventListener('change', function() {
-    rteApplyColor('s-editor','foreColor', this.value);
-    document.getElementById('s-color-a').style.borderBottomColor = this.value;
-  });
-  document.getElementById('s-bg-pick').addEventListener('change', function() {
-    rteApplyColor('s-editor','hiliteColor', this.value);
-  });
-  document.getElementById('t-color-pick').addEventListener('change', function() {
-    rteApplyColor('t-editor','foreColor', this.value);
-    document.getElementById('t-color-a').style.borderBottomColor = this.value;
-  });
-  document.getElementById('t-bg-pick').addEventListener('change', function() {
-    rteApplyColor('t-editor','hiliteColor', this.value);
-  });
-
-  // Image click-to-resize in either editor
-  ['s-editor','t-editor'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('click', function(e) {
-      if (e.target.tagName !== 'IMG') return;
-      const img = e.target;
-      const current = img.style.width || '100%';
-      const val = prompt('Image width (e.g. 50%, 300px):', current);
-      if (val !== null) { img.style.width = val; img.style.height = 'auto'; }
-    });
-  });
-
-  /* ── Document picker ─────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     DOCUMENT PICKER
+     ════════════════════════════════════════════════════ */
   async function loadDocumentPicker() {
     try {
       allDocs = await apiFetch('/api/documents');
       const sel = document.getElementById('s-doc-picker');
       while (sel.options.length > 1) sel.remove(1);
       const groups = {};
-      allDocs.forEach(d => {
-        const cat = d.category || 'general';
-        if (!groups[cat]) groups[cat] = [];
-        groups[cat].push(d);
-      });
-      const CATEGORY_LABELS = { policy:'Policy', template:'Template', form:'Form', general:'General' };
-      Object.entries(groups).forEach(([cat, docs]) => {
+      allDocs.forEach(d => { const c = d.category||'general'; (groups[c]=groups[c]||[]).push(d); });
+      const LABELS = {policy:'Policy',template:'Template',form:'Form',general:'General'};
+      Object.entries(groups).forEach(([cat,docs]) => {
         const grp = document.createElement('optgroup');
-        grp.label = CATEGORY_LABELS[cat] || cat;
+        grp.label = LABELS[cat] || cat;
         docs.forEach(d => {
           const opt = document.createElement('option');
-          opt.value = d.id;
-          opt.text  = d.title;
+          opt.value = d.id; opt.text = d.title;
           grp.appendChild(opt);
         });
         sel.appendChild(grp);
@@ -559,43 +542,45 @@
     const sel = document.getElementById('s-doc-picker');
     const id  = parseInt(sel.value);
     if (!id) return;
-    if (selectedDocs.find(d => d.id === id)) { showToast('Already added.', true); return; }
-    const doc = allDocs.find(d => d.id === id);
+    if (selectedDocs.find(d => d.id===id)) { showToast('Already added.', true); return; }
+    const doc = allDocs.find(d => d.id===id);
     if (!doc) return;
-    selectedDocs.push({ id: doc.id, title: doc.title, filename: doc.filename });
+    selectedDocs.push({id:doc.id, title:doc.title, filename:doc.filename});
     sel.value = '';
     renderAttachments();
   }
 
   function removeAttachment(id) {
-    selectedDocs = selectedDocs.filter(d => d.id !== id);
+    selectedDocs = selectedDocs.filter(d => d.id!==id);
     renderAttachments();
   }
 
   function renderAttachments() {
-    const container = document.getElementById('attachment-list');
-    if (!selectedDocs.length) { container.innerHTML = ''; return; }
-    container.innerHTML = selectedDocs.map(d => `
+    const c = document.getElementById('attachment-list');
+    c.innerHTML = selectedDocs.map(d => `
       <div class="attachment-chip">
-        <span class="attachment-icon">📎</span>
-        <span class="attachment-title">${esc(d.title)}</span>
-        <span class="attachment-filename">${esc(d.filename)}</span>
-        <button class="attachment-remove" onclick="removeAttachment(${d.id})" title="Remove">✕</button>
+        <span>📎</span>
+        <span style="font-weight:700;flex:1">${esc(d.title)}</span>
+        <span style="color:var(--muted);font-size:11px">${esc(d.filename)}</span>
+        <button class="attachment-remove" onclick="removeAttachment(${d.id})">✕</button>
       </div>`).join('');
   }
 
-  /* ── Tab switching ───────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     TABS
+     ════════════════════════════════════════════════════ */
   function switchTab(tab) {
-    ['send','templates','history'].forEach(t => {
-      document.getElementById('tab-'+t).style.display = t===tab ? '' : 'none';
-    });
+    ['send','templates','history'].forEach(t =>
+      document.getElementById('tab-'+t).style.display = t===tab ? '' : 'none');
     document.querySelectorAll('.tab-btn[data-tab]').forEach(b =>
       b.classList.toggle('active', b.dataset.tab===tab));
     if (tab==='templates') loadTemplates();
     if (tab==='history')   loadHistory();
   }
 
-  /* ── Init ────────────────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     INIT
+     ════════════════════════════════════════════════════ */
   (async function init() {
     await Promise.all([
       loadTemplateDropdown(),
@@ -613,35 +598,33 @@
       const sel = document.getElementById('s-status');
       if (!sel || !statuses.length) return;
       sel.innerHTML =
-        statuses.map(s =>
-          `<option value="${esc(s.name)}">${esc(s.name)} members only</option>`
-        ).join('') +
+        statuses.map(s => `<option value="${esc(s.name)}">${esc(s.name)} members only</option>`).join('') +
         `<option value="all">All statuses</option>`;
     } catch (_) {}
   }
 
   async function loadAlertFlags() {
-    const container = document.getElementById('s-flags-list');
+    const c = document.getElementById('s-flags-list');
     try {
-      const rules = await apiFetch('/api/alert-rules');
-      const active = (rules||[]).filter(r => r.active !== false);
+      const rules  = await apiFetch('/api/alert-rules');
+      const active = (rules||[]).filter(r => r.active!==false);
       if (!active.length) {
-        container.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">No alert rules configured.</div>`;
+        c.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">No alert rules configured.</div>`;
         return;
       }
-      container.innerHTML = active.map(r => `
+      c.innerHTML = active.map(r => `
         <label class="flag-chk-row" for="flag-chk-${r.id}">
           <input type="checkbox" class="flag-chk" id="flag-chk-${r.id}"
                  value="${r.id}" onchange="previewRecipients()">
           <span class="flag-chip" style="background:${esc(r.flag_colour)}">${esc(r.flag_label)}</span>
         </label>`).join('');
     } catch (_) {
-      container.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">Could not load flags.</div>`;
+      c.innerHTML = `<div style="padding:10px;color:var(--muted);font-size:12px">Could not load flags.</div>`;
     }
   }
 
   function getSelectedFlagIds() {
-    return [...document.querySelectorAll('.flag-chk:checked')].map(c=>parseInt(c.value));
+    return [...document.querySelectorAll('.flag-chk:checked')].map(c => parseInt(c.value));
   }
 
   async function loadTemplateDropdown() {
@@ -651,9 +634,7 @@
       while (sel.options.length > 1) sel.remove(1);
       allTemplates.forEach(t => {
         const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.text  = t.name;
-        sel.add(opt);
+        opt.value = t.id; opt.text = t.name; sel.add(opt);
       });
     } catch (_) {}
   }
@@ -663,21 +644,23 @@
     const tmpl = allTemplates.find(t => String(t.id)===id);
     if (!tmpl) return;
     document.getElementById('s-subject').value = tmpl.subject;
+    // Exit preview mode first if active
+    if (_previewOn['s-editor']) togglePreviewMode('s-editor','s-toolbar','s-preview-btn');
     rteSetHTML('s-editor', tmpl.body_html);
-    updateLivePreview();
   }
 
-  /* ── Recipients ──────────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     RECIPIENTS
+     ════════════════════════════════════════════════════ */
   let allRecipients = [];
 
   function updateCount() {
-    const checked = document.querySelectorAll('.recip-chk:checked').length;
-    document.getElementById('recipient-count').textContent = checked||'—';
-    updateLivePreview();
+    const n = document.querySelectorAll('.recip-chk:checked').length;
+    document.getElementById('recipient-count').textContent = n || '—';
   }
 
-  function selectAll()   { document.querySelectorAll('.recip-chk').forEach(c=>c.checked=true);  updateCount(); }
-  function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c=>c.checked=false); updateCount(); }
+  function selectAll()   { document.querySelectorAll('.recip-chk').forEach(c => c.checked=true);  updateCount(); }
+  function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c => c.checked=false); updateCount(); }
 
   async function previewRecipients() {
     const memberType = document.getElementById('s-member-type').value;
@@ -700,8 +683,7 @@
       allRecipients = res.recipients;
       if (!allRecipients.length) {
         listEl.innerHTML = `<div style="padding:12px;color:var(--muted)">No members with emails found.</div>`;
-        updateCount();
-        return;
+        updateCount(); return;
       }
       listEl.innerHTML = allRecipients.map((r,i) => `
         <label class="recip-row" for="chk-${i}">
@@ -717,77 +699,32 @@
     }
   }
 
-  /* ── Live preview ────────────────────────────────── */
-  // Client-side merge field substitution for preview (standard fields only)
-  function previewSubstitute(html) {
-    // Find first checked recipient
-    const first = document.querySelector('.recip-chk:checked');
-    if (!first) return html;
-    const name    = first.dataset.name || '';
-    const email   = first.dataset.email || '';
-    const parts   = name.split(' ');
-    const forename = parts[0] || '';
-    const surname  = parts.slice(1).join(' ') || '';
-    return html
-      .replace(/\{Forename\}/g,    forename)
-      .replace(/\{Surname\}/g,     surname)
-      .replace(/\{Full Name\}/g,   name)
-      .replace(/\{Email\}/g,       email)
-      .replace(/\{Member Type\}/g, '—');
-  }
-
-  let _previewTimer = null;
-  function schedulePreview() {
-    clearTimeout(_previewTimer);
-    _previewTimer = setTimeout(updateLivePreview, 350);
-  }
-
-  function updateLivePreview() {
-    const html  = rteGetHTML('s-editor');
-    const prev  = document.getElementById('s-preview');
-    const label = document.getElementById('s-preview-label');
-    if (!html || rteIsEmpty('s-editor')) {
-      prev.innerHTML = '<em style="color:var(--muted)">Start typing to see a preview…</em>';
-      label.textContent = 'Live preview';
-      return;
-    }
-    const first = document.querySelector('.recip-chk:checked');
-    if (first) {
-      label.textContent = `Live preview — as it will appear to ${first.dataset.name}`;
-    } else {
-      label.textContent = 'Live preview — no recipients selected';
-    }
-    prev.innerHTML = previewSubstitute(html);
-  }
-
-  // Hook up live preview to editor input events
-  document.getElementById('s-editor').addEventListener('input', schedulePreview);
-
-  /* ── Send mailshot ───────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     SEND
+     ════════════════════════════════════════════════════ */
   async function sendMailshot() {
-    const subject = document.getElementById('s-subject').value.trim();
-    const body    = rteGetHTML('s-editor');
-    const tmplId  = document.getElementById('s-template').value||null;
+    // Exit preview mode before reading HTML
+    if (_previewOn['s-editor']) togglePreviewMode('s-editor','s-toolbar','s-preview-btn');
 
+    const subject    = document.getElementById('s-subject').value.trim();
+    const body       = rteGetHTML('s-editor');
+    const tmplId     = document.getElementById('s-template').value || null;
     const checked    = [...document.querySelectorAll('.recip-chk:checked')];
-    const recipients = checked.map(c=>({ email:c.dataset.email, name:c.dataset.name }));
+    const recipients = checked.map(c => ({email:c.dataset.email, name:c.dataset.name}));
     const count      = recipients.length;
 
     if (!subject)           { showToast('Please enter a subject.', true); return; }
     if (rteIsEmpty('s-editor')) { showToast('Please write a message.', true); return; }
     if (!count)             { showToast('No recipients selected.', true); return; }
-
     if (!confirm(`Send to ${count} recipient${count!==1?'s':''}?\n\nSubject: ${subject}`)) return;
 
     const btn = document.getElementById('send-btn');
     btn.disabled=true; btn.textContent='⏳ Sending…';
-
     try {
       const res = await apiFetch('/api/mailshots/send', {
         method:'POST',
         body: JSON.stringify({
-          subject, body_html: body,
-          recipients,
+          subject, body_html: body, recipients,
           document_ids: selectedDocs.map(d=>d.id),
           template_id: tmplId ? parseInt(tmplId) : null,
         }),
@@ -802,153 +739,128 @@
     }
   }
 
-  /* ── Templates tab ───────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     TEMPLATES TAB
+     ════════════════════════════════════════════════════ */
   async function loadTemplates() {
-    const container = document.getElementById('templates-container');
+    const c = document.getElementById('templates-container');
     try {
       allTemplates = await apiFetch('/api/email-templates');
       if (!allTemplates.length) {
-        container.innerHTML = `<div class="empty-state">No templates yet. Create one above.</div>`;
-        return;
+        c.innerHTML = `<div class="empty-state">No templates yet.</div>`; return;
       }
-      container.innerHTML = `
-        <table class="data-table">
-          <thead><tr>
-            <th>Name</th><th>Subject</th><th>Created by</th><th style="width:130px"></th>
-          </tr></thead>
-          <tbody>
-            ${allTemplates.map(t=>`
-              <tr>
-                <td><strong>${esc(t.name)}</strong></td>
-                <td style="color:var(--muted)">${esc(t.subject)}</td>
-                <td style="color:var(--muted)">${esc(t.created_by_name||'—')}</td>
-                <td>
-                  <button class="btn btn-ghost btn-sm" onclick="editTmpl(${t.id})">✏️ Edit</button>
-                  <button class="btn btn-danger btn-sm"
-                    data-id="${t.id}" data-name="${esc(t.name)}"
-                    onclick="deleteTmpl(this.dataset.id,this.dataset.name)">🗑</button>
-                </td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
+      c.innerHTML = `<table class="data-table">
+        <thead><tr><th>Name</th><th>Subject</th><th>Created by</th><th style="width:130px"></th></tr></thead>
+        <tbody>${allTemplates.map(t=>`
+          <tr>
+            <td><strong>${esc(t.name)}</strong></td>
+            <td style="color:var(--muted)">${esc(t.subject)}</td>
+            <td style="color:var(--muted)">${esc(t.created_by_name||'—')}</td>
+            <td>
+              <button class="btn btn-ghost btn-sm" onclick="editTmpl(${t.id})">✏️ Edit</button>
+              <button class="btn btn-danger btn-sm"
+                data-id="${t.id}" data-name="${esc(t.name)}"
+                onclick="deleteTmpl(this.dataset.id,this.dataset.name)">🗑</button>
+            </td>
+          </tr>`).join('')}
+        </tbody></table>`;
       loadTemplateDropdown();
     } catch (e) {
-      container.innerHTML = `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
+      c.innerHTML = `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
     }
   }
 
   function openTmplModal(id, name, subject, body) {
-    editingTmplId = id||null;
+    editingTmplId = id || null;
     document.getElementById('tmpl-modal-title').textContent = id ? 'Edit Template' : 'New Template';
-    document.getElementById('t-name').value    = name||'';
-    document.getElementById('t-subject').value = subject||'';
-    rteSetHTML('t-editor', body||'');
+    document.getElementById('t-name').value    = name    || '';
+    document.getElementById('t-subject').value = subject || '';
+    rteSetHTML('t-editor', body || '');
     document.getElementById('tmpl-modal').classList.add('open');
     setTimeout(() => document.getElementById('t-editor').focus(), 50);
   }
 
   function editTmpl(id) {
-    const t = allTemplates.find(x=>x.id===id);
-    if (!t) return;
-    openTmplModal(t.id, t.name, t.subject, t.body_html);
+    const t = allTemplates.find(x => x.id===id);
+    if (t) openTmplModal(t.id, t.name, t.subject, t.body_html);
   }
 
   function closeTmplModal() {
     document.getElementById('tmpl-modal').classList.remove('open');
-    editingTmplId=null;
+    editingTmplId = null;
   }
 
   async function saveTemplate() {
     const name    = document.getElementById('t-name').value.trim();
     const subject = document.getElementById('t-subject').value.trim();
     const body    = rteGetHTML('t-editor');
-    if (!name||!subject||rteIsEmpty('t-editor')) {
+    if (!name || !subject || rteIsEmpty('t-editor')) {
       showToast('All fields are required.', true); return;
     }
     const btn = document.getElementById('tmpl-save-btn');
-    btn.disabled=true;
+    btn.disabled = true;
     try {
       if (editingTmplId) {
-        await apiFetch(`/api/email-templates/${editingTmplId}`,{
-          method:'PUT', body:JSON.stringify({name,subject,body_html:body})});
+        await apiFetch(`/api/email-templates/${editingTmplId}`,
+          {method:'PUT', body:JSON.stringify({name,subject,body_html:body})});
         showToast('Template updated.');
       } else {
-        await apiFetch('/api/email-templates',{
-          method:'POST', body:JSON.stringify({name,subject,body_html:body})});
+        await apiFetch('/api/email-templates',
+          {method:'POST', body:JSON.stringify({name,subject,body_html:body})});
         showToast('Template saved.');
       }
       closeTmplModal();
       loadTemplates();
-    } catch (e) {
-      showToast(e.message, true);
-    } finally {
-      btn.disabled=false;
-    }
+    } catch (e) { showToast(e.message, true); }
+    finally     { btn.disabled = false; }
   }
 
   async function deleteTmpl(id, name) {
     if (!confirm(`Delete template "${name}"?`)) return;
     try {
-      await apiFetch(`/api/email-templates/${id}`,{method:'DELETE'});
-      showToast('Template deleted.');
-      loadTemplates();
+      await apiFetch(`/api/email-templates/${id}`, {method:'DELETE'});
+      showToast('Template deleted.'); loadTemplates();
     } catch (e) { showToast(e.message, true); }
   }
 
-  /* ── History tab ─────────────────────────────────── */
+  /* ════════════════════════════════════════════════════
+     HISTORY TAB
+     ════════════════════════════════════════════════════ */
   async function loadHistory() {
-    const container = document.getElementById('history-container');
+    const c = document.getElementById('history-container');
     try {
       const rows = await apiFetch('/api/mailshots');
-      if (!rows.length) {
-        container.innerHTML = `<div class="empty-state">No mailshots sent yet.</div>`;
-        return;
-      }
-      container.innerHTML = `
-        <table class="data-table">
-          <thead><tr>
-            <th>Subject</th><th>Sent</th><th>Recipients</th><th>Sent by</th><th>Notes</th>
-          </tr></thead>
-          <tbody>
-            ${rows.map(r=>{
-              const attachedTitles=(()=>{
-                try{
-                  const f=JSON.parse(r.filter_criteria||'{}');
-                  const ids=f.document_ids||[];
-                  return ids.map(id=>{const doc=allDocs.find(d=>d.id===id);return doc?doc.title:`Document #${id}`;});
-                }catch{return[];}
-              })();
-              const sent=r.sent_at
-                ?new Date(r.sent_at+'Z').toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'})
-                :'—';
-              return `<tr>
-                <td>
-                  <strong>${esc(r.subject)}</strong>
-                  ${r.template_name?`<div style="font-size:12px;color:var(--muted)">Template: ${esc(r.template_name)}</div>`:''}
-                  ${attachedTitles.length?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
-                    ${attachedTitles.map(t=>`<span class="history-attachment-chip">📎 ${esc(t)}</span>`).join('')}
-                  </div>`:''}
-                </td>
-                <td style="white-space:nowrap;color:var(--muted)">${sent}</td>
-                <td><strong>${r.recipient_count||0}</strong></td>
-                <td style="color:var(--muted)">${esc(r.sent_by_name||'—')}</td>
-                <td style="color:var(--muted);font-size:12px">${esc(r.notes||'')}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>`;
-    } catch (e) {
-      container.innerHTML = `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
-    }
+      if (!rows.length) { c.innerHTML=`<div class="empty-state">No mailshots sent yet.</div>`; return; }
+      c.innerHTML = `<table class="data-table">
+        <thead><tr><th>Subject</th><th>Sent</th><th>Recipients</th><th>Sent by</th><th>Notes</th></tr></thead>
+        <tbody>${rows.map(r => {
+          const atts = (() => {
+            try { const f=JSON.parse(r.filter_criteria||'{}'); return (f.document_ids||[]).map(id=>{const d=allDocs.find(x=>x.id===id);return d?d.title:`Doc #${id}`;}); }
+            catch{return[];}
+          })();
+          const sent = r.sent_at ? new Date(r.sent_at+'Z').toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}) : '—';
+          return `<tr>
+            <td>
+              <strong>${esc(r.subject)}</strong>
+              ${r.template_name?`<div style="font-size:12px;color:var(--muted)">Template: ${esc(r.template_name)}</div>`:''}
+              ${atts.length?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${atts.map(t=>`<span class="history-attachment-chip">📎 ${esc(t)}</span>`).join('')}</div>`:''}
+            </td>
+            <td style="white-space:nowrap;color:var(--muted)">${sent}</td>
+            <td><strong>${r.recipient_count||0}</strong></td>
+            <td style="color:var(--muted)">${esc(r.sent_by_name||'—')}</td>
+            <td style="color:var(--muted);font-size:12px">${esc(r.notes||'')}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+    } catch (e) { c.innerHTML=`<div class="alert-box err">⚠️ ${esc(e.message)}</div>`; }
   }
 
   document.getElementById('tmpl-modal').addEventListener('click', function(e){
-    if(e.target===this) closeTmplModal();
+    if (e.target===this) closeTmplModal();
   });
 </script>
 
 <style>
-  /* ── Layout ─────────────────────────────────────────── */
+  /* ── Layout ────────────────────────────────────────── */
   .comms-grid {
     display: grid;
     grid-template-columns: 1fr 340px;
@@ -960,20 +872,9 @@
     border: 2px solid var(--border);
     border-radius: 14px;
     padding: 20px;
-    /* Fixed height: neither panel can grow beyond the viewport */
     max-height: calc(100vh - 380px);
     min-height: 460px;
     overflow: hidden;
-  }
-  /* Recipients panel scrolls its list internally */
-  .comms-panel-recipients {
-    display: flex;
-    flex-direction: column;
-  }
-  #recipient-list {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
   }
   .comms-panel-compose {
     display: flex;
@@ -993,7 +894,16 @@
   }
   .comms-panel-compose .form-group-message .rte-editor {
     flex: 1;
-    min-height: 120px;
+    min-height: 100px;
+  }
+  .comms-panel-recipients {
+    display: flex;
+    flex-direction: column;
+  }
+  #recipient-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
   }
   .comms-panel-title {
     font-size: 12px;
@@ -1009,6 +919,8 @@
     border: 1.5px solid var(--border);
     border-radius: 8px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   .rte-toolbar {
     display: flex;
@@ -1018,6 +930,7 @@
     padding: 6px 8px;
     background: #f8f9fb;
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
   .rte-btn {
     display: inline-flex;
@@ -1033,11 +946,34 @@
     color: #333;
     transition: background .1s;
     flex-shrink: 0;
+    /* Critical: position:relative so absolutely-placed color input stays inside */
+    position: relative;
+    overflow: hidden;
   }
   .rte-btn:hover { background: #e4e8ee; }
-  .rte-btn b  { font-size: 14px; font-weight: 900; }
-  .rte-btn i  { font-size: 14px; font-style: italic; }
-  .rte-btn u  { font-size: 14px; text-decoration: underline; }
+  .rte-btn b { font-size:14px;font-weight:900; }
+  .rte-btn i { font-size:14px;font-style:italic; }
+  .rte-btn u { font-size:14px;text-decoration:underline; }
+
+  /* Color input sits on top of the button content, invisible but clickable */
+  .rte-color-btn input[type="color"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+  }
+  .rte-color-a {
+    font-size: 14px;
+    font-weight: 900;
+    border-bottom: 3px solid #000;
+    line-height: 1;
+    padding-bottom: 1px;
+    pointer-events: none; /* clicks pass through to the color input below */
+  }
 
   .rte-select {
     height: 28px;
@@ -1057,37 +993,6 @@
     margin: 0 3px;
     flex-shrink: 0;
   }
-
-  .rte-color-a {
-    font-size: 14px;
-    font-weight: 900;
-    border-bottom: 3px solid #000;
-    line-height: 1;
-    padding-bottom: 1px;
-  }
-
-  /* Editor area */
-  .rte-editor {
-    min-height: 180px;
-    padding: 12px 14px;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
-    outline: none;
-    overflow-y: auto;
-    color: #1a1a1a;
-    background: white;
-    flex: 1;
-  }
-  .rte-editor:empty::before {
-    content: attr(data-placeholder);
-    color: var(--muted);
-    pointer-events: none;
-  }
-  .rte-editor img { max-width: 100%; height: auto; }
-  .rte-editor a   { color: var(--accent); }
-
-  /* Merge field picker */
   .rte-merge-wrap {
     display: inline-flex;
     align-items: center;
@@ -1096,14 +1001,8 @@
     background: var(--accent-light);
     border: 1.5px solid var(--accent);
     border-radius: 6px;
-    cursor: pointer;
   }
-  .rte-merge-badge {
-    font-size: 11px;
-    font-weight: 800;
-    color: var(--accent);
-    flex-shrink: 0;
-  }
+  .rte-merge-badge { font-size:11px;font-weight:800;color:var(--accent);flex-shrink:0; }
   .rte-merge-wrap select {
     appearance: none;
     background: transparent;
@@ -1116,16 +1015,33 @@
     padding: 0;
     max-width: 130px;
   }
+  .rte-preview-btn { color: var(--muted); }
+  .rte-preview-active { background: var(--accent-light) !important; color: var(--accent) !important; }
+
+  .rte-editor {
+    min-height: 100px;
+    padding: 12px 14px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    outline: none;
+    overflow-y: auto;
+    color: #1a1a1a;
+    background: white;
+  }
+  .rte-editor:empty::before {
+    content: attr(data-placeholder);
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .rte-editor[contenteditable="false"] { background: #fafbfc; cursor: default; }
+  .rte-editor img { max-width:100%;height:auto; }
+  .rte-editor a   { color: var(--accent); }
 
   /* ── Recipients ─────────────────────────────────────── */
   .recip-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 12px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: background .12s;
+    display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+    border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s;
   }
   .recip-row:last-child { border-bottom: none; }
   .recip-row:hover { background: var(--accent-light); }
@@ -1137,25 +1053,25 @@
     display:flex;align-items:center;gap:8px;padding:6px 12px;
     border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;
   }
-  .flag-chk-row:last-child{border-bottom:none;}
-  .flag-chk-row:hover{background:var(--accent-light);}
-  .flag-chk{width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;cursor:pointer;}
-  .flag-chip{display:inline-block;padding:2px 9px;border-radius:20px;color:white;
-             font-size:11px;font-weight:700;letter-spacing:.2px;}
+  .flag-chk-row:last-child { border-bottom:none; }
+  .flag-chk-row:hover { background:var(--accent-light); }
+  .flag-chk { width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;cursor:pointer; }
+  .flag-chip { display:inline-block;padding:2px 9px;border-radius:20px;color:white;font-size:11px;font-weight:700; }
 
   /* ── Attachments ─────────────────────────────────────── */
-  .attachment-chip{display:flex;align-items:center;gap:8px;padding:7px 10px;
-    background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;font-size:13px;}
-  .attachment-icon{flex-shrink:0;}
-  .attachment-title{font-weight:700;flex:1;}
-  .attachment-filename{color:var(--muted);font-size:11px;flex-shrink:0;}
-  .attachment-remove{background:none;border:none;cursor:pointer;color:var(--muted);
-    font-size:14px;padding:0 2px;line-height:1;flex-shrink:0;}
-  .attachment-remove:hover{color:var(--red);}
-
-  .history-attachment-chip{display:inline-block;padding:2px 8px;background:#f0f9ff;
-    border:1px solid #bae6fd;border-radius:20px;font-size:11px;color:#0369a1;font-weight:600;}
-
+  .attachment-chip {
+    display:flex;align-items:center;gap:8px;padding:7px 10px;
+    background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;font-size:13px;
+  }
+  .attachment-remove {
+    background:none;border:none;cursor:pointer;color:var(--muted);
+    font-size:14px;padding:0 2px;line-height:1;flex-shrink:0;
+  }
+  .attachment-remove:hover { color:var(--red); }
+  .history-attachment-chip {
+    display:inline-block;padding:2px 8px;background:#f0f9ff;
+    border:1px solid #bae6fd;border-radius:20px;font-size:11px;color:#0369a1;font-weight:600;
+  }
 
   @media (max-width:768px) {
     .comms-grid { grid-template-columns: 1fr !important; }
