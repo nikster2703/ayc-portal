@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.17'  # v11.17: _build_member_lookup now covers all first-class member columns (postcode, address, DOB, mobile etc) and both contacts — previously only member_field_values rows were resolved
+APP_VERSION = 'v11.18'  # v11.18: Image resize bar — floating toolbar appears on image click with ¼ ⅓ ½ ¾ Full presets and custom width input; no more prompts
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

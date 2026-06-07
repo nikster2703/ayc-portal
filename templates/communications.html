@@ -297,6 +297,19 @@
   </div>
 </div>
 
+<!-- Image resize bar — floats near clicked image -->
+<div id="img-resize-bar">
+  <span class="irb-label">Width</span>
+  <button class="irb-preset" data-w="25%">¼</button>
+  <button class="irb-preset" data-w="33%">⅓</button>
+  <button class="irb-preset" data-w="50%">½</button>
+  <button class="irb-preset" data-w="75%">¾</button>
+  <button class="irb-preset" data-w="100%">Full</button>
+  <div class="irb-sep"></div>
+  <input type="text" id="irb-custom" placeholder="e.g. 300px">
+  <button class="irb-apply" onclick="irbApplyCustom()">✓</button>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -358,17 +371,11 @@
     input.onchange = function() {
       const file = this.files[0];
       if (!file) return;
-      const widthVal = prompt('Image width (e.g. 50%, 300px, or leave blank for full width):', '100%');
-      const widthStyle = widthVal ? `width:${widthVal};` : 'max-width:100%;';
       const reader = new FileReader();
       reader.onload = function(e) {
         document.getElementById(editorId).focus();
-        // Inline onclick on the img lets the user click it later to resize
-        const src = e.target.result;
         document.execCommand('insertHTML', false,
-          `<img src="${src}" style="${widthStyle}height:auto;cursor:pointer" ` +
-          `title="Click to resize" ` +
-          `onclick="var w=prompt('New width (e.g. 50%, 300px):',this.style.width||'100%');if(w!==null)this.style.width=w;">`);
+          `<img src="${e.target.result}" style="width:100%;height:auto;cursor:pointer" title="Click to resize">`);
       };
       reader.readAsDataURL(file);
     };
@@ -395,6 +402,79 @@
     el.addEventListener('mouseup', () => rteSaveSel(id));
     el.addEventListener('keyup',   () => rteSaveSel(id));
   });
+
+  /* ════════════════════════════════════════════════════
+     IMAGE RESIZE BAR
+     Floats near a clicked image; no prompts needed.
+     ════════════════════════════════════════════════════ */
+  let _selImg = null;
+
+  function irbShow(img) {
+    _selImg = img;
+    const bar  = document.getElementById('img-resize-bar');
+    bar.style.display = 'flex';
+    const rect = img.getBoundingClientRect();
+    const bw   = bar.offsetWidth;
+    const bh   = bar.offsetHeight;
+    let top  = rect.bottom + 8;
+    let left = rect.left + rect.width / 2 - bw / 2;
+    if (top + bh > window.innerHeight - 10) top = rect.top - bh - 8;
+    left = Math.max(6, Math.min(left, window.innerWidth - bw - 6));
+    bar.style.top  = top  + 'px';
+    bar.style.left = left + 'px';
+    const cur = img.style.width || '100%';
+    document.getElementById('irb-custom').value = cur;
+    document.querySelectorAll('.irb-preset').forEach(b =>
+      b.classList.toggle('active', b.dataset.w === cur));
+  }
+
+  function irbHide() {
+    document.getElementById('img-resize-bar').style.display = 'none';
+    _selImg = null;
+  }
+
+  function irbApply(w) {
+    if (!_selImg) return;
+    _selImg.style.width  = w;
+    _selImg.style.height = 'auto';
+    document.getElementById('irb-custom').value = w;
+    document.querySelectorAll('.irb-preset').forEach(b =>
+      b.classList.toggle('active', b.dataset.w === w));
+  }
+
+  function irbApplyCustom() {
+    const v = document.getElementById('irb-custom').value.trim();
+    if (v) irbApply(v);
+  }
+
+  // Preset button clicks
+  document.querySelectorAll('.irb-preset').forEach(btn =>
+    btn.addEventListener('click', e => { e.stopPropagation(); irbApply(btn.dataset.w); }));
+
+  // Enter in custom input
+  document.getElementById('irb-custom').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); irbApplyCustom(); }
+    e.stopPropagation();
+  });
+
+  // Image click listeners on both editors
+  ['s-editor','t-editor'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', e => {
+      if (e.target.tagName === 'IMG') { e.stopPropagation(); irbShow(e.target); }
+      else irbHide();
+    });
+  });
+
+  // Click outside → dismiss
+  document.addEventListener('click', e => {
+    const bar = document.getElementById('img-resize-bar');
+    if (bar.style.display !== 'none' && !bar.contains(e.target)) irbHide();
+  });
+
+  // Scroll → dismiss (image moves, bar would drift)
+  document.addEventListener('scroll', irbHide, true);
 
   /* ── Preview mode toggle ─────────────────────────── */
 async function togglePreviewMode(editorId, toolbarId, btnId) {
@@ -1072,6 +1152,57 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     display:inline-block;padding:2px 8px;background:#f0f9ff;
     border:1px solid #bae6fd;border-radius:20px;font-size:11px;color:#0369a1;font-weight:600;
   }
+
+  /* ── Image resize bar ───────────────────────────────── */
+  #img-resize-bar {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    background: white;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.15);
+    font-size: 13px;
+  }
+  .irb-label { font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-right:2px; }
+  .irb-sep   { width:1px;height:20px;background:var(--border);margin:0 4px; }
+  .irb-preset {
+    padding: 3px 9px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    color: #333;
+    transition: background .1s, border-color .1s, color .1s;
+  }
+  .irb-preset:hover  { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
+  .irb-preset.active { background: var(--accent); border-color: var(--accent); color: white; }
+  #irb-custom {
+    width: 72px;
+    padding: 3px 7px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: monospace;
+  }
+  #irb-custom:focus { outline: none; border-color: var(--accent); }
+  .irb-apply {
+    padding: 3px 9px;
+    border: 1.5px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .irb-apply:hover { opacity: .85; }
 
   @media (max-width:768px) {
     .comms-grid { grid-template-columns: 1fr !important; }
