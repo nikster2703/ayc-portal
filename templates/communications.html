@@ -136,7 +136,7 @@
 
       <div class="form-group">
         <label>Member type</label>
-        <select id="s-member-type" onchange="previewRecipients()">
+        <select id="s-member-type" onchange="previewRecipients();loadMergeFields(this.value)">
           <option value="all">All types</option>
           {% for mt in member_types %}
           <option value="{{ mt.slug }}">{{ mt.icon or '' }} {{ mt.name }}</option>
@@ -397,53 +397,53 @@
   });
 
   /* ── Preview mode toggle ─────────────────────────── */
-  function previewSubstitute(html) {
-    const first = document.querySelector('.recip-chk:checked');
-    if (!first) return html;
-    const name    = first.dataset.name  || '';
-    const email   = first.dataset.email || '';
-    const parts   = name.split(' ');
-    return html
-      .replace(/\{Forename\}/g,    parts[0] || '')
-      .replace(/\{Surname\}/g,     parts.slice(1).join(' ') || '')
-      .replace(/\{Full Name\}/g,   name)
-      .replace(/\{Email\}/g,       email)
-      .replace(/\{Member Type\}/g, '—');
-  }
-
-  function togglePreviewMode(editorId, toolbarId, btnId) {
+async function togglePreviewMode(editorId, toolbarId, btnId) {
     const editor  = document.getElementById(editorId);
     const toolbar = document.getElementById(toolbarId);
     const btn     = document.getElementById(btnId);
     if (_previewOn[editorId]) {
       // ── Back to edit ──
-      editor.innerHTML      = _rawHtmlBak[editorId] || '';
+      editor.innerHTML       = _rawHtmlBak[editorId] || '';
       editor.contentEditable = 'true';
-      _previewOn[editorId]  = false;
+      _previewOn[editorId]   = false;
       btn.classList.remove('rte-preview-active');
       btn.title = 'Preview message';
-      toolbar.querySelectorAll('button:not(.rte-preview-btn), select, span.rte-merge-wrap select')
+      toolbar.querySelectorAll('button:not(.rte-preview-btn), select')
              .forEach(el => el.disabled = false);
     } else {
       // ── Preview ──
       const first = document.querySelector('.recip-chk:checked');
-      _rawHtmlBak[editorId] = editor.innerHTML;
-      editor.innerHTML      = previewSubstitute(editor.innerHTML);
+      _rawHtmlBak[editorId]  = editor.innerHTML;
       editor.contentEditable = 'false';
-      _previewOn[editorId]  = true;
+      _previewOn[editorId]   = true;
       btn.classList.add('rte-preview-active');
       btn.title = 'Back to editing';
       toolbar.querySelectorAll('button:not(.rte-preview-btn), select')
              .forEach(el => el.disabled = true);
-      if (first) showToast(`Preview: showing as it would appear to ${first.dataset.name}`);
-      else       showToast('No recipient selected — merge fields shown as tokens', true);
+      if (first) {
+        // Use backend substitution so ALL fields (including custom ones) resolve correctly
+        try {
+          const res = await apiFetch('/api/mailshots/preview-substitute', {
+            method: 'POST',
+            body: JSON.stringify({ body_html: _rawHtmlBak[editorId], email: first.dataset.email }),
+          });
+          editor.innerHTML = res.html;
+        } catch (_) {
+          editor.innerHTML = _rawHtmlBak[editorId]; // fall back to raw if call fails
+        }
+        showToast(`Preview: showing as it would appear to ${first.dataset.name}`);
+      } else {
+        editor.innerHTML = _rawHtmlBak[editorId]; // no recipient — show raw with tokens
+        showToast('No recipient selected — select one to preview substituted values', true);
+      }
     }
   }
 
   /* ── Merge fields ────────────────────────────────── */
-  async function loadMergeFields() {
+  async function loadMergeFields(memberType) {
+    const qs = (memberType && memberType !== 'all') ? `?member_type=${encodeURIComponent(memberType)}` : '';
     try {
-      const data = await apiFetch('/api/mailshots/merge-fields');
+      const data = await apiFetch('/api/mailshots/merge-fields' + qs);
       mergeFields = data;
     } catch (e) {
       // Fallback to standard fields so picker always has something

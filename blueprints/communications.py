@@ -159,12 +159,41 @@ def api_email_templates_delete(tmpl_id):
 @bp.route('/api/mailshots/merge-fields')
 @permission_required('mailshots.send')
 def api_mailshots_merge_fields():
-    """Return all available merge fields (standard + custom field definitions)."""
-    db   = get_db()
-    rows = db.execute('SELECT key, label FROM field_definitions ORDER BY label').fetchall()
+    """Return merge fields (standard + custom) optionally filtered to a member type slug."""
+    member_type = request.args.get('member_type', 'all')
+    db = get_db()
+    if member_type and member_type != 'all':
+        rows = db.execute('''
+            SELECT fd.key, fd.label
+            FROM   field_definitions fd
+            JOIN   member_type_fields mtf ON mtf.field_definition_id = fd.id
+            JOIN   member_types mt        ON mt.id = mtf.member_type_id
+            WHERE  mt.slug = ?
+            ORDER  BY fd.label
+        ''', (member_type,)).fetchall()
+    else:
+        rows = db.execute('SELECT key, label FROM field_definitions ORDER BY label').fetchall()
     custom = [{'token': '{' + r['label'] + '}', 'label': r['label'], 'key': r['key']}
               for r in rows]
     return jsonify({'standard': STANDARD_MERGE_FIELDS, 'custom': custom})
+
+
+@bp.route('/api/mailshots/preview-substitute', methods=['POST'])
+@permission_required('mailshots.send')
+def api_mailshots_preview_substitute():
+    """Server-side merge substitution for the compose preview mode.
+    Accepts {body_html, email} and returns the substituted HTML using
+    the exact same logic as the actual send, so custom fields resolve correctly."""
+    data      = request.get_json() or {}
+    body_html = data.get('body_html', '')
+    email     = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({'html': body_html})
+    lookup = _build_member_lookup([email])
+    member = lookup.get(email)
+    if not member:
+        return jsonify({'html': body_html})
+    return jsonify({'html': _substitute_fields(body_html, member)})
 
 def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_type_filter=None):
     """

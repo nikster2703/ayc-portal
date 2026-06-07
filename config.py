@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.13'  # v11.13: Comms RTE full rewrite — fixed colour pickers (input inside button), merge field selection save/restore via Range API, image resize prompt at insert, preview toggle mode in toolbar, fixed status filter and recipient count (null-pointer from orphaned colour inputs broke entire script)
+APP_VERSION = 'v11.14'  # v11.14: Comms — merge fields filtered by selected member type; preview substitution via backend (uses _build_member_lookup so all custom fields e.g. Renewal Date resolve correctly)
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
