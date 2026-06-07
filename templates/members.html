@@ -71,10 +71,10 @@
     <div class="filter-group">
       <span class="filter-label">Status</span>
       <select class="session-select" id="status-filter" onchange="onStatusFilterChange()">
+        <option value="all">All Members</option>
         <option value="active">Active</option>
         <option value="inactive">Inactive</option>
         <option value="leaver">Leaver</option>
-        <option value="all">All</option>
       </select>
     </div>
 
@@ -105,9 +105,9 @@
     <div class="filter-group filter-sort">
       <span class="filter-label">Sort</span>
       <select class="session-select" id="sort-select" onchange="onSortChange()">
-        <option value="first_name">Forename A–Z</option>
-        <option value="surname">Surname A–Z</option>
         <option value="member_id">Member ID</option>
+        <option value="surname">Surname A–Z</option>
+        <option value="first_name">Forename A–Z</option>
       </select>
     </div>
 
@@ -389,7 +389,7 @@
   let editingId     = null;
 
   /* ── Sort ──────────────────────────────────────────── */
-  let currentSort = localStorage.getItem('ayc_sort') || 'first_name';
+  let currentSort = localStorage.getItem('ayc_sort') || 'member_id';
 
   function sortMembers(list) {
     return [...list].sort((a, b) => {
