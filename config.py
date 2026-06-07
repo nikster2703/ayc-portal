@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.14'  # v11.14: Comms — merge fields filtered by selected member type; preview substitution via backend (uses _build_member_lookup so all custom fields e.g. Renewal Date resolve correctly)
+APP_VERSION = 'v11.16'  # v11.16: Preview highlights unresolved tokens (no member value) in amber with '— no value'
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

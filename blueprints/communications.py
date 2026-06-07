@@ -166,7 +166,7 @@ def api_mailshots_merge_fields():
         rows = db.execute('''
             SELECT fd.key, fd.label
             FROM   field_definitions fd
-            JOIN   member_type_fields mtf ON mtf.field_definition_id = fd.id
+            JOIN   member_type_fields mtf ON mtf.field_id = fd.id
             JOIN   member_types mt        ON mt.id = mtf.member_type_id
             WHERE  mt.slug = ?
             ORDER  BY fd.label
@@ -178,22 +178,32 @@ def api_mailshots_merge_fields():
     return jsonify({'standard': STANDARD_MERGE_FIELDS, 'custom': custom})
 
 
+_NO_VALUE_SPAN = (
+    '<span style="background:#fef3c7;border:1px solid #f59e0b;border-radius:3px;'
+    'padding:0 4px;color:#92400e;font-style:italic;font-size:.9em" '
+    'title="No value set for this member">\\g<0> — no value</span>'
+)
+
+
 @bp.route('/api/mailshots/preview-substitute', methods=['POST'])
 @permission_required('mailshots.send')
 def api_mailshots_preview_substitute():
-    """Server-side merge substitution for the compose preview mode.
-    Accepts {body_html, email} and returns the substituted HTML using
-    the exact same logic as the actual send, so custom fields resolve correctly."""
+    """Server-side merge substitution for preview mode.
+    After substitution any token that had no value is highlighted in amber
+    with '— no value' so the composer can see exactly which fields are missing."""
     data      = request.get_json() or {}
     body_html = data.get('body_html', '')
     email     = (data.get('email') or '').strip().lower()
-    if not email:
-        return jsonify({'html': body_html})
-    lookup = _build_member_lookup([email])
-    member = lookup.get(email)
-    if not member:
-        return jsonify({'html': body_html})
-    return jsonify({'html': _substitute_fields(body_html, member)})
+
+    if email:
+        lookup = _build_member_lookup([email])
+        member = lookup.get(email)
+        if member:
+            body_html = _substitute_fields(body_html, member)
+
+    # Highlight any tokens that were not substituted (field has no value for this member)
+    body_html = re.sub(r'\{[^}<>]+\}', _NO_VALUE_SPAN, body_html)
+    return jsonify({'html': body_html})
 
 def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_type_filter=None):
     """
