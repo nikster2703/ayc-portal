@@ -1,6 +1,68 @@
 {% extends "base.html" %}
 {% block title %}{{ club_short_name }} Portal — Communications{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css">
+<style>
+  /* Override Quill toolbar to fit our theme */
+  .ql-toolbar.ql-snow {
+    border: 1.5px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: #f8f9fb;
+    padding: 6px 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    align-items: center;
+  }
+  .ql-container.ql-snow {
+    border: 1.5px solid var(--border);
+    border-radius: 0 0 8px 8px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .ql-editor {
+    min-height: 220px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding: 12px 14px;
+  }
+  .ql-editor.ql-blank::before {
+    color: var(--muted);
+    font-style: normal;
+  }
+
+  /* Merge field picker in toolbar */
+  .merge-field-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--accent-light);
+    border: 1.5px solid var(--accent);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    cursor: pointer;
+    position: relative;
+  }
+  .merge-field-picker select {
+    appearance: none;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 0;
+    max-width: 140px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <h1>✉️ Communications</h1>
@@ -38,13 +100,50 @@
 
       <div class="form-group">
         <label>Message <span style="color:var(--red)">*</span></label>
-        <textarea id="s-body" rows="12"
-                  placeholder="Write your message here. You can use basic HTML if needed."
-                  style="font-family:monospace;font-size:13px;resize:vertical;
-                         width:100%;padding:10px;border:1.5px solid var(--border);
-                         border-radius:8px;line-height:1.5"></textarea>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">
-          HTML is supported — use &lt;b&gt;, &lt;p&gt;, &lt;a href=""&gt; etc.
+
+        <!-- Rich text toolbar -->
+        <div id="s-toolbar">
+          <select class="ql-font">
+            <option selected></option>
+            <option value="serif">Serif</option>
+            <option value="monospace">Monospace</option>
+          </select>
+          <select class="ql-size">
+            <option value="small">Small</option>
+            <option selected></option>
+            <option value="large">Large</option>
+            <option value="huge">Huge</option>
+          </select>
+          <span class="ql-formats">
+            <button class="ql-bold"></button>
+            <button class="ql-italic"></button>
+            <button class="ql-underline"></button>
+          </span>
+          <span class="ql-formats">
+            <select class="ql-color"></select>
+            <select class="ql-background"></select>
+          </span>
+          <span class="ql-formats">
+            <button class="ql-link"></button>
+            <button class="ql-image" title="Insert image (URL)"></button>
+          </span>
+          <span class="ql-formats">
+            <button class="ql-list" value="ordered"></button>
+            <button class="ql-list" value="bullet"></button>
+          </span>
+          <!-- Merge field picker -->
+          <span class="merge-field-picker" title="Insert a personalisation field at the cursor">
+            <span>&#123;&#125;</span>
+            <select id="s-merge-picker" onchange="insertMergeField('compose', this)">
+              <option value="">Insert field…</option>
+            </select>
+          </span>
+        </div>
+        <!-- Editor div — Quill mounts here -->
+        <div id="s-body-editor"></div>
+
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">
+          Use the <strong>Insert field</strong> picker to personalise messages with member data, e.g. <code>{Forename}</code>.
           Recipients see their own email only (BCC-style).
         </div>
       </div>
@@ -178,7 +277,7 @@
 
 <!-- ── Template modal ──────────────────────────────────────────── -->
 <div class="modal-overlay" id="tmpl-modal">
-  <div class="modal" style="max-width:580px">
+  <div class="modal" style="max-width:640px">
     <h2 id="tmpl-modal-title">New Template</h2>
     <div class="form-group" style="margin-top:16px">
       <label>Template Name</label>
@@ -189,12 +288,46 @@
       <input type="text" id="t-subject" placeholder="e.g. {{ club_short_name }} — Session Cancelled">
     </div>
     <div class="form-group">
-      <label>Message Body (HTML supported)</label>
-      <textarea id="t-body" rows="10"
-                style="font-family:monospace;font-size:13px;resize:vertical;
-                       width:100%;padding:10px;border:1.5px solid var(--border);
-                       border-radius:8px;line-height:1.5"
-                placeholder="Write your reusable message here…"></textarea>
+      <label>Message Body</label>
+      <!-- Template modal rich text toolbar -->
+      <div id="t-toolbar">
+        <select class="ql-font">
+          <option selected></option>
+          <option value="serif">Serif</option>
+          <option value="monospace">Monospace</option>
+        </select>
+        <select class="ql-size">
+          <option value="small">Small</option>
+          <option selected></option>
+          <option value="large">Large</option>
+          <option value="huge">Huge</option>
+        </select>
+        <span class="ql-formats">
+          <button class="ql-bold"></button>
+          <button class="ql-italic"></button>
+          <button class="ql-underline"></button>
+        </span>
+        <span class="ql-formats">
+          <select class="ql-color"></select>
+          <select class="ql-background"></select>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-link"></button>
+          <button class="ql-image" title="Insert image (URL)"></button>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-list" value="ordered"></button>
+          <button class="ql-list" value="bullet"></button>
+        </span>
+        <!-- Merge field picker -->
+        <span class="merge-field-picker" title="Insert a personalisation field at the cursor">
+          <span>&#123;&#125;</span>
+          <select id="t-merge-picker" onchange="insertMergeField('template', this)">
+            <option value="">Insert field…</option>
+          </select>
+        </span>
+      </div>
+      <div id="t-body-editor"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeTmplModal()">Cancel</button>
@@ -205,28 +338,106 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
 <script>
   let allTemplates  = [];
   let editingTmplId = null;
-  let allDocs       = [];        // [{id, title, filename, category}, ...]
-  let selectedDocs  = [];        // [{id, title, filename}, ...]
+  let allDocs       = [];
+  let selectedDocs  = [];
+  let mergeFields   = { standard: [], custom: [] };
 
-  const CATEGORY_LABELS = { policy:'Policy', template:'Template', form:'Form', general:'General' };
+  /* ── Quill editor instances ────────────────────────────────── */
+  let composeQuill  = null;
+  let templateQuill = null;
+
+  function initQuill(toolbarId, editorId, placeholder) {
+    // Override image handler to prompt for URL instead of file picker
+    const imageHandler = function() {
+      const url = prompt('Enter image URL:');
+      if (url) {
+        const range = this.quill.getSelection();
+        this.quill.insertEmbed(range ? range.index : 0, 'image', url);
+      }
+    };
+
+    const q = new Quill('#' + editorId, {
+      modules: {
+        toolbar: {
+          container: '#' + toolbarId,
+          handlers:  { image: imageHandler },
+        },
+      },
+      theme: 'snow',
+      placeholder: placeholder || '',
+    });
+    return q;
+  }
+
+  /* ── Merge fields ────────────────────────────────────────── */
+  async function loadMergeFields() {
+    try {
+      mergeFields = await apiFetch('/api/mailshots/merge-fields');
+      populateMergePicker('s-merge-picker');
+      populateMergePicker('t-merge-picker');
+    } catch (_) {}
+  }
+
+  function populateMergePicker(pickerId) {
+    const sel = document.getElementById(pickerId);
+    if (!sel) return;
+    // Clear existing except placeholder
+    while (sel.options.length > 1) sel.remove(1);
+
+    if (mergeFields.standard.length) {
+      const grp = document.createElement('optgroup');
+      grp.label = 'Standard fields';
+      mergeFields.standard.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.token;
+        opt.text  = f.label + '  →  ' + f.token;
+        grp.appendChild(opt);
+      });
+      sel.appendChild(grp);
+    }
+    if (mergeFields.custom.length) {
+      const grp = document.createElement('optgroup');
+      grp.label = 'Custom fields';
+      mergeFields.custom.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.token;
+        opt.text  = f.label + '  →  ' + f.token;
+        grp.appendChild(opt);
+      });
+      sel.appendChild(grp);
+    }
+  }
+
+  function insertMergeField(target, selectEl) {
+    const token = selectEl.value;
+    if (!token) return;
+    const q = target === 'compose' ? composeQuill : templateQuill;
+    if (!q) return;
+    const range = q.getSelection(true);
+    const idx   = range ? range.index : q.getLength();
+    q.insertText(idx, token, 'user');
+    q.setSelection(idx + token.length);
+    // Reset picker
+    selectEl.value = '';
+  }
 
   /* ── Document picker ─────────────────────────────── */
   async function loadDocumentPicker() {
     try {
       allDocs = await apiFetch('/api/documents');
       const sel = document.getElementById('s-doc-picker');
-      // Clear existing options except placeholder
       while (sel.options.length > 1) sel.remove(1);
-      // Group by category
       const groups = {};
       allDocs.forEach(d => {
         const cat = d.category || 'general';
         if (!groups[cat]) groups[cat] = [];
         groups[cat].push(d);
       });
+      const CATEGORY_LABELS = { policy:'Policy', template:'Template', form:'Form', general:'General' };
       Object.entries(groups).forEach(([cat, docs]) => {
         const grp = document.createElement('optgroup');
         grp.label = CATEGORY_LABELS[cat] || cat;
@@ -286,7 +497,17 @@
 
   /* ── Init ────────────────────────────────────────── */
   (async function init() {
-    await Promise.all([loadTemplateDropdown(), loadDocumentPicker(), loadAlertFlags(), loadStatusFilter()]);
+    // Init Quill editors first (DOM must be ready)
+    composeQuill = initQuill('s-toolbar', 's-body-editor',
+      'Write your message here. Use the Insert field picker to personalise it.');
+
+    await Promise.all([
+      loadTemplateDropdown(),
+      loadDocumentPicker(),
+      loadAlertFlags(),
+      loadStatusFilter(),
+      loadMergeFields(),
+    ]);
     previewRecipients();
   })();
 
@@ -300,9 +521,7 @@
           `<option value="${esc(s.name)}">${esc(s.name)} members only</option>`
         ).join('') +
         `<option value="all">All statuses</option>`;
-    } catch (e) {
-      // Fall back to the single default option already in the DOM
-    }
+    } catch (_) {}
   }
 
   /* ── Alert flag checkboxes ───────────────────────── */
@@ -334,12 +553,11 @@
     try {
       allTemplates = await apiFetch('/api/email-templates');
       const sel = document.getElementById('s-template');
-      // Keep the placeholder option, replace the rest
       while (sel.options.length > 1) sel.remove(1);
       allTemplates.forEach(t => {
-        const opt   = document.createElement('option');
-        opt.value   = t.id;
-        opt.text    = t.name;
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.text  = t.name;
         sel.add(opt);
       });
     } catch (_) {}
@@ -350,12 +568,13 @@
     const tmpl = allTemplates.find(t => String(t.id) === id);
     if (!tmpl) return;
     document.getElementById('s-subject').value = tmpl.subject;
-    document.getElementById('s-body').value    = tmpl.body_html;
+    // Set Quill content
+    composeQuill.clipboard.dangerouslyPasteHTML(tmpl.body_html || '');
     updatePreview();
   }
 
   /* ── Recipients checklist ───────────────────────── */
-  let allRecipients = [];   // [{email, name}, ...]
+  let allRecipients = [];
 
   function updateCount() {
     const checked = document.querySelectorAll('.recip-chk:checked').length;
@@ -410,24 +629,27 @@
     else                              { el.style.display = 'none'; }
   }
   function updatePreview() {
+    const html = composeQuill ? composeQuill.root.innerHTML : '';
     document.getElementById('s-preview').innerHTML =
-      document.getElementById('s-body').value || '<em style="color:var(--muted)">Nothing yet.</em>';
+      (html && html !== '<p><br></p>')
+        ? html
+        : '<em style="color:var(--muted)">Nothing yet.</em>';
   }
 
   /* ── Send mailshot ───────────────────────────────── */
   async function sendMailshot() {
     const subject = document.getElementById('s-subject').value.trim();
-    const body    = document.getElementById('s-body').value.trim();
+    const body    = composeQuill ? composeQuill.root.innerHTML.trim() : '';
     const tmplId  = document.getElementById('s-template').value || null;
 
     // Collect checked recipients
-    const checked = [...document.querySelectorAll('.recip-chk:checked')];
+    const checked    = [...document.querySelectorAll('.recip-chk:checked')];
     const recipients = checked.map(c => ({ email: c.dataset.email, name: c.dataset.name }));
-    const count = recipients.length;
+    const count      = recipients.length;
 
-    if (!subject)  { showToast('Please enter a subject.', true); return; }
-    if (!body)     { showToast('Please write a message.', true); return; }
-    if (!count)    { showToast('No recipients selected — tick at least one.', true); return; }
+    if (!subject)              { showToast('Please enter a subject.', true); return; }
+    if (!body || body === '<p><br></p>') { showToast('Please write a message.', true); return; }
+    if (!count)                { showToast('No recipients selected — tick at least one.', true); return; }
 
     if (!confirm(`Send to ${count} recipient${count !== 1 ? 's' : ''}?\n\nSubject: ${subject}`)) return;
 
@@ -479,9 +701,8 @@
                 <td style="color:var(--muted)">${esc(t.created_by_name || '—')}</td>
                 <td>
                   <button class="btn btn-ghost btn-sm"
-                    data-id="${t.id}" data-name="${esc(t.name)}"
-                    data-subject="${esc(t.subject)}" data-body="${esc(t.body_html)}"
-                    onclick="editTmpl(this)">✏️ Edit</button>
+                    data-id="${t.id}"
+                    onclick="editTmpl(${t.id})">✏️ Edit</button>
                   <button class="btn btn-danger btn-sm"
                     data-id="${t.id}" data-name="${esc(t.name)}"
                     onclick="deleteTmpl(this.dataset.id, this.dataset.name)">🗑</button>
@@ -489,7 +710,6 @@
               </tr>`).join('')}
           </tbody>
         </table>`;
-      // Refresh dropdown too
       loadTemplateDropdown();
     } catch (e) {
       container.innerHTML = `<div class="alert-box err">⚠️ ${esc(e.message)}</div>`;
@@ -501,13 +721,22 @@
     document.getElementById('tmpl-modal-title').textContent = id ? 'Edit Template' : 'New Template';
     document.getElementById('t-name').value    = name    || '';
     document.getElementById('t-subject').value = subject || '';
-    document.getElementById('t-body').value    = body    || '';
     document.getElementById('tmpl-modal').classList.add('open');
+
+    // Init template Quill editor (lazy — only when modal first opens)
+    if (!templateQuill) {
+      templateQuill = initQuill('t-toolbar', 't-body-editor', 'Write your reusable message here…');
+      // Populate merge picker for template editor
+      populateMergePicker('t-merge-picker');
+    }
+    // Set content
+    templateQuill.clipboard.dangerouslyPasteHTML(body || '');
+    // Focus
+    setTimeout(() => templateQuill.focus(), 50);
   }
 
-  function editTmpl(btn) {
-    // Retrieve the raw body from the template array (not the escaped dataset)
-    const t = allTemplates.find(x => String(x.id) === btn.dataset.id);
+  function editTmpl(id) {
+    const t = allTemplates.find(x => x.id === id);
     if (!t) return;
     openTmplModal(t.id, t.name, t.subject, t.body_html);
   }
@@ -520,8 +749,11 @@
   async function saveTemplate() {
     const name    = document.getElementById('t-name').value.trim();
     const subject = document.getElementById('t-subject').value.trim();
-    const body    = document.getElementById('t-body').value.trim();
-    if (!name || !subject || !body) { showToast('All fields are required.', true); return; }
+    const body    = templateQuill ? templateQuill.root.innerHTML.trim() : '';
+    if (!name || !subject || !body || body === '<p><br></p>') {
+      showToast('All fields are required.', true);
+      return;
+    }
 
     const btn = document.getElementById('tmpl-save-btn');
     btn.disabled = true;
@@ -575,7 +807,6 @@
           </tr></thead>
           <tbody>
             ${rows.map(r => {
-              // Parse filter_criteria for attachment info
               const attachedTitles = (() => {
                 try {
                   const f = JSON.parse(r.filter_criteria || '{}');
@@ -705,6 +936,7 @@
     color: #0369a1;
     font-weight: 600;
   }
+
   @media (max-width: 768px) {
     #tab-send > div { grid-template-columns: 1fr !important; }
   }

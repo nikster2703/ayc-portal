@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.11'  # v11.11: Members toolbar — 2-row layout with labels, removed Set Default button; payment table Edit/Void on second row
+APP_VERSION = 'v11.12'  # v11.12: Comms rich text editor (Quill) — font/bold/italic/underline/colour/image; merge field tokens {Forename} etc with per-recipient substitution on send
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

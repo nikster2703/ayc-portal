@@ -5,6 +5,7 @@ Routes: /api/email-templates/*, /api/mailshots/*, /api/mailshots
 
 import json
 import os
+import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
@@ -20,6 +21,73 @@ from helpers import (
 )
 
 bp = Blueprint('communications', __name__)
+
+
+# ── Merge field helpers ───────────────────────────────────────────────────────
+
+STANDARD_MERGE_FIELDS = [
+    {'token': '{Forename}',    'label': 'Forename'},
+    {'token': '{Surname}',     'label': 'Surname'},
+    {'token': '{Full Name}',   'label': 'Full Name'},
+    {'token': '{Email}',       'label': 'Email Address'},
+    {'token': '{Member Type}', 'label': 'Member Type'},
+]
+
+
+def _build_member_lookup(emails):
+    """
+    Given a list of email addresses, return a dict keyed by email with member
+    data and custom field values.  Used for per-recipient merge substitution.
+    """
+    if not emails:
+        return {}
+    db = get_db()
+    ph = ','.join('?' * len(emails))
+    rows = db.execute(f'''
+        SELECT  m.id, m.first_name, m.surname, m.member_type,
+                c.contact_email AS email
+        FROM    members m
+        JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
+        WHERE   lower(c.contact_email) IN ({ph})
+    ''', [e.lower() for e in emails]).fetchall()
+
+    lookup = {}
+    for r in rows:
+        # Fetch custom field values for this member
+        field_rows = db.execute('''
+            SELECT fd.label, mfv.value
+            FROM   member_field_values mfv
+            JOIN   field_definitions fd ON fd.id = mfv.field_id
+            WHERE  mfv.member_id = ?
+        ''', (r['id'],)).fetchall()
+        custom = {fr['label']: (fr['value'] or '') for fr in field_rows}
+        lookup[r['email'].lower()] = {
+            'first_name':  r['first_name'] or '',
+            'surname':     r['surname'] or '',
+            'member_type': r['member_type'] or '',
+            'email':       r['email'] or '',
+            'custom':      custom,
+        }
+    return lookup
+
+
+def _substitute_fields(body_html, member_data):
+    """Replace {Token} placeholders with member-specific values."""
+    replacements = {
+        '{Forename}':    member_data.get('first_name', ''),
+        '{Surname}':     member_data.get('surname', ''),
+        '{Full Name}':   f"{member_data.get('first_name', '')} {member_data.get('surname', '')}".strip(),
+        '{Email}':       member_data.get('email', ''),
+        '{Member Type}': member_data.get('member_type', ''),
+    }
+    # Custom field tokens
+    for label, value in member_data.get('custom', {}).items():
+        replacements['{' + label + '}'] = value
+
+    result = body_html
+    for token, value in replacements.items():
+        result = result.replace(token, value)
+    return result
 
 
 # ── Email templates ───────────────────────────────────────────────────────────
@@ -87,6 +155,16 @@ def api_email_templates_delete(tmpl_id):
 
 
 # ── Mailshots ─────────────────────────────────────────────────────────────────
+
+@bp.route('/api/mailshots/merge-fields')
+@permission_required('mailshots.send')
+def api_mailshots_merge_fields():
+    """Return all available merge fields (standard + custom field definitions)."""
+    db   = get_db()
+    rows = db.execute('SELECT key, label FROM field_definitions ORDER BY label').fetchall()
+    custom = [{'token': '{' + r['label'] + '}', 'label': r['label'], 'key': r['key']}
+              for r in rows]
+    return jsonify({'standard': STANDARD_MERGE_FIELDS, 'custom': custom})
 
 def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_type_filter=None):
     """
@@ -232,6 +310,10 @@ def api_mailshots_send():
             log_action('attach_to_mailshot', 'documents', doc_id,
                        {'title': doc['title'], 'subject': subject})
 
+    # Pre-load member data for merge field substitution
+    all_emails   = [r['email'] for r in recipients]
+    member_lookup = _build_member_lookup(all_emails)
+
     emails_sent = 0
     errors      = []
     try:
@@ -249,11 +331,22 @@ def api_mailshots_send():
             srv.login(SMTP_USER, SMTP_PASS)
             for r in recipients:
                 try:
+                    # Substitute merge fields per recipient
+                    member_data = member_lookup.get(r['email'].lower(), {
+                        'first_name':  r.get('name', '').split(' ')[0] if r.get('name') else '',
+                        'surname':     ' '.join(r.get('name', '').split(' ')[1:]) if r.get('name') else '',
+                        'email':       r['email'],
+                        'member_type': '',
+                        'custom':      {},
+                    })
+                    personalised_body    = _substitute_fields(body, member_data)
+                    personalised_subject = _substitute_fields(subject, member_data)
+
                     msg = MIMEMultipart('mixed') if attachments else MIMEMultipart('alternative')
-                    msg['Subject'] = subject
+                    msg['Subject'] = personalised_subject
                     msg['From']    = SMTP_FROM
                     msg['To']      = r['email']
-                    msg.attach(MIMEText(body, 'html', 'utf-8'))
+                    msg.attach(MIMEText(personalised_body, 'html', 'utf-8'))
 
                     for att in attachments:
                         part = MIMEBase('application', 'octet-stream')
