@@ -2,82 +2,116 @@
 {% block title %}{{ club_short_name }} Portal — Members{% endblock %}
 
 {% block content %}
-<div class="toolbar">
-  <div class="search-wrap">
-    <svg class="search-icon" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-    </svg>
-    <input class="search-input" id="search" type="search"
-           placeholder="Search by name…" oninput="filterMembers()">
+<style>
+  .members-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .members-toolbar-top { display: flex; align-items: center; gap: 12px; }
+  .members-toolbar-top .search-wrap { flex: 1; max-width: none; }
+  .members-toolbar-filters { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+  .filter-group { display: flex; flex-direction: column; gap: 3px; }
+  .filter-label {
+    font-size: 10px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted); padding-left: 2px;
+  }
+  .filter-group .session-select { margin: 0; }
+  .filter-sort { margin-left: auto; }
+</style>
+
+<div class="toolbar members-toolbar">
+
+  <!-- Row 1: Search + count -->
+  <div class="members-toolbar-top">
+    <div class="search-wrap">
+      <svg class="search-icon" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input class="search-input" id="search" type="search"
+             placeholder="Search by name…" oninput="filterMembers()">
+    </div>
+    <div class="count-pill" id="count-pill" onclick="showAll()">Loading…</div>
   </div>
 
-  {% if not current_session %}
-  {# Admin — unscoped: show all sessions #}
-  <select class="session-select" id="session-filter" onchange="filterMembers()">
-    <option value="all">All Sessions</option>
-    {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>{% endfor %}
-    <option value="__staff__">Staff / Volunteers</option>
-  </select>
-  {% elif session_names | length > 1 %}
-  {# Multi-session user: dropdown of their allowed sessions #}
-  <select class="session-select" id="session-filter" onchange="filterMembers()">
-    <option value="all">All My Sessions</option>
-    {% for st in session_types %}
-      {% if st.name in session_names %}
-        <option value="{{ st.name }}"{% if st.name == current_session %} selected{% endif %}>{{ st.name }}</option>
+  <!-- Row 2: Filters + sort -->
+  <div class="members-toolbar-filters">
+
+    <!-- Session -->
+    <div class="filter-group">
+      <span class="filter-label">Session</span>
+      {% if not current_session %}
+      <select class="session-select" id="session-filter" onchange="filterMembers()">
+        <option value="all">All Sessions</option>
+        {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>{% endfor %}
+        <option value="__staff__">Staff / Volunteers</option>
+      </select>
+      {% elif session_names | length > 1 %}
+      <select class="session-select" id="session-filter" onchange="filterMembers()">
+        <option value="all">All My Sessions</option>
+        {% for st in session_types %}
+          {% if st.name in session_names %}
+            <option value="{{ st.name }}"{% if st.name == current_session %} selected{% endif %}>{{ st.name }}</option>
+          {% endif %}
+        {% endfor %}
+        {% if 'members.edit' in user_permissions %}<option value="__staff__">Staff / Volunteers</option>{% endif %}
+      </select>
+      {% elif 'members.edit' in user_permissions %}
+      <select class="session-select" id="session-filter" onchange="filterMembers()">
+        <option value="{{ current_session }}">{{ current_session }}</option>
+        <option value="__staff__">Staff / Volunteers</option>
+      </select>
+      {% else %}
+      <span class="session-select" style="display:inline-flex;align-items:center;
+            padding:0 14px;background:var(--navy);color:white;border-radius:8px;
+            font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
+        {{ current_session or 'Your session' }}
+      </span>
+      <input type="hidden" id="session-filter" value="{{ current_session }}">
       {% endif %}
-    {% endfor %}
-    {% if 'members.edit' in user_permissions %}<option value="__staff__">Staff / Volunteers</option>{% endif %}
-  </select>
-  {% elif 'members.edit' in user_permissions %}
-  {# Single-session editor: locked to their session, can also view staff #}
-  <select class="session-select" id="session-filter" onchange="filterMembers()">
-    <option value="{{ current_session }}">{{ current_session }}</option>
-    <option value="__staff__">Staff / Volunteers</option>
-  </select>
-  {% else %}
-  {# Single-session read-only: fixed label #}
-  <span class="session-select" style="display:inline-flex;align-items:center;
-        padding:0 14px;background:var(--navy);color:white;border-radius:8px;
-        font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
-    {{ current_session or 'Your session' }}
-  </span>
-  <input type="hidden" id="session-filter" value="{{ current_session }}">
-  {% endif %}
+    </div>
 
-  <select class="session-select" id="status-filter" onchange="onStatusFilterChange()">
-    <option value="active">Active</option>
-    <option value="inactive">Inactive</option>
-    <option value="leaver">Leaver</option>
-    <option value="all">All Members</option>
-  </select>
+    <!-- Status -->
+    <div class="filter-group">
+      <span class="filter-label">Status</span>
+      <select class="session-select" id="status-filter" onchange="onStatusFilterChange()">
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+        <option value="leaver">Leaver</option>
+        <option value="all">All</option>
+      </select>
+    </div>
 
-  {% if 'alerts.view' in user_permissions %}
-  <select class="session-select" id="flag-filter" onchange="onFlagFilterChange()"
-          style="display:none">
-    <option value="">— No flag filter —</option>
-    <option value="any">🚨 Any flagged member</option>
-  </select>
-  {% endif %}
+    {% if 'alerts.view' in user_permissions %}
+    <!-- Flags (hidden until a flag alert is applied) -->
+    <div class="filter-group" id="flag-filter-group" style="display:none">
+      <span class="filter-label">Alert Flag</span>
+      <select class="session-select" id="flag-filter" onchange="onFlagFilterChange()">
+        <option value="">All members</option>
+        <option value="any">🚨 Any flagged</option>
+      </select>
+    </div>
+    {% endif %}
 
-  <select class="session-select" id="paid-filter" onchange="filterMembers()">
-    <option value="all">All Members</option>
-    <option value="paid">💳 Paid</option>
-    <option value="unpaid">⚠️ Unpaid</option>
-  </select>
+    <!-- Payment -->
+    {% if 'payments.view' in user_permissions %}
+    <div class="filter-group">
+      <span class="filter-label">Payment</span>
+      <select class="session-select" id="paid-filter" onchange="filterMembers()">
+        <option value="all">All</option>
+        <option value="paid">💳 Paid</option>
+        <option value="unpaid">⚠️ Unpaid</option>
+      </select>
+    </div>
+    {% endif %}
 
-  <select class="session-select" id="sort-select" onchange="onSortChange()" style="flex-shrink:0">
-    <option value="first_name">Forename A–Z</option>
-    <option value="surname">Surname A–Z</option>
-    <option value="member_id">Member ID</option>
-  </select>
-  <button class="btn btn-ghost btn-sm" id="default-sort-btn" type="button"
-          onclick="toggleDefaultSort()"
-          style="flex-shrink:0;white-space:nowrap;padding:10px 14px;font-size:13px">
-    ☆ Set default
-  </button>
+    <!-- Sort (pushed right) -->
+    <div class="filter-group filter-sort">
+      <span class="filter-label">Sort</span>
+      <select class="session-select" id="sort-select" onchange="onSortChange()">
+        <option value="first_name">Forename A–Z</option>
+        <option value="surname">Surname A–Z</option>
+        <option value="member_id">Member ID</option>
+      </select>
+    </div>
 
-  <div class="count-pill" id="count-pill" onclick="showAll()">Loading…</div>
+  </div>
 </div>
 
 <div id="members-container">
@@ -518,7 +552,8 @@
   }
 
   function updateFlagDropdown() {
-    const sel = document.getElementById('flag-filter');
+    const sel   = document.getElementById('flag-filter');
+    const group = document.getElementById('flag-filter-group');
     if (!sel) return;
 
     // Derive active flag rules from loaded member data — no extra API call needed
@@ -534,7 +569,7 @@
     const rules = [...rulesMap.values()].sort((a, b) => b.count - a.count);
 
     if (!rules.length) {
-      sel.style.display = 'none';
+      if (group) group.style.display = 'none';
       sel.value = '';
       return;
     }
@@ -542,8 +577,8 @@
     // Preserve current selection if still valid after reload
     const prev = sel.value;
     sel.innerHTML =
-      '<option value="">— No flag filter —</option>' +
-      '<option value="any">🚨 Any flagged member</option>' +
+      '<option value="">All members</option>' +
+      '<option value="any">🚨 Any flagged</option>' +
       rules.map(r =>
         `<option value="${r.rule_id}">${esc(r.label)} (${r.count})</option>`
       ).join('');
@@ -556,7 +591,7 @@
       sel.value = prev;
     }
 
-    sel.style.display = '';
+    if (group) group.style.display = '';
   }
 
   function onStatusFilterChange() {
