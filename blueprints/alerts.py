@@ -82,8 +82,12 @@ def _run_alert_rule(db, rule, today_str):
     # ── Attendance rule ────────────────────────────────────────────────────────
     if rule_type == 'attendance':
         threshold = rule['threshold_value'] or 5
+        # Use session_completions (registers that were actually completed) rather
+        # than term_sessions (the planning calendar).  term_sessions may be
+        # sparsely populated which would cause the threshold guard below to skip
+        # every member and produce 0 flags.
         past_sessions_rows = db.execute(
-            "SELECT session_date, session_type FROM term_sessions "
+            "SELECT session_date, session_type FROM session_completions "
             "WHERE session_date <= ? ORDER BY session_date DESC",
             (today_str,)
         ).fetchall()
@@ -95,10 +99,15 @@ def _run_alert_rule(db, rule, today_str):
             relevant = sessions_by_type[m['session']][:threshold]
             if len(relevant) < threshold:
                 continue
+            # Count positive sign-ins only (signed_in_at IS NOT NULL) so that
+            # absence rows written at register-completion time are not counted
+            # as attended sessions.  Also filter by session_type to avoid
+            # cross-session contamination on shared dates.
             attended = db.execute(
-                'SELECT COUNT(*) AS n FROM attendance WHERE member_id = ? '
+                'SELECT COUNT(*) AS n FROM attendance '
+                'WHERE member_id = ? AND session_type = ? AND signed_in_at IS NOT NULL '
                 'AND session_date IN ({})'.format(','.join('?' * len(relevant))),
-                [m['id']] + relevant
+                [m['id'], m['session']] + relevant
             ).fetchone()['n']
             if attended == 0:
                 should_flag.add(m['id'])

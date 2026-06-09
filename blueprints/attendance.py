@@ -260,6 +260,31 @@ def api_attendance_complete():
     ).fetchall()
     auto_count = len(still_in)
 
+    # Fetch all active non-staff members for this session type so we can write
+    # absence rows for anyone who didn't sign in.
+    all_session_members = db.execute(
+        '''SELECT m.id FROM members m
+           JOIN member_types mt ON mt.slug = m.member_type
+           WHERE m.session = ?
+             AND EXISTS (SELECT 1 FROM member_statuses ms
+                         WHERE ms.name = m.status AND ms.behaviour = 'active')
+             AND mt.registration_style != 'staff' ''',
+        (sess_type,)
+    ).fetchall()
+
+    # Collect IDs of members who actually signed in today.
+    signed_in_ids = {
+        row['member_id']
+        for row in db.execute(
+            'SELECT member_id FROM attendance '
+            'WHERE session_date = ? AND session_type = ? AND signed_in_at IS NOT NULL',
+            (sess_date, sess_type)
+        ).fetchall()
+    }
+
+    absent_member_ids = [m['id'] for m in all_session_members
+                         if m['id'] not in signed_in_ids]
+
     try:
         db.execute('BEGIN IMMEDIATE')
         if auto_count:
@@ -275,6 +300,15 @@ def api_attendance_complete():
                VALUES (?, ?, ?, datetime('now'), ?)''',
             (sess_date, sess_type, session['user_id'], auto_count)
         )
+        # Write absence rows (signed_in_at IS NULL) for every active member who
+        # didn't attend.  INSERT OR IGNORE is safe: if a row already exists
+        # (e.g. from a previous partial entry), leave it untouched.
+        for mid in absent_member_ids:
+            db.execute(
+                'INSERT OR IGNORE INTO attendance (member_id, session_date, session_type) '
+                'VALUES (?, ?, ?)',
+                (mid, sess_date, sess_type)
+            )
         db.execute('COMMIT')
     except sqlite3.IntegrityError:
         db.execute('ROLLBACK')
@@ -299,6 +333,7 @@ def api_attendance_complete():
         'session_type':       sess_type,
         'session_date':       sess_date,
         'auto_signout_count': auto_count,
+        'absence_rows_added': len(absent_member_ids),
     })
 
     return jsonify({
@@ -361,7 +396,14 @@ def api_attendance_history(member_id):
         ' ORDER BY session_date DESC LIMIT 20',
         (member_id,)
     ).fetchall()
-    return jsonify([dict(r) for r in rows])
+    result = []
+    for r in rows:
+        d = dict(r)
+        # attended=True  → signed in (positive attendance record)
+        # attended=False → absence row written at register completion
+        d['attended'] = r['signed_in_at'] is not None
+        result.append(d)
+    return jsonify(result)
 
 
 # ── SSE display stream ─────────────────────────────────────────────────────────
