@@ -199,13 +199,13 @@
     });
 
     const catOrder = ['members','register','approvals','documents','calendar',
-                      'users','admin','audit','communications','display'];
+                      'users','admin','audit','communications','alerts','payments','display'];
 
     const catLabels = {
       members:'Members', register:'Register', approvals:'Approvals',
       documents:'Documents', calendar:'Calendar', users:'Users',
       admin:'Admin / Settings', audit:'Audit Log', communications:'Communications',
-      display:'Display Board',
+      alerts:'Alerts', payments:'Payments', display:'Display Board',
     };
 
     const html = catOrder.filter(c => cats[c]).map(cat => {
