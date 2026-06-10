@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.22'  # v11.22: Remove legacy leader role; fix Docker session-access bug; guard member type/field seeding to fresh installs only
+APP_VERSION = 'v11.23'  # v11.23: Granular settings permissions (admin.branding, admin.roles, admin.smtp_profiles); multi-sender SMTP profiles with DB-stored credentials
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
@@ -119,6 +119,10 @@ ALL_PERMISSIONS = [
     ('payments.view',       'View Payments',            'View payment history on member cards',                  'payments'),
     ('payments.record',     'Record Payments',          'Add and edit payment entries on member records',        'payments'),
     ('payments.manage',     'Manage Payments',          'Void payments, manage payment types and methods, set current period', 'payments'),
+    # Admin — granular settings
+    ('admin.branding',      'Manage Branding',          'Customise club name, logo, colours and nav style',      'admin'),
+    ('admin.roles',         'Manage Roles & Permissions', 'Create and edit portal roles and their permission sets', 'admin'),
+    ('admin.smtp_profiles', 'Manage Email Senders',     'Add, edit and delete SMTP sender profiles for mailshots', 'admin'),
 ]
 
 # ── Default role permissions ───────────────────────────────────────────────────
@@ -132,6 +136,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         'calendar.create', 'calendar.edit', 'calendar.delete',
         'users.view', 'users.create', 'users.edit', 'users.create.admin', 'users.delete',
         'admin.settings', 'admin.session_types', 'admin.maintenance',
+        'admin.branding', 'admin.roles', 'admin.smtp_profiles',
         'audit.view',
         'mailshots.send', 'mailshots.templates',
         'activities.manage',
@@ -147,7 +152,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         'documents.view', 'documents.upload', 'documents.delete',
         'calendar.create', 'calendar.edit', 'calendar.delete',
         'users.view', 'users.create', 'users.edit',
-        'admin.settings',
+        'admin.settings', 'admin.branding', 'admin.smtp_profiles',
         'audit.view',
         'mailshots.send', 'mailshots.templates',
         'activities.manage',

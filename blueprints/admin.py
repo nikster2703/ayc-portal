@@ -5,6 +5,7 @@ Routes:
   /api/admin/users/*
   /api/admin/staff-roles/*
   /api/admin/permissions, /api/admin/roles/*
+  /api/admin/smtp-profiles/*
   /api/tags, /api/admin/tags/*
   /api/members/<id>/tags/*
   /api/admin/member-types/*, /api/admin/field-definitions/*
@@ -37,7 +38,7 @@ from helpers import (
     get_db, log_action, login_required, permission_required, has_permission,
     _assigned_session, _connect_db, _validate_hex_colour, _invalidate_brand_cache,
     get_brand_settings, get_valid_session_names, get_session_types, validate_password,
-    get_setting,
+    get_setting, encrypt_file, decrypt_file,
 )
 
 bp = Blueprint('admin', __name__)
@@ -102,7 +103,7 @@ def api_settings_save():
 # ── Branding ──────────────────────────────────────────────────────────────────
 
 @bp.route('/api/admin/branding')
-@permission_required('admin.settings')
+@permission_required('admin.branding')
 def api_branding_get():
     brand = get_brand_settings()
     return jsonify({
@@ -115,7 +116,7 @@ def api_branding_get():
 
 
 @bp.route('/api/admin/branding', methods=['POST'])
-@permission_required('admin.settings')
+@permission_required('admin.branding')
 def api_branding_save():
     data    = request.get_json() or {}
     updates = {}
@@ -156,7 +157,7 @@ def api_branding_save():
 
 
 @bp.route('/api/admin/branding/logo', methods=['POST'])
-@permission_required('admin.settings')
+@permission_required('admin.branding')
 def api_branding_logo_upload():
     if 'logo' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
@@ -193,7 +194,7 @@ def api_branding_logo_upload():
 
 
 @bp.route('/api/admin/branding/logo', methods=['DELETE'])
-@permission_required('admin.settings')
+@permission_required('admin.branding')
 def api_branding_logo_delete():
     brand    = get_brand_settings()
     filename = brand.get('brand_logo_file', '')
@@ -594,7 +595,7 @@ def api_admin_staff_roles_reorder():
 # ── Permissions + Roles CRUD ──────────────────────────────────────────────────
 
 @bp.route('/api/admin/permissions')
-@permission_required('admin.settings')
+@permission_required('admin.roles')
 def api_permissions_list():
     db   = get_db()
     rows = db.execute(
@@ -604,7 +605,7 @@ def api_permissions_list():
 
 
 @bp.route('/api/admin/roles')
-@permission_required('admin.settings')
+@permission_required('admin.roles')
 def api_roles_list():
     db   = get_db()
     rows = db.execute(
@@ -624,7 +625,7 @@ def api_roles_list():
 
 
 @bp.route('/api/admin/roles', methods=['POST'])
-@permission_required('admin.settings')
+@permission_required('admin.roles')
 def api_roles_create():
     data         = request.get_json() or {}
     name         = data.get('name', '').strip()
@@ -663,7 +664,7 @@ def api_roles_create():
 
 
 @bp.route('/api/admin/roles/<int:role_id>', methods=['PUT'])
-@permission_required('admin.settings')
+@permission_required('admin.roles')
 def api_roles_update(role_id):
     data  = request.get_json() or {}
     db    = get_db()
@@ -710,7 +711,7 @@ def api_roles_update(role_id):
 
 
 @bp.route('/api/admin/roles/<int:role_id>', methods=['DELETE'])
-@permission_required('admin.settings')
+@permission_required('admin.roles')
 def api_roles_delete(role_id):
     db   = get_db()
     role = db.execute('SELECT * FROM roles WHERE id = ?', (role_id,)).fetchone()
@@ -728,6 +729,196 @@ def api_roles_delete(role_id):
     db.commit()
     log_action('delete_role', 'roles', role_id, {'name': role['name']})
     return jsonify({'success': True})
+
+
+# ── SMTP profiles CRUD ────────────────────────────────────────────────────────
+
+@bp.route('/api/admin/smtp-profiles')
+@permission_required('admin.smtp_profiles')
+def api_smtp_profiles_list():
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, name, host, port, username, from_address, is_default, created_at, updated_at'
+        ' FROM smtp_profiles ORDER BY is_default DESC, name'
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@bp.route('/api/admin/smtp-profiles', methods=['POST'])
+@permission_required('admin.smtp_profiles')
+def api_smtp_profiles_create():
+    data         = request.get_json() or {}
+    name         = (data.get('name') or '').strip()
+    host         = (data.get('host') or '').strip()
+    port         = int(data.get('port') or 587)
+    username     = (data.get('username') or '').strip()
+    password     = (data.get('password') or '').strip()
+    from_address = (data.get('from_address') or username).strip()
+    is_default   = int(bool(data.get('is_default')))
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    if not host:
+        return jsonify({'error': 'Host is required'}), 400
+    if not username:
+        return jsonify({'error': 'Username is required'}), 400
+    if not password:
+        return jsonify({'error': 'Password is required'}), 400
+
+    password_enc = encrypt_file(password.encode()).decode()
+    db = get_db()
+
+    if is_default:
+        db.execute('UPDATE smtp_profiles SET is_default = 0')
+
+    try:
+        cur = db.execute(
+            'INSERT INTO smtp_profiles (name, host, port, username, password_enc, from_address, is_default, created_by)'
+            ' VALUES (?,?,?,?,?,?,?,?)',
+            (name, host, port, username, password_enc, from_address, is_default, session['user_id'])
+        )
+        # If this is the first profile ever, make it default automatically
+        if db.execute('SELECT COUNT(*) FROM smtp_profiles').fetchone()[0] == 1:
+            db.execute('UPDATE smtp_profiles SET is_default = 1 WHERE id = ?', (cur.lastrowid,))
+        db.commit()
+        log_action('create_smtp_profile', 'smtp_profiles', cur.lastrowid, {'name': name, 'host': host})
+        row = db.execute(
+            'SELECT id, name, host, port, username, from_address, is_default, created_at, updated_at'
+            ' FROM smtp_profiles WHERE id = ?', (cur.lastrowid,)
+        ).fetchone()
+        return jsonify(dict(row)), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A profile named "{name}" already exists'}), 409
+
+
+@bp.route('/api/admin/smtp-profiles/<int:profile_id>', methods=['PUT'])
+@permission_required('admin.smtp_profiles')
+def api_smtp_profiles_update(profile_id):
+    data    = request.get_json() or {}
+    db      = get_db()
+    current = db.execute('SELECT * FROM smtp_profiles WHERE id = ?', (profile_id,)).fetchone()
+    if not current:
+        return jsonify({'error': 'Profile not found'}), 404
+
+    name         = (data.get('name') or current['name']).strip()
+    host         = (data.get('host') or current['host']).strip()
+    port         = int(data.get('port') or current['port'])
+    username     = (data.get('username') or current['username']).strip()
+    from_address = (data.get('from_address') or current['from_address']).strip()
+    is_default   = int(bool(data.get('is_default', current['is_default'])))
+
+    # Only update password if a new one is supplied
+    if data.get('password', '').strip():
+        password_enc = encrypt_file(data['password'].strip().encode()).decode()
+    else:
+        password_enc = current['password_enc']
+
+    if not name or not host or not username:
+        return jsonify({'error': 'Name, host and username are required'}), 400
+
+    if is_default:
+        db.execute('UPDATE smtp_profiles SET is_default = 0 WHERE id != ?', (profile_id,))
+
+    try:
+        db.execute(
+            'UPDATE smtp_profiles SET name=?, host=?, port=?, username=?, password_enc=?,'
+            ' from_address=?, is_default=?, updated_at=datetime("now") WHERE id=?',
+            (name, host, port, username, password_enc, from_address, is_default, profile_id)
+        )
+        db.commit()
+        log_action('update_smtp_profile', 'smtp_profiles', profile_id, {'name': name})
+        row = db.execute(
+            'SELECT id, name, host, port, username, from_address, is_default, created_at, updated_at'
+            ' FROM smtp_profiles WHERE id = ?', (profile_id,)
+        ).fetchone()
+        return jsonify(dict(row))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': f'A profile named "{name}" already exists'}), 409
+
+
+@bp.route('/api/admin/smtp-profiles/<int:profile_id>', methods=['DELETE'])
+@permission_required('admin.smtp_profiles')
+def api_smtp_profiles_delete(profile_id):
+    db      = get_db()
+    profile = db.execute('SELECT * FROM smtp_profiles WHERE id = ?', (profile_id,)).fetchone()
+    if not profile:
+        return jsonify({'error': 'Profile not found'}), 404
+
+    count = db.execute('SELECT COUNT(*) FROM smtp_profiles').fetchone()[0]
+    if count <= 1:
+        return jsonify({'error': 'Cannot delete the only email sender profile'}), 400
+
+    db.execute('DELETE FROM smtp_profiles WHERE id = ?', (profile_id,))
+    # If we just deleted the default, promote the first remaining profile
+    if profile['is_default']:
+        first = db.execute('SELECT id FROM smtp_profiles ORDER BY id LIMIT 1').fetchone()
+        if first:
+            db.execute('UPDATE smtp_profiles SET is_default = 1 WHERE id = ?', (first['id'],))
+    db.commit()
+    log_action('delete_smtp_profile', 'smtp_profiles', profile_id, {'name': profile['name']})
+    return jsonify({'success': True})
+
+
+@bp.route('/api/admin/smtp-profiles/<int:profile_id>/set-default', methods=['POST'])
+@permission_required('admin.smtp_profiles')
+def api_smtp_profiles_set_default(profile_id):
+    db = get_db()
+    if not db.execute('SELECT id FROM smtp_profiles WHERE id = ?', (profile_id,)).fetchone():
+        return jsonify({'error': 'Profile not found'}), 404
+    db.execute('UPDATE smtp_profiles SET is_default = 0')
+    db.execute('UPDATE smtp_profiles SET is_default = 1 WHERE id = ?', (profile_id,))
+    db.commit()
+    log_action('set_default_smtp_profile', 'smtp_profiles', profile_id, {})
+    return jsonify({'success': True})
+
+
+@bp.route('/api/admin/smtp-profiles/<int:profile_id>/test', methods=['POST'])
+@permission_required('admin.smtp_profiles')
+def api_smtp_profiles_test(profile_id):
+    """Send a test email to the logged-in user's address using this profile."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    db      = get_db()
+    profile = db.execute('SELECT * FROM smtp_profiles WHERE id = ?', (profile_id,)).fetchone()
+    if not profile:
+        return jsonify({'error': 'Profile not found'}), 404
+
+    # Get logged-in user's email address for the test
+    user_row = db.execute('SELECT email FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    to_addr  = (user_row['email'] if user_row else '') or ''
+    if not to_addr:
+        return jsonify({'error': 'Your portal account has no email address set — add one in your user profile first'}), 400
+
+    try:
+        password = decrypt_file(profile['password_enc'].encode()).decode()
+    except Exception:
+        return jsonify({'error': 'Could not decrypt stored password — re-save the profile and try again'}), 500
+
+    msg            = MIMEText('This is a test email from your AYC Portal email sender configuration.', 'plain', 'utf-8')
+    msg['Subject'] = 'AYC Portal — Email Sender Test'
+    msg['From']    = profile['from_address']
+    msg['To']      = to_addr
+
+    try:
+        if profile['port'] == 465:
+            import ssl as _ssl
+            with smtplib.SMTP_SSL(profile['host'], profile['port'], timeout=15,
+                                  context=_ssl.create_default_context()) as srv:
+                srv.login(profile['username'], password)
+                srv.sendmail(profile['from_address'], [to_addr], msg.as_string())
+        else:
+            with smtplib.SMTP(profile['host'], profile['port'], timeout=15) as srv:
+                srv.ehlo(); srv.starttls(); srv.ehlo()
+                srv.login(profile['username'], password)
+                srv.sendmail(profile['from_address'], [to_addr], msg.as_string())
+    except smtplib.SMTPAuthenticationError:
+        return jsonify({'error': 'Authentication failed — check the username and password'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Send failed: {e}'}), 400
+
+    log_action('test_smtp_profile', 'smtp_profiles', profile_id, {'to': to_addr})
+    return jsonify({'success': True, 'sent_to': to_addr})
 
 
 # ── Tag definitions CRUD ──────────────────────────────────────────────────────

@@ -30,6 +30,11 @@
         </select>
       </div>
 
+      <div id="s-sender-group" class="form-group" style="display:none">
+        <label>Send from</label>
+        <select id="s-sender"></select>
+      </div>
+
       <div class="form-group">
         <label>Subject <span style="color:var(--red)">*</span></label>
         <input type="text" id="s-subject" placeholder="e.g. {{ club_short_name }} Session Update — this week">
@@ -680,6 +685,19 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
   /* ════════════════════════════════════════════════════
      INIT
      ════════════════════════════════════════════════════ */
+  async function loadSenderProfiles() {
+    try {
+      const profiles = await apiFetch('/api/admin/smtp-profiles');
+      const sel      = document.getElementById('s-sender');
+      const grp      = document.getElementById('s-sender-group');
+      if (!Array.isArray(profiles) || profiles.length <= 1) return; // hide when 0 or 1 profile
+      sel.innerHTML = profiles.map(p =>
+        `<option value="${p.id}" ${p.is_default ? 'selected' : ''}>${esc(p.name)} &lt;${esc(p.from_address || p.username)}&gt;</option>`
+      ).join('');
+      grp.style.display = '';
+    } catch (_) { /* no smtp_profiles permission — silently skip */ }
+  }
+
   (async function init() {
     await Promise.all([
       loadTemplateDropdown(),
@@ -687,6 +705,7 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
       loadAlertFlags(),
       loadStatusFilter(),
       loadMergeFields(),
+      loadSenderProfiles(),
     ]);
     previewRecipients();
   })();
@@ -820,12 +839,15 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     const btn = document.getElementById('send-btn');
     btn.disabled=true; btn.textContent='⏳ Sending…';
     try {
+      const senderEl  = document.getElementById('s-sender');
+      const profileId = senderEl && senderEl.value ? parseInt(senderEl.value) : null;
       const res = await apiFetch('/api/mailshots/send', {
         method:'POST',
         body: JSON.stringify({
           subject, body_html: body, recipients,
           document_ids: selectedDocs.map(d=>d.id),
           template_id: tmplId ? parseInt(tmplId) : null,
+          smtp_profile_id: profileId,
         }),
       });
       let msg = `✅ Sent to ${res.sent} recipient${res.sent!==1?'s':''}.`;

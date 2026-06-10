@@ -394,6 +394,20 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_doc_metadata_doc   ON document_metadata(document_id);
         CREATE INDEX IF NOT EXISTS idx_doc_metadata_field ON document_metadata(field_id);
+        -- v11.7: SMTP sender profiles (replaces hard-coded .env SMTP settings)
+        CREATE TABLE IF NOT EXISTS smtp_profiles (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT    NOT NULL UNIQUE,
+            host         TEXT    NOT NULL,
+            port         INTEGER NOT NULL DEFAULT 587,
+            username     TEXT    NOT NULL,
+            password_enc TEXT    NOT NULL,
+            from_address TEXT    NOT NULL,
+            is_default   INTEGER NOT NULL DEFAULT 0,
+            created_by   INTEGER REFERENCES users(id),
+            created_at   TEXT    DEFAULT (datetime('now')),
+            updated_at   TEXT
+        );
     ''')
 
     # FTS5 must be created separately — not all SQLite builds support it.
@@ -461,6 +475,37 @@ def ensure_tables():
             else:
                 logger.error('Migration failed — stmt: %s — error: %s', stmt, e)
                 raise
+
+    db.commit()
+
+    # v11.7: auto-import SMTP settings from .env into smtp_profiles (runs once, when table is empty)
+    try:
+        existing = db.execute('SELECT COUNT(*) FROM smtp_profiles').fetchone()[0]
+        if existing == 0:
+            _host = os.environ.get('MAIL_HOST', '').strip()
+            _user = os.environ.get('MAIL_USERNAME', '').strip()
+            _pass = os.environ.get('MAIL_PASSWORD', '').strip()
+            _from = os.environ.get('MAIL_FROM', _user).strip()
+            _port = int(os.environ.get('MAIL_PORT', 587))
+            if _host and _user and _pass:
+                from cryptography.fernet import Fernet
+                import base64, hashlib
+                _doc_key = os.environ.get('DOCUMENT_ENCRYPTION_KEY', '').strip()
+                if _doc_key:
+                    _fernet = Fernet(_doc_key.encode())
+                else:
+                    _db_key = os.environ.get('DB_ENCRYPTION_KEY', '').strip()
+                    _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(_db_key.encode()).digest()))
+                _enc = _fernet.encrypt(_pass.encode()).decode()
+                db.execute(
+                    'INSERT INTO smtp_profiles (name, host, port, username, password_enc, from_address, is_default)'
+                    ' VALUES (?,?,?,?,?,?,1)',
+                    ('Default', _host, _port, _user, _enc, _from or _user)
+                )
+                db.commit()
+                logger.info('v11.7: auto-imported SMTP settings from .env into smtp_profiles')
+    except Exception as _smtp_e:
+        logger.warning('v11.7: smtp_profiles auto-import skipped: %s', _smtp_e)
 
     # v10.3 Phase A: make session_types.weekday nullable (was NOT NULL in older schemas).
     # SQLite can't ALTER COLUMN, so we rebuild the table if the schema still has the constraint.

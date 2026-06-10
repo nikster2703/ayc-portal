@@ -368,18 +368,46 @@ def api_mailshots_preview():
 @bp.route('/api/mailshots/send', methods=['POST'])
 @permission_required('mailshots.send')
 def api_mailshots_send():
-    """Send a mailshot via Gmail SMTP and log it."""
+    """Send a mailshot via SMTP and log it."""
     data           = request.get_json() or {}
     subject        = (data.get('subject') or '').strip()
     body           = (data.get('body_html') or '').strip()
     template_id    = data.get('template_id')
     explicit_recip = data.get('recipients')        # list of {email, name} from frontend checklist
     document_ids   = data.get('document_ids', [])  # list of document IDs to attach
+    profile_id     = data.get('smtp_profile_id')   # optional — falls back to default profile
 
     if not subject or not body:
         return jsonify({'error': 'Subject and body are required'}), 400
-    if not SMTP_USER or not SMTP_PASS:
-        return jsonify({'error': 'Email not configured — add MAIL_USERNAME and MAIL_PASSWORD to your .env file'}), 503
+
+    # ── Resolve SMTP credentials ──────────────────────────────────────────────
+    # Prefer DB profile; fall back to .env values for backwards compatibility.
+    db = get_db()
+    _smtp_host = _smtp_port = _smtp_user = _smtp_pass = _smtp_from = None
+    if profile_id:
+        _prof = db.execute('SELECT * FROM smtp_profiles WHERE id = ?', (profile_id,)).fetchone()
+    else:
+        _prof = db.execute('SELECT * FROM smtp_profiles WHERE is_default = 1 LIMIT 1').fetchone()
+
+    if _prof:
+        try:
+            _smtp_pass = decrypt_file(_prof['password_enc'].encode()).decode()
+        except Exception:
+            return jsonify({'error': 'Could not decrypt email sender password — re-save the profile in Settings → Email Senders'}), 503
+        _smtp_host = _prof['host']
+        _smtp_port = _prof['port']
+        _smtp_user = _prof['username']
+        _smtp_from = _prof['from_address']
+    else:
+        # .env fallback (no profiles configured yet)
+        _smtp_host = SMTP_HOST
+        _smtp_port = SMTP_PORT
+        _smtp_user = SMTP_USER
+        _smtp_pass = SMTP_PASS
+        _smtp_from = SMTP_FROM
+
+    if not _smtp_user or not _smtp_pass:
+        return jsonify({'error': 'Email not configured — add a sender profile in Settings → Email Senders'}), 503
 
     # Use explicit selection from the frontend checklist; fall back to filter query
     if explicit_recip and isinstance(explicit_recip, list):
@@ -392,7 +420,6 @@ def api_mailshots_send():
         return jsonify({'error': 'No recipients selected'}), 400
 
     # Resolve and validate attachments from the document repository
-    db          = get_db()
     attachments = []   # list of {filename, mime_type, data (bytes)}
     if document_ids:
         for doc_id in document_ids:
@@ -423,17 +450,17 @@ def api_mailshots_send():
     errors      = []
     try:
         # Port 465 uses implicit SSL; all other ports (e.g. 587) use STARTTLS
-        if SMTP_PORT == 465:
+        if _smtp_port == 465:
             ctx = smtplib.ssl.create_default_context()
-            srv_cm = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=ctx)
+            srv_cm = smtplib.SMTP_SSL(_smtp_host, _smtp_port, timeout=15, context=ctx)
         else:
-            srv_cm = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+            srv_cm = smtplib.SMTP(_smtp_host, _smtp_port, timeout=15)
         with srv_cm as srv:
             srv.ehlo()
-            if SMTP_PORT != 465:
+            if _smtp_port != 465:
                 srv.starttls()
                 srv.ehlo()
-            srv.login(SMTP_USER, SMTP_PASS)
+            srv.login(_smtp_user, _smtp_pass)
             for r in recipients:
                 try:
                     # Substitute merge fields per recipient
@@ -449,7 +476,7 @@ def api_mailshots_send():
 
                     msg = MIMEMultipart('mixed') if attachments else MIMEMultipart('alternative')
                     msg['Subject'] = personalised_subject
-                    msg['From']    = SMTP_FROM
+                    msg['From']    = _smtp_from
                     msg['To']      = r['email']
                     msg.attach(MIMEText(personalised_body, 'html', 'utf-8'))
 
@@ -465,21 +492,22 @@ def api_mailshots_send():
                         part.set_type(att['mime_type'])
                         msg.attach(part)
 
-                    srv.sendmail(SMTP_FROM, [r['email']], msg.as_string())
+                    srv.sendmail(_smtp_from, [r['email']], msg.as_string())
                     emails_sent += 1
                 except Exception as e:
                     errors.append({'email': r['email'], 'error': str(e)})
     except smtplib.SMTPAuthenticationError:
-        return jsonify({'error': 'Gmail authentication failed — check your App Password in .env'}), 503
+        return jsonify({'error': 'SMTP authentication failed — check the sender profile credentials in Settings → Email Senders'}), 503
     except Exception as e:
         current_app.logger.error(f'Mailshot SMTP error: {e}')
-        return jsonify({'error': 'Failed to connect to the mail server. Check SMTP settings in .env.'}), 503
+        return jsonify({'error': f'Failed to connect to the mail server: {e}'}), 503
 
-    # Log mailshot — store document IDs in filter_criteria for audit trail
+    # Log mailshot — store document IDs and profile used in filter_criteria for audit trail
     log_meta = {
         'recipients':       len(recipients),
         'manual_selection': bool(explicit_recip),
         'document_ids':     list(document_ids) if document_ids else [],
+        'smtp_profile_id':  profile_id or (_prof['id'] if _prof else None),
     }
     db.execute(
         'INSERT INTO mailshot_log (template_id, subject, sent_by, recipient_count, filter_criteria, notes)'

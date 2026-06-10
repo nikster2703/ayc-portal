@@ -74,7 +74,7 @@
 </style>
 
 <!-- ── Access & People ──────────────────────────────────────────────── -->
-{% if 'users.view' in user_permissions or 'admin.settings' in user_permissions %}
+{% if 'users.view' in user_permissions or 'admin.roles' in user_permissions or 'admin.settings' in user_permissions or 'admin.branding' in user_permissions %}
 <div class="settings-group">
   <div class="settings-group-title">Access &amp; People</div>
   <div class="settings-grid">
@@ -87,19 +87,23 @@
     </a>
     {% endif %}
 
-    {% if 'admin.settings' in user_permissions %}
+    {% if 'admin.roles' in user_permissions %}
     <a href="/admin/roles" class="settings-card">
       <div class="settings-card__icon">🔐</div>
       <div class="settings-card__title">Roles &amp; Permissions</div>
       <div class="settings-card__desc">Control exactly what each role can do — sign-ins, approvals, documents, calendar and more.</div>
     </a>
+    {% endif %}
 
+    {% if 'admin.settings' in user_permissions %}
     <a href="/admin/staff-roles" class="settings-card">
       <div class="settings-card__icon">🏷️</div>
       <div class="settings-card__title">Staff Roles</div>
       <div class="settings-card__desc">Customise the role list shown on staff registration and the reception display.</div>
     </a>
+    {% endif %}
 
+    {% if 'admin.branding' in user_permissions %}
     <a href="/admin/branding" class="settings-card">
       <div class="settings-card__icon">🎨</div>
       <div class="settings-card__title">Branding</div>
@@ -174,6 +178,22 @@
       <div class="settings-card__desc">Configure the categories used to organise the Document Repository — add, edit, reorder, and deactivate categories as your needs evolve.</div>
     </a>
     {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Communications ───────────────────────────────────────────────── -->
+{% if 'admin.smtp_profiles' in user_permissions %}
+<div class="settings-group">
+  <div class="settings-group-title">Communications</div>
+  <div class="settings-grid">
+
+    <a href="/admin/smtp-profiles" class="settings-card">
+      <div class="settings-card__icon">📧</div>
+      <div class="settings-card__title">Email Senders</div>
+      <div class="settings-card__desc">Manage the SMTP sender profiles used for mailshots — configure multiple accounts so different roles can send from different addresses.</div>
+    </a>
 
   </div>
 </div>

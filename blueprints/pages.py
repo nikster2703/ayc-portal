@@ -386,7 +386,7 @@ def system_logs_page():
 
 
 @bp.route('/admin/branding')
-@permission_required('admin.settings')
+@permission_required('admin.branding')
 def branding_page():
     return render_template('admin/branding.html', active_page='settings', **tpl_ctx())
 
@@ -398,9 +398,15 @@ def settings_page():
 
 
 @bp.route('/admin/roles')
-@permission_required('admin.settings')
+@permission_required('admin.roles')
 def roles_page():
     return render_template('admin/roles.html', active_page='settings', **tpl_ctx())
+
+
+@bp.route('/admin/smtp-profiles')
+@permission_required('admin.smtp_profiles')
+def smtp_profiles_page():
+    return render_template('admin/smtp_profiles.html', active_page='settings', **tpl_ctx())
 
 
 @bp.route('/admin/staff-roles')

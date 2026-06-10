@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Email Senders{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <h1>📧 Email Senders</h1>
+  <button class="btn btn-primary" onclick="openModal()">+ Add Sender</button>
+</div>
+
+<div class="form-card" style="max-width:760px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    Configure the SMTP accounts used to send mailshots. Multiple profiles let different
+    roles send from different addresses — e.g. the secretary from one address, the chair
+    from another. The <strong>default</strong> profile is used when no specific sender
+    is selected in the mailshot composer.
+  </p>
+
+  <div id="profiles-list">
+    <div class="loading-state"><div class="spinner"></div><p>Loading…</p></div>
+  </div>
+</div>
+
+<!-- ── Add / Edit Modal ─────────────────────────────────────────────────── -->
+<div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center" hidden>
+  <div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:480px;box-shadow:0 8px 40px rgba(0,0,0,.18)">
+    <h2 id="modal-title" style="font-size:17px;font-weight:900;color:var(--navy);margin-bottom:20px">Add Email Sender</h2>
+
+    <div style="display:grid;gap:14px">
+      <div>
+        <label class="form-label">Display Name <span style="color:#dc2626">*</span></label>
+        <input id="f-name" class="form-input" placeholder="e.g. Secretary, Club Chair">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 100px;gap:10px">
+        <div>
+          <label class="form-label">SMTP Host <span style="color:#dc2626">*</span></label>
+          <input id="f-host" class="form-input" placeholder="smtp.gmail.com">
+        </div>
+        <div>
+          <label class="form-label">Port</label>
+          <input id="f-port" class="form-input" type="number" value="465" min="1" max="65535">
+        </div>
+      </div>
+      <div>
+        <label class="form-label">Username / Email <span style="color:#dc2626">*</span></label>
+        <input id="f-username" class="form-input" type="email" placeholder="sender@gmail.com">
+      </div>
+      <div>
+        <label class="form-label" id="f-password-label">App Password <span style="color:#dc2626">*</span></label>
+        <input id="f-password" class="form-input" type="password" placeholder="16-character Gmail App Password" autocomplete="new-password">
+        <p id="f-password-hint" style="font-size:12px;color:var(--muted);margin-top:4px;display:none">Leave blank to keep the existing password.</p>
+      </div>
+      <div>
+        <label class="form-label">From Address</label>
+        <input id="f-from" class="form-input" placeholder='e.g. Club Secretary &lt;secretary@example.com&gt;'>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px">Defaults to username if left blank.</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input id="f-default" type="checkbox" style="width:16px;height:16px;cursor:pointer">
+        <label for="f-default" style="font-size:14px;font-weight:600;cursor:pointer">Set as default sender</label>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button id="modal-save-btn" class="btn btn-primary" onclick="saveProfile()">Save</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .profile-card {
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+  }
+  .profile-card.is-default { border-color: var(--accent); background: #f0fafc; }
+  .profile-meta { flex: 1; min-width: 0; }
+  .profile-name { font-weight: 800; font-size: 15px; color: var(--navy); }
+  .profile-detail { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .badge-default {
+    font-size: 11px; font-weight: 700; background: var(--accent); color: #fff;
+    padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+  }
+  .profile-actions { display: flex; gap: 8px; flex-shrink: 0; }
+</style>
+
+<script>
+  let _profiles = [];
+  let _editingId = null;
+
+  async function loadProfiles() {
+    const res  = await apiFetch('/api/admin/smtp-profiles');
+    _profiles  = Array.isArray(res) ? res : [];
+    renderProfiles();
+  }
+
+  function renderProfiles() {
+    const el = document.getElementById('profiles-list');
+    if (!_profiles.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:14px">No sender profiles yet — add one above.</p>';
+      return;
+    }
+    el.innerHTML = _profiles.map(p => `
+      <div class="profile-card ${p.is_default ? 'is-default' : ''}">
+        <div style="font-size:28px">📧</div>
+        <div class="profile-meta">
+          <div class="profile-name">
+            ${esc(p.name)}
+            ${p.is_default ? '<span class="badge-default" style="margin-left:8px">Default</span>' : ''}
+          </div>
+          <div class="profile-detail">${esc(p.from_address || p.username)} &mdash; ${esc(p.host)}:${p.port}</div>
+          <div class="profile-detail" style="margin-top:2px">Username: ${esc(p.username)}</div>
+        </div>
+        <div class="profile-actions">
+          ${!p.is_default ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="setDefault(${p.id})">Set default</button>` : ''}
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="testProfile(${p.id}, this)">Test</button>
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openModal(${p.id})">Edit</button>
+          ${_profiles.length > 1 ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fecaca" onclick="deleteProfile(${p.id}, '${esc(p.name)}')">Delete</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function openModal(id) {
+    _editingId = id || null;
+    const p    = id ? _profiles.find(x => x.id === id) : null;
+
+    document.getElementById('modal-title').textContent      = p ? 'Edit Email Sender' : 'Add Email Sender';
+    document.getElementById('modal-save-btn').textContent   = p ? 'Save Changes' : 'Add Sender';
+    document.getElementById('f-name').value                 = p ? p.name : '';
+    document.getElementById('f-host').value                 = p ? p.host : 'smtp.gmail.com';
+    document.getElementById('f-port').value                 = p ? p.port : 465;
+    document.getElementById('f-username').value             = p ? p.username : '';
+    document.getElementById('f-password').value             = '';
+    document.getElementById('f-from').value                 = p ? p.from_address : '';
+    document.getElementById('f-default').checked            = p ? !!p.is_default : !_profiles.length;
+    document.getElementById('f-password-hint').style.display = p ? 'block' : 'none';
+    document.getElementById('f-password-label').innerHTML  = p
+      ? 'App Password'
+      : 'App Password <span style="color:#dc2626">*</span>';
+
+    const overlay = document.getElementById('modal-overlay');
+    overlay.hidden = false;
+    overlay.style.display = 'flex';
+    document.getElementById('f-name').focus();
+  }
+
+  function closeModal() {
+    const overlay = document.getElementById('modal-overlay');
+    overlay.hidden = true;
+    overlay.style.display = 'none';
+  }
+
+  async function saveProfile() {
+    const payload = {
+      name:         document.getElementById('f-name').value.trim(),
+      host:         document.getElementById('f-host').value.trim(),
+      port:         parseInt(document.getElementById('f-port').value) || 587,
+      username:     document.getElementById('f-username').value.trim(),
+      password:     document.getElementById('f-password').value,
+      from_address: document.getElementById('f-from').value.trim(),
+      is_default:   document.getElementById('f-default').checked,
+    };
+
+    if (!payload.name)     { showToast('Display name is required.', true); return; }
+    if (!payload.host)     { showToast('SMTP host is required.', true); return; }
+    if (!payload.username) { showToast('Username is required.', true); return; }
+    if (!_editingId && !payload.password) { showToast('Password is required.', true); return; }
+
+    const url    = _editingId ? `/api/admin/smtp-profiles/${_editingId}` : '/api/admin/smtp-profiles';
+    const method = _editingId ? 'PUT' : 'POST';
+    const res    = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+    if (res && res.error) { showToast(res.error, true); return; }
+    showToast(_editingId ? 'Sender updated.' : 'Sender added.');
+    closeModal();
+    loadProfiles();
+  }
+
+  async function setDefault(id) {
+    const res = await apiFetch(`/api/admin/smtp-profiles/${id}/set-default`, { method: 'POST' });
+    if (res && res.error) { showToast(res.error, true); return; }
+    showToast('Default sender updated.');
+    loadProfiles();
+  }
+
+  async function testProfile(id, btn) {
+    btn.disabled    = true;
+    btn.textContent = 'Sending…';
+    const res = await apiFetch(`/api/admin/smtp-profiles/${id}/test`, { method: 'POST' });
+    btn.disabled    = false;
+    btn.textContent = 'Test';
+    if (res && res.error)    { showToast(`Test failed: ${res.error}`, true); return; }
+    if (res && res.sent_to)  { showToast(`Test email sent to ${res.sent_to} ✓`); return; }
+    showToast('Test failed — unknown error.', true);
+  }
+
+  async function deleteProfile(id, name) {
+    if (!confirm(`Delete sender profile "${name}"? This cannot be undone.`)) return;
+    const res = await apiFetch(`/api/admin/smtp-profiles/${id}`, { method: 'DELETE' });
+    if (res && res.error) { showToast(res.error, true); return; }
+    showToast('Profile deleted.');
+    loadProfiles();
+  }
+
+  // Close on backdrop click
+  document.getElementById('modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  loadProfiles();
+</script>
+{% endblock %}
