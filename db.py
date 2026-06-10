@@ -478,35 +478,6 @@ def ensure_tables():
 
     db.commit()
 
-    # v11.7: auto-import SMTP settings from .env into smtp_profiles (runs once, when table is empty)
-    try:
-        existing = db.execute('SELECT COUNT(*) FROM smtp_profiles').fetchone()[0]
-        if existing == 0:
-            _host = os.environ.get('MAIL_HOST', '').strip()
-            _user = os.environ.get('MAIL_USERNAME', '').strip()
-            _pass = os.environ.get('MAIL_PASSWORD', '').strip()
-            _from = os.environ.get('MAIL_FROM', _user).strip()
-            _port = int(os.environ.get('MAIL_PORT', 587))
-            if _host and _user and _pass:
-                from cryptography.fernet import Fernet
-                import base64, hashlib
-                _doc_key = os.environ.get('DOCUMENT_ENCRYPTION_KEY', '').strip()
-                if _doc_key:
-                    _fernet = Fernet(_doc_key.encode())
-                else:
-                    _db_key = os.environ.get('DB_ENCRYPTION_KEY', '').strip()
-                    _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(_db_key.encode()).digest()))
-                _enc = _fernet.encrypt(_pass.encode()).decode()
-                db.execute(
-                    'INSERT INTO smtp_profiles (name, host, port, username, password_enc, from_address, is_default)'
-                    ' VALUES (?,?,?,?,?,?,1)',
-                    ('Default', _host, _port, _user, _enc, _from or _user)
-                )
-                db.commit()
-                logger.info('v11.7: auto-imported SMTP settings from .env into smtp_profiles')
-    except Exception as _smtp_e:
-        logger.warning('v11.7: smtp_profiles auto-import skipped: %s', _smtp_e)
-
     # v10.3 Phase A: make session_types.weekday nullable (was NOT NULL in older schemas).
     # SQLite can't ALTER COLUMN, so we rebuild the table if the schema still has the constraint.
     try:
