@@ -94,8 +94,14 @@
   let _editingId = null;
 
   async function loadProfiles() {
-    const res  = await apiFetch('/api/admin/smtp-profiles');
-    _profiles  = Array.isArray(res) ? res : [];
+    try {
+      const res = await apiFetch('/api/admin/smtp-profiles');
+      _profiles = Array.isArray(res) ? res : [];
+    } catch (e) {
+      document.getElementById('profiles-list').innerHTML =
+        `<p style="color:#dc2626;font-size:14px">Could not load profiles: ${esc(e.message)}</p>`;
+      return;
+    }
     renderProfiles();
   }
 
