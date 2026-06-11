@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.25'  # v11.25: Add delete to Payment Types/Methods, Staff Roles, Skills & Badges, Document Categories; default-sender warning on Email Senders delete; clear System Logs
+APP_VERSION = 'v11.26'  # v11.26: Fix doc category delete onclick (JSON.stringify → esc); allow deleting last/default email sender profile
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

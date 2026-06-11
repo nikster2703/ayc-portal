@@ -128,7 +128,7 @@
           ${!p.is_default ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="setDefault(${p.id})">Set default</button>` : ''}
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="testProfile(${p.id}, this)">Test</button>
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openModal(${p.id})">Edit</button>
-          ${_profiles.length > 1 ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fecaca" onclick="deleteProfile(${p.id}, '${esc(p.name)}', ${p.is_default ? 'true' : 'false'})">Delete</button>` : ''}
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fecaca" onclick="deleteProfile(${p.id}, '${esc(p.name)}', ${p.is_default ? 'true' : 'false'}, ${_profiles.length})">Delete</button>
         </div>
       </div>
     `).join('');
@@ -208,10 +208,15 @@
     showToast('Test failed — unknown error.', true);
   }
 
-  async function deleteProfile(id, name, isDefault) {
-    const warning = isDefault
-      ? `Delete "${name}"?\n\nThis is the current default sender. Another profile will be automatically promoted to default.\n\nThis cannot be undone.`
-      : `Delete sender profile "${name}"? This cannot be undone.`;
+  async function deleteProfile(id, name, isDefault, totalCount) {
+    let warning;
+    if (totalCount <= 1) {
+      warning = `Delete "${name}"?\n\nThis is the only email sender profile. Deleting it will disable all outbound email until a new sender is added.\n\nThis cannot be undone.`;
+    } else if (isDefault) {
+      warning = `Delete "${name}"?\n\nThis is the current default sender. Another profile will be automatically promoted to default.\n\nThis cannot be undone.`;
+    } else {
+      warning = `Delete sender profile "${name}"? This cannot be undone.`;
+    }
     if (!confirm(warning)) return;
     const res = await apiFetch(`/api/admin/smtp-profiles/${id}`, { method: 'DELETE' });
     if (res && res.error) { showToast(res.error, true); return; }

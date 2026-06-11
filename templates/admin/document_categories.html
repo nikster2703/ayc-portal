@@ -118,11 +118,11 @@
               <a href="/admin/document-fields/${c.id}" class="btn btn-ghost btn-sm" title="Manage metadata fields for this category">🗂 Fields</a>
               <button class="btn btn-ghost btn-sm" onclick="openEditModal(${c.id})">✏️ Edit</button>
               <button class="btn btn-danger btn-sm"
-                      onclick="deactivateCategory(${c.id}, ${JSON.stringify(c.name)})">
+                      onclick="deactivateCategory(${c.id}, '${esc(c.name)}')">
                 Deactivate
               </button>
               <button class="btn btn-ghost btn-sm" style="color:var(--red)"
-                      onclick="deleteCategory(${c.id}, ${JSON.stringify(c.name)})">
+                      onclick="deleteCategory(${c.id}, '${esc(c.name)}')">
                 Delete
               </button>
             </div>

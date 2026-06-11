@@ -864,10 +864,6 @@ def api_smtp_profiles_delete(profile_id):
     if not profile:
         return jsonify({'error': 'Profile not found'}), 404
 
-    count = db.execute('SELECT COUNT(*) FROM smtp_profiles').fetchone()[0]
-    if count <= 1:
-        return jsonify({'error': 'Cannot delete the only email sender profile'}), 400
-
     db.execute('DELETE FROM smtp_profiles WHERE id = ?', (profile_id,))
     # If we just deleted the default, promote the first remaining profile
     if profile['is_default']:
