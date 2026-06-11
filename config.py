@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.23'  # v11.23: Granular settings permissions (admin.branding, admin.roles, admin.smtp_profiles); multi-sender SMTP profiles with DB-stored credentials
+APP_VERSION = 'v11.24'  # v11.24: Merge field picker "All types" now JOINs through member_type_fields — excludes orphaned fields from deleted member types
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
