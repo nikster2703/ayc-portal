@@ -119,11 +119,14 @@ def api_document_categories_hard_delete(cat_id):
         return jsonify({'error': 'Not found'}), 404
 
     in_use = db.execute(
-        'SELECT COUNT(*) FROM documents WHERE category_id = ?', (cat_id,)
+        'SELECT COUNT(*) FROM documents WHERE category_id = ? AND active = 1', (cat_id,)
     ).fetchone()[0]
     if in_use:
-        return jsonify({'error': f'Cannot delete — {in_use} document(s) are filed under this category. Reassign or delete those documents first.'}), 409
+        return jsonify({'error': f'Cannot delete — {in_use} active document(s) are filed under this category. Remove them from the repository first.'}), 409
 
+    # NULL out category_id on any soft-deleted documents still referencing this category
+    # (active documents are blocked above; inactive ones would cause a FK violation)
+    db.execute('UPDATE documents SET category_id = NULL WHERE category_id = ?', (cat_id,))
     # Field definitions will CASCADE delete automatically
     db.execute('DELETE FROM document_categories WHERE id = ?', (cat_id,))
     db.commit()

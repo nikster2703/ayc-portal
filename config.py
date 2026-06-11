@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.26'  # v11.26: Fix doc category delete onclick (JSON.stringify → esc); allow deleting last/default email sender profile
+APP_VERSION = 'v11.27'  # v11.27: Fix doc category hard-delete — exclude soft-deleted docs from in-use check; NULL their category_id before deleting to avoid FK violation
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
