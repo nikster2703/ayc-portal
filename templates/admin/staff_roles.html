@@ -98,6 +98,8 @@
                 style="font-size:12px">
           ${r.active ? 'Deactivate' : 'Activate'}
         </button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteRole(${r.id}, '${esc(r.name)}')"
+                style="font-size:12px;color:var(--red)">Delete</button>
       </div>`).join('');
   }
 
@@ -112,6 +114,18 @@
       });
       document.getElementById('new-role-name').value = '';
       showToast(`Role "${name}" added.`);
+      loadRoles();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Delete ────────────────────────────────────────────────── */
+  async function deleteRole(id, name) {
+    if (!confirm(`Permanently delete role "${name}"?\n\nThis cannot be undone. If any members have this role assigned you will not be able to delete it.`)) return;
+    try {
+      await apiFetch(`/api/admin/staff-roles/${id}`, { method: 'DELETE' });
+      showToast(`Role "${name}" deleted.`);
       loadRoles();
     } catch (e) {
       showToast(e.message, true);

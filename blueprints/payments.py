@@ -453,3 +453,43 @@ def api_payment_methods_deactivate(method_id):
     db.commit()
     log_action('payment_method_toggle', 'payment_methods', method_id, {'active': not active_now})
     return jsonify({'ok': True})
+
+
+@bp.route('/api/admin/payment-types/<int:type_id>', methods=['DELETE'])
+@permission_required('payments.manage')
+def api_payment_types_delete(type_id):
+    db  = get_db()
+    row = db.execute('SELECT id, name FROM payment_types WHERE id = ?', (type_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+
+    in_use = db.execute(
+        'SELECT COUNT(*) FROM member_payments WHERE payment_type_id = ?', (type_id,)
+    ).fetchone()[0]
+    if in_use:
+        return jsonify({'error': f'Cannot delete — {in_use} payment record(s) use this type. Deactivate it instead.'}), 409
+
+    db.execute('DELETE FROM payment_types WHERE id = ?', (type_id,))
+    db.commit()
+    log_action('payment_type_delete', 'payment_types', type_id, {'name': row['name']})
+    return jsonify({'ok': True})
+
+
+@bp.route('/api/admin/payment-methods/<int:method_id>', methods=['DELETE'])
+@permission_required('payments.manage')
+def api_payment_methods_delete(method_id):
+    db  = get_db()
+    row = db.execute('SELECT id, name FROM payment_methods WHERE id = ?', (method_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+
+    in_use = db.execute(
+        'SELECT COUNT(*) FROM member_payments WHERE method_id = ?', (method_id,)
+    ).fetchone()[0]
+    if in_use:
+        return jsonify({'error': f'Cannot delete — {in_use} payment record(s) use this method. Deactivate it instead.'}), 409
+
+    db.execute('DELETE FROM payment_methods WHERE id = ?', (method_id,))
+    db.commit()
+    log_action('payment_method_delete', 'payment_methods', method_id, {'name': row['name']})
+    return jsonify({'ok': True})

@@ -30,6 +30,8 @@
   <div style="margin-left:auto;display:flex;gap:8px">
     <button class="btn btn-ghost btn-sm" onclick="loadLog()" title="Refresh">🔄 Refresh</button>
     <button class="btn btn-ghost btn-sm" onclick="downloadLog()" title="Download current file">⬇️ Download</button>
+    <button class="btn btn-ghost btn-sm" onclick="clearLog()" title="Clear current log file"
+            style="color:var(--red)">🗑 Clear Log</button>
   </div>
 </div>
 
@@ -228,6 +230,25 @@
   // ── Download ───────────────────────────────────────────────────────
   function downloadLog() {
     window.location.href = `/api/admin/logs/${encodeURIComponent(currentFile)}/download`;
+  }
+
+  // ── Clear ──────────────────────────────────────────────────────────
+  async function clearLog() {
+    if (!confirm(`Clear "${currentFile}"?\n\nThis will permanently erase all log entries in this file. Download a copy first if you need to keep it.\n\nThis cannot be undone.`)) return;
+    try {
+      await apiFetch('/api/admin/logs/clear', {
+        method: 'POST',
+        body:   JSON.stringify({ file: currentFile }),
+      });
+      allLines = [];
+      renderLines();
+      document.getElementById('truncation-banner').style.display = 'none';
+      document.getElementById('log-meta').textContent = '';
+      document.getElementById('log-viewer').innerHTML = '<span style="color:#64748b">Log cleared.</span>';
+      document.getElementById('line-count').textContent = '0 lines';
+    } catch (e) {
+      alert('Could not clear log: ' + e.message);
+    }
   }
 
   // ── Boot ───────────────────────────────────────────────────────────

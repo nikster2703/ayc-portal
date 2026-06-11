@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.24'  # v11.24: Merge field picker "All types" now JOINs through member_type_fields — excludes orphaned fields from deleted member types
+APP_VERSION = 'v11.25'  # v11.25: Add delete to Payment Types/Methods, Staff Roles, Skills & Badges, Document Categories; default-sender warning on Email Senders delete; clear System Logs
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

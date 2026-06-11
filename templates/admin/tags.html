@@ -181,6 +181,8 @@
                 style="color:${t.active ? 'var(--muted)' : 'var(--accent)'}">
           ${t.active ? 'Deactivate' : 'Activate'}
         </button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteTag(${t.id}, '${esc(t.name)}')"
+                style="color:var(--red)">Delete</button>
       </div>`).join('');
   }
 
@@ -257,6 +259,19 @@
         method: 'PUT',
         body:   JSON.stringify({ active }),
       });
+      loadTags();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Delete ─────────────────────────────────────────────── */
+  async function deleteTag(id, name) {
+    if (!confirm(`Permanently delete "${name}"?\n\nThis will also remove this badge from any members it is currently assigned to. This cannot be undone.`)) return;
+    try {
+      const res = await apiFetch(`/api/admin/tags/${id}`, { method: 'DELETE' });
+      const removed = res.removed_from_members || 0;
+      showToast(removed > 0 ? `"${name}" deleted and removed from ${removed} member(s).` : `"${name}" deleted.`);
       loadTags();
     } catch (e) {
       showToast(e.message, true);

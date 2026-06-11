@@ -128,7 +128,7 @@
           ${!p.is_default ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="setDefault(${p.id})">Set default</button>` : ''}
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="testProfile(${p.id}, this)">Test</button>
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openModal(${p.id})">Edit</button>
-          ${_profiles.length > 1 ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fecaca" onclick="deleteProfile(${p.id}, '${esc(p.name)}')">Delete</button>` : ''}
+          ${_profiles.length > 1 ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fecaca" onclick="deleteProfile(${p.id}, '${esc(p.name)}', ${p.is_default ? 'true' : 'false'})">Delete</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -208,8 +208,11 @@
     showToast('Test failed — unknown error.', true);
   }
 
-  async function deleteProfile(id, name) {
-    if (!confirm(`Delete sender profile "${name}"? This cannot be undone.`)) return;
+  async function deleteProfile(id, name, isDefault) {
+    const warning = isDefault
+      ? `Delete "${name}"?\n\nThis is the current default sender. Another profile will be automatically promoted to default.\n\nThis cannot be undone.`
+      : `Delete sender profile "${name}"? This cannot be undone.`;
+    if (!confirm(warning)) return;
     const res = await apiFetch(`/api/admin/smtp-profiles/${id}`, { method: 'DELETE' });
     if (res && res.error) { showToast(res.error, true); return; }
     showToast('Profile deleted.');

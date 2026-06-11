@@ -121,6 +121,10 @@
                       onclick="deactivateCategory(${c.id}, ${JSON.stringify(c.name)})">
                 Deactivate
               </button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                      onclick="deleteCategory(${c.id}, ${JSON.stringify(c.name)})">
+                Delete
+              </button>
             </div>
           </div>`).join('')}
       </div>`;
@@ -215,6 +219,18 @@
     try {
       await apiFetch(`/api/documents/categories/${id}`, { method: 'DELETE' });
       showToast('Category deactivated.');
+      await loadCategories();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  /* ── Delete (permanent) ─────────────────────────────────── */
+  async function deleteCategory(id, name) {
+    if (!confirm(`Permanently delete "${name}"?\n\nThis will also delete all custom field definitions for this category. Any documents in this category must be reassigned first.\n\nThis cannot be undone.`)) return;
+    try {
+      await apiFetch(`/api/documents/categories/${id}/delete`, { method: 'POST' });
+      showToast(`Category "${name}" permanently deleted.`);
       await loadCategories();
     } catch (e) {
       showToast(e.message, true);

@@ -592,6 +592,26 @@ def api_admin_staff_roles_reorder():
     return jsonify({'success': True})
 
 
+@bp.route('/api/admin/staff-roles/<int:role_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_admin_staff_roles_delete(role_id):
+    db  = get_db()
+    row = db.execute('SELECT id, name FROM staff_roles WHERE id = ?', (role_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+
+    in_use = db.execute(
+        'SELECT COUNT(*) FROM members WHERE staff_role = ?', (row['name'],)
+    ).fetchone()[0]
+    if in_use:
+        return jsonify({'error': f'Cannot delete — {in_use} member(s) have this role assigned. Reassign them first.'}), 409
+
+    db.execute('DELETE FROM staff_roles WHERE id = ?', (role_id,))
+    db.commit()
+    log_action('delete_staff_role', 'staff_roles', role_id, {'name': row['name']})
+    return jsonify({'ok': True})
+
+
 # ── Permissions + Roles CRUD ──────────────────────────────────────────────────
 
 @bp.route('/api/admin/permissions')
@@ -1014,6 +1034,24 @@ def api_tags_reorder():
                    (item.get('sort_order', 0), item.get('id')))
     db.commit()
     return jsonify({'success': True})
+
+
+@bp.route('/api/admin/tags/<int:tag_id>', methods=['DELETE'])
+@permission_required('admin.settings')
+def api_tags_delete(tag_id):
+    db  = get_db()
+    row = db.execute('SELECT id, name FROM tag_definitions WHERE id = ?', (tag_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Tag not found'}), 404
+
+    assigned = db.execute(
+        'SELECT COUNT(*) FROM member_tags WHERE tag_id = ?', (tag_id,)
+    ).fetchone()[0]
+
+    db.execute('DELETE FROM tag_definitions WHERE id = ?', (tag_id,))
+    db.commit()
+    log_action('delete_tag', 'tag_definitions', tag_id, {'name': row['name'], 'removed_from_members': assigned})
+    return jsonify({'ok': True, 'removed_from_members': assigned})
 
 
 # ── Member statuses CRUD ──────────────────────────────────────────────────────
@@ -1614,6 +1652,22 @@ def api_logs_download(filename):
     return send_file(path, as_attachment=True,
                      download_name=os.path.basename(path),
                      mimetype='text/plain')
+
+
+@bp.route('/api/admin/logs/clear', methods=['POST'])
+@permission_required('admin.maintenance')
+def api_logs_clear():
+    data     = request.get_json() or {}
+    filename = data.get('file', 'app.log')
+    path     = _safe_log_path(filename)
+    if not path:
+        return jsonify({'error': 'Invalid filename'}), 400
+    if not os.path.exists(path):
+        return jsonify({'error': 'File not found'}), 404
+    # Truncate — open in write mode to clear contents
+    open(path, 'w').close()
+    log_action('clear_log_file', None, None, {'file': filename, 'by': session.get('username')})
+    return jsonify({'ok': True})
 
 
 # ── Maintenance ───────────────────────────────────────────────────────────────

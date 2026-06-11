@@ -110,6 +110,27 @@ def api_document_categories_delete(cat_id):
     return jsonify({'success': True})
 
 
+@bp.route('/api/documents/categories/<int:cat_id>/delete', methods=['POST'])
+@permission_required('admin.settings')
+def api_document_categories_hard_delete(cat_id):
+    db  = get_db()
+    row = db.execute('SELECT id, name FROM document_categories WHERE id = ?', (cat_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+
+    in_use = db.execute(
+        'SELECT COUNT(*) FROM documents WHERE category_id = ?', (cat_id,)
+    ).fetchone()[0]
+    if in_use:
+        return jsonify({'error': f'Cannot delete — {in_use} document(s) are filed under this category. Reassign or delete those documents first.'}), 409
+
+    # Field definitions will CASCADE delete automatically
+    db.execute('DELETE FROM document_categories WHERE id = ?', (cat_id,))
+    db.commit()
+    log_action('delete_document_category', 'document_categories', cat_id, {'name': row['name']})
+    return jsonify({'success': True})
+
+
 # ── Document field definitions API ───────────────────────────────────────────
 
 @bp.route('/api/documents/field-definitions')
