@@ -423,8 +423,21 @@ def get_active_session():
     return session.get('active_session') or None
 
 
+def _attendance_marker_path():
+    """Path to the lightweight file whose mtime signals an attendance change.
+    Lives in the same data directory as the database."""
+    return os.path.join(os.path.dirname(DATABASE), '.attendance_changed')
+
+
 def _touch_attendance():
-    """Stamp the current time into settings so the SSE stream can detect changes."""
+    """Signal that attendance changed so the display SSE stream can refresh.
+
+    Writes a timestamp to settings (kept for back-compat) AND bumps the mtime of
+    a marker file.  The display stream polls the marker file's mtime via a cheap
+    os.stat, which means the long-lived stream never has to open or hold a
+    database connection just to check for changes — important because unlocking
+    the SQLCipher database on every poll would be expensive.
+    """
     db  = get_db()
     now = datetime.now().isoformat()
     db.execute(
@@ -433,6 +446,25 @@ def _touch_attendance():
         ('last_attendance_change', now)
     )
     db.commit()
+    # Bump the marker file's mtime (create it if missing). Best-effort only —
+    # never let a marker-file problem break a sign-in/out.
+    marker = _attendance_marker_path()
+    try:
+        with open(marker, 'a'):
+            pass
+        os.utime(marker, None)
+    except OSError:
+        pass
+
+
+def _read_attendance_marker():
+    """Return the attendance marker file's mtime (float), or None if it does not
+    exist yet.  Used by the display SSE stream to detect changes without opening
+    a database connection."""
+    try:
+        return os.path.getmtime(_attendance_marker_path())
+    except OSError:
+        return None
 
 
 # ── Document helpers ───────────────────────────────────────────────────────────

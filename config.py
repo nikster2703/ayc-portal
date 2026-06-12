@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.30'  # v11.30: Dedicated DOCUMENT_ENCRYPTION_KEY (decoupled from DB key) added to .env/.env.example; fix reencrypt_documents.py to walk bucket subdirectories (store/) instead of only the top-level documents folder
+APP_VERSION = 'v11.31'  # v11.31: Display SSE stream no longer holds a DB connection for its lifetime — attendance changes now signalled via a marker file polled with a cheap os.stat, avoiding per-poll SQLCipher unlock cost and freeing the connection between checks
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

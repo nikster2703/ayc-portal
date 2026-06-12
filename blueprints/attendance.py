@@ -11,9 +11,9 @@ from flask import Blueprint, Response, jsonify, request, session, stream_with_co
 import sqlcipher3 as sqlite3
 
 from helpers import (
-    get_db, log_action, login_required, permission_required, has_permission,
+    get_db, log_action, login_required, permission_required,
     _assigned_session, _is_register_locked, _touch_attendance,
-    _fetch_tags_for_members, get_valid_session_names, get_setting,
+    _fetch_tags_for_members, get_valid_session_names, _read_attendance_marker,
     _invalidate_qr_token_for_session,
 )
 
@@ -415,14 +415,16 @@ def api_display_stream():
     _SSE_POLL_S      = 1
 
     def generate():
-        last     = None
+        # Poll a marker file's mtime — no DB connection is opened or held for the
+        # lifetime of the stream (see helpers._read_attendance_marker).
+        last     = _read_attendance_marker()
         deadline = time.time() + _SSE_MAX_SECONDS
         last_hb  = time.time()
         while time.time() < deadline:
             if time.time() - last_hb >= _SSE_HEARTBEAT_S:
                 yield ': heartbeat\n\n'
                 last_hb = time.time()
-            current = get_setting('last_attendance_change')
+            current = _read_attendance_marker()
             if current != last:
                 last = current
                 yield 'data: refresh\n\n'
