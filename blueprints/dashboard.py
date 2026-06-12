@@ -189,6 +189,128 @@ def api_attendance_trend():
     return jsonify([dict(r) for r in reversed(rows)])
 
 
+@bp.route('/api/dashboard/stat-trends')
+@login_required
+def api_stat_trends():
+    """Real historical series for the dashboard stat-card sparklines.
+
+    members / staff : cumulative headcount of current members by created_at,
+                      sampled at 12 weekly cut-offs (membership growth)
+    approvals       : registration submissions per week (last 12 weeks)
+    attendance      : % attendance per completed session (last 12), derived
+                      from sign-in vs absence rows written at completion
+    """
+    from datetime import date, timedelta
+
+    db     = get_db()
+    scoped = _assigned_session()
+    today  = date.today()
+    cutoffs = [(today - timedelta(days=7 * i)).isoformat() for i in range(11, -1, -1)]
+
+    def cumulative(rows):
+        dates = sorted((r['created_at'] or '')[:10] for r in rows)
+        series, i = [], 0
+        for c in cutoffs:
+            while i < len(dates) and dates[i] <= c:
+                i += 1
+            series.append(i)
+        return series
+
+    # ── Members (active, non-staff) ──────────────────────────────────────────
+    sess_filter, sess_args = '', []
+    if scoped is not None:
+        if not scoped:
+            return jsonify({})
+        ph = ','.join('?' * len(scoped))
+        sess_filter, sess_args = f' AND m.session IN ({ph})', list(scoped)
+
+    member_rows = db.execute(f'''
+        SELECT m.created_at FROM members m
+        JOIN member_types mt ON mt.slug = m.member_type
+        LEFT JOIN member_statuses ms ON ms.name = m.status
+        WHERE mt.registration_style != 'staff' AND ms.behaviour = 'active'{sess_filter}
+    ''', sess_args).fetchall()
+    member_series = cumulative(member_rows)
+    month_ago = (today - timedelta(days=30)).isoformat()
+    members_new = sum(1 for r in member_rows if (r['created_at'] or '')[:10] >= month_ago)
+
+    # ── Staff & volunteers (not leavers) ─────────────────────────────────────
+    staff_rows = db.execute(f'''
+        SELECT m.created_at FROM members m
+        JOIN member_types mt ON mt.slug = m.member_type
+        LEFT JOIN member_statuses ms ON ms.name = m.status
+        WHERE mt.registration_style = 'staff' AND ms.behaviour != 'leaver'{sess_filter}
+    ''', sess_args).fetchall()
+    staff_series = cumulative(staff_rows)
+    staff_new = sum(1 for r in staff_rows if (r['created_at'] or '')[:10] >= month_ago)
+
+    # ── Registration submissions per week ────────────────────────────────────
+    if scoped is None:
+        sub_rows = db.execute(
+            "SELECT submitted_at FROM pending_registrations WHERE submitted_at >= ?",
+            ((today - timedelta(days=84)).isoformat(),)).fetchall()
+    else:
+        ph = ','.join('?' * len(scoped))
+        sub_rows = db.execute(
+            f"SELECT submitted_at FROM pending_registrations WHERE submitted_at >= ?"
+            f" AND (assigned_session IN ({ph}) OR assigned_session IS NULL OR assigned_session = '')",
+            [(today - timedelta(days=84)).isoformat()] + list(scoped)).fetchall()
+    approvals_series = [0] * 12
+    approvals_week = 0
+    for r in sub_rows:
+        d = (r['submitted_at'] or '')[:10]
+        if not d:
+            continue
+        days_ago = (today - date.fromisoformat(d)).days
+        bucket = 11 - (days_ago // 7)
+        if 0 <= bucket <= 11:
+            approvals_series[bucket] += 1
+        if days_ago < 7:
+            approvals_week += 1
+
+    # ── Attendance % per completed session date ──────────────────────────────
+    if scoped is None:
+        att_rows = db.execute('''
+            SELECT a.session_date,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS signed,
+                   COUNT(*) AS total
+            FROM attendance a
+            JOIN session_completions sc
+              ON sc.session_date = a.session_date AND sc.session_type = a.session_type
+            GROUP BY a.session_date
+            ORDER BY a.session_date DESC
+            LIMIT 12
+        ''').fetchall()
+    else:
+        ph = ','.join('?' * len(scoped))
+        att_rows = db.execute(f'''
+            SELECT a.session_date,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS signed,
+                   COUNT(*) AS total
+            FROM attendance a
+            JOIN session_completions sc
+              ON sc.session_date = a.session_date AND sc.session_type = a.session_type
+            WHERE a.session_type IN ({ph})
+            GROUP BY a.session_date
+            ORDER BY a.session_date DESC
+            LIMIT 12
+        ''', list(scoped)).fetchall()
+    att = [{'date': r['session_date'],
+            'pct': round(100 * r['signed'] / r['total'])}
+           for r in reversed(att_rows) if r['total']]
+
+    return jsonify({
+        'members':   {'series': member_series, 'new_30d': members_new},
+        'staff':     {'series': staff_series,  'new_30d': staff_new},
+        'approvals': {'series': approvals_series, 'new_7d': approvals_week},
+        'attendance': {
+            'series':   [a['pct'] for a in att],
+            'last_pct': att[-1]['pct'] if att else None,
+            'avg_pct':  round(sum(a['pct'] for a in att) / len(att)) if att else None,
+        },
+    })
+
+
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
 @bp.route('/api/admin/audit')

@@ -270,8 +270,11 @@
 
   async function loadDashboard() {
     try {
-      const d = await apiFetch('/api/dashboard');
-      renderStats(d);
+      const [d, trends] = await Promise.all([
+        apiFetch('/api/dashboard'),
+        apiFetch('/api/dashboard/stat-trends').catch(() => null),  // sparklines are progressive enhancement
+      ]);
+      renderStats(d, trends || {});
       renderAlertsCallout(d.alert_flags, d.alerts_last_run);
       renderApprovalsCallout(d.pending_approvals);
       renderToday(d.today_attendance);
@@ -286,8 +289,14 @@
 
   /* ── Stat cards ─────────────────────────────────────── */
   const SESSION_TYPES = {{ session_types | tojson }};
+  let _statCards = [];   // cached for theme/skin re-skins
 
-  function renderStats(d) {
+  function deltaChip(n, unit) {
+    if (!n) return { label: 'no change', dir: 'flat' };
+    return { label: `+${n} ${unit}`, dir: 'up' };
+  }
+
+  function renderStats(d, t) {
     const m  = d.members;
     const sc = d.session_counts || {};  // {session_name: {members, staff}}
 
@@ -298,8 +307,11 @@
 
     const stats = [];
 
-    // Active Members tile
-    stats.push({ icon: 'users', value: m.active ?? 0, label: 'Active Members', href: '/members', tone: '' });
+    // Active Members tile — membership growth sparkline + new-this-month chip
+    stats.push({
+      icon: 'users', value: m.active ?? 0, label: 'Active Members', href: '/members', tone: '',
+      spark: t.members?.series, delta: deltaChip(t.members?.new_30d, 'this month'),
+    });
 
     // Session tiles — generated from SESSION_TYPES, scoped where applicable
     for (const st of SESSION_TYPES) {
@@ -309,9 +321,31 @@
       }
     }
 
+    // Attendance tile — only once registers have been completed
+    if (t.attendance?.last_pct != null) {
+      stats.push({
+        icon: 'clipboard-check', value: t.attendance.last_pct, suffix: '%',
+        label: 'Attendance last session', href: '/register', tone: 'green',
+        spark: t.attendance.series,
+        delta: { label: `avg ${t.attendance.avg_pct}%`, dir: 'flat' },
+      });
+    }
+
+    // Pending approvals tile — submissions-per-week sparkline
+    if ((d.pending_approvals ?? 0) > 0 && USER_PERMS.has('approvals.view')) {
+      stats.push({
+        icon: 'inbox', value: d.pending_approvals, label: 'Pending approvals', href: '/approvals', tone: 'amber',
+        spark: t.approvals?.series,
+        delta: t.approvals?.new_7d ? { label: `${t.approvals.new_7d} new`, dir: 'up' } : null,
+      });
+    }
+
     // Staff tile — hidden when count is 0
     if (staffCount > 0) {
-      stats.push({ icon: 'shield-check', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', tone: 'violet' });
+      stats.push({
+        icon: 'shield-check', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', tone: 'violet',
+        spark: t.staff?.series, delta: deltaChip(t.staff?.new_30d, 'this month'),
+      });
     }
 
     // Inactive tile — hidden from readonly users
@@ -324,16 +358,61 @@
       stats.push({ icon: 'user-minus', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', tone: 'grey' });
     }
 
-    document.getElementById('stat-cards').innerHTML = stats.map(s => `
+    // A sparkline needs ≥2 points and some variation to be worth drawing
+    for (const s of stats) {
+      if (s.spark && (s.spark.length < 2 || s.spark.every(v => v === s.spark[0]))) s.spark = null;
+    }
+
+    _statCards = stats;
+    document.getElementById('stat-cards').innerHTML = stats.map((s, i) => `
       <a href="${s.href}" class="stat-card">
-        <span class="stat-icon ${s.tone}"><i data-lucide="${s.icon}"></i></span>
-        <div class="stat-value" data-count="${s.value}">0</div>
+        <div class="stat-top">
+          <span class="stat-icon ${s.tone}"><i data-lucide="${s.icon}"></i></span>
+          ${s.delta ? `<span class="delta ${s.delta.dir}">${s.delta.dir === 'up' ? '<i data-lucide="trending-up"></i>' : ''}${esc(s.delta.label)}</span>` : ''}
+        </div>
+        <div class="stat-value"><span data-count="${s.value}">0</span>${s.suffix || ''}</div>
         <div class="stat-label">${esc(s.label)}</div>
+        ${s.spark ? `<div class="spark-wrap"><canvas id="spark-${i}"></canvas></div>` : ''}
       </a>
     `).join('');
     refreshIcons();
     animateCounters(document.getElementById('stat-cards'));
+    buildSparks();
   }
+
+  /* ── Sparklines (fixed-height wrappers — avoids Chart.js resize loop) ── */
+  let _sparkCharts = [];
+  const SPARK_TONES = { '': 'accent', green: 'green', amber: 'amber', violet: 'violet', grey: 'muted' };
+
+  function buildSparks() {
+    if (!window.Chart) return;
+    _sparkCharts.forEach(c => c.destroy());
+    _sparkCharts = [];
+    _statCards.forEach((s, i) => {
+      if (!s.spark) return;
+      const cv = document.getElementById('spark-' + i);
+      if (!cv) return;
+      const col = cssColor(SPARK_TONES[s.tone] || 'accent');
+      _sparkCharts.push(new Chart(cv, {
+        type: 'line',
+        data: { labels: s.spark.map((_, x) => x), datasets: [{
+          data: s.spark, borderColor: col, borderWidth: 2, pointRadius: 0,
+          fill: true, tension: .4,
+          backgroundColor: ctx => {
+            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 38);
+            g.addColorStop(0, col.replace('rgb', 'rgba').replace(')', ',.22)'));
+            g.addColorStop(1, col.replace('rgb', 'rgba').replace(')', ',0)'));
+            return g;
+          },
+        }]},
+        options: { responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false } } },
+      }));
+    });
+  }
+
+  document.addEventListener('themechange', buildSparks);
 
   /* ── Alerts callout ─────────────────────────────────── */
   function renderAlertsCallout(flags, lastRun) {
@@ -556,11 +635,22 @@
   }
   .stat-card.skeleton { min-height: 118px; background: var(--surface-2); border-color: transparent; animation: pulse 1.4s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .stat-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .stat-icon {
     width: 36px; height: 36px; border-radius: 10px;
-    display: grid; place-items: center; margin-bottom: 8px;
+    display: grid; place-items: center;
     background: var(--accent-soft); color: var(--accent);
   }
+  .delta {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px;
+    white-space: nowrap;
+  }
+  .delta .lucide { width: 12px; height: 12px; }
+  .delta.up   { color: var(--green); background: var(--green-bg); }
+  .delta.down { color: var(--red);   background: var(--red-bg); }
+  .delta.flat { color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); }
+  .spark-wrap { position: relative; height: 38px; margin-top: 10px; overflow: hidden; }
   .stat-icon.green  { background: var(--green-bg);  color: var(--green); }
   .stat-icon.amber  { background: var(--amber-bg);  color: var(--amber); }
   .stat-icon.red    { background: var(--red-bg);    color: var(--red); }
