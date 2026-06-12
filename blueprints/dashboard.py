@@ -156,9 +156,12 @@ def api_attendance_trend():
     db     = get_db()
     scoped = _assigned_session()
 
+    # NB: completing a register writes absence rows (signed_in_at IS NULL)
+    # for every member who didn't attend — count only actual sign-ins.
     if scoped is None:
         rows = db.execute('''
-            SELECT session_date, COUNT(*) AS headcount
+            SELECT session_date,
+                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS headcount
             FROM attendance
             GROUP BY session_date
             ORDER BY session_date DESC
@@ -169,7 +172,8 @@ def api_attendance_trend():
             return jsonify([])
         ph = ','.join('?' * len(scoped))
         rows = db.execute(f'''
-            SELECT session_date, COUNT(*) AS headcount
+            SELECT session_date,
+                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS headcount
             FROM attendance
             WHERE session_type IN ({ph})
             GROUP BY session_date
