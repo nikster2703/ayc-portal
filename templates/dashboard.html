@@ -24,7 +24,7 @@
 <!-- ── Pending approvals callout ─────────────────────────────── -->
 <div id="approvals-callout" style="display:none;margin-bottom:14px">
   <div class="callout">
-    <span class="callout-icon"><i data-lucide="inbox"></i></span>
+    <span class="callout-icon"><i data-lucide="inbox"></i><span class="ico-emoji">📋</span></span>
     <div>
       <strong id="approvals-callout-text"></strong>
       <span style="font-size:12.5px;color:var(--muted);margin-left:8px">awaiting review</span>
@@ -37,7 +37,7 @@
 {% if 'alerts.view' in user_permissions %}
 <div id="alerts-callout" style="display:none;margin-bottom:14px">
   <div class="callout">
-    <span class="callout-icon"><i data-lucide="bell-ring"></i></span>
+    <span class="callout-icon"><i data-lucide="bell-ring"></i><span class="ico-emoji">🚨</span></span>
     <div style="flex:1;min-width:200px">
       <strong>Member alerts</strong>
       <div class="callout-meta">Last check: <span id="alerts-last-run">—</span></div>
@@ -129,114 +129,115 @@
   // IS_SCOPED: true for non-admin users who have at least one session assigned
   const IS_SCOPED     = SESSION_NAMES.length > 0;
 
-  /* Action → Lucide icon + label for the activity feed */
+  /* Action → icon + label for the activity feed.
+     icon: Lucide name (Formal skin) · emoji: classic v11 icon (Casual skin) */
   const ACTION_LABELS = {
     // Auth
-    login:                        { icon: 'key-round',      label: 'Logged in'                     },
-    logout:                       { icon: 'log-out',        label: 'Logged out'                    },
-    login_failed:                 { icon: 'ban',            label: 'Failed login attempt', tone: 'red' },
-    change_password:              { icon: 'lock',           label: 'Password changed'              },
-    switch_session:               { icon: 'refresh-cw',     label: 'Session switched'              },
+    login:                        { icon: 'key-round', emoji: '🔑',label: 'Logged in'                     },
+    logout:                       { icon: 'log-out', emoji: '🚪',label: 'Logged out'                    },
+    login_failed:                 { icon: 'ban', emoji: '🚫',label: 'Failed login attempt', tone: 'red' },
+    change_password:              { icon: 'lock', emoji: '🔒',label: 'Password changed'              },
+    switch_session:               { icon: 'refresh-cw', emoji: '🔄',label: 'Session switched'              },
     // Members
-    view_member:                  { icon: 'eye',            label: 'Viewed member'                 },
-    edit_member:                  { icon: 'pencil',         label: 'Member details updated'        },
-    status_change:                { icon: 'refresh-cw',     label: 'Member status changed'         },
-    soft_delete_member:           { icon: 'user-minus',     label: 'Marked as Leaver'              },
-    permanent_delete_member:      { icon: 'trash-2',        label: 'Permanently deleted', tone: 'red' },
-    tag_add:                      { icon: 'tag',            label: 'Tag added'                     },
-    tag_remove:                   { icon: 'tag',            label: 'Tag removed'                   },
+    view_member:                  { icon: 'eye', emoji: '👁',label: 'Viewed member'                 },
+    edit_member:                  { icon: 'pencil', emoji: '✏️',label: 'Member details updated'        },
+    status_change:                { icon: 'refresh-cw', emoji: '🔄',label: 'Member status changed'         },
+    soft_delete_member:           { icon: 'user-minus', emoji: '👤',label: 'Marked as Leaver'              },
+    permanent_delete_member:      { icon: 'trash-2', emoji: '🗑️',label: 'Permanently deleted', tone: 'red' },
+    tag_add:                      { icon: 'tag', emoji: '🏷️',label: 'Tag added'                     },
+    tag_remove:                   { icon: 'tag', emoji: '🏷️',label: 'Tag removed'                   },
     // Alerts & Flags
-    dismiss_flag:                 { icon: 'check',          label: 'Flag dismissed', tone: 'green' },
-    auto_resolve_flags:           { icon: 'check',          label: 'Flags auto-resolved', tone: 'green' },
-    run_alert_rules:              { icon: 'search',         label: 'Alert checks run'              },
-    create_alert_rule:            { icon: 'bell-plus',      label: 'Alert rule created'            },
-    update_alert_rule:            { icon: 'pencil',         label: 'Alert rule updated'            },
-    deactivate_alert_rule:        { icon: 'pause',          label: 'Alert rule deactivated'        },
-    delete_alert_rule:            { icon: 'trash-2',        label: 'Alert rule deleted'            },
+    dismiss_flag:                 { icon: 'check', emoji: '✅',label: 'Flag dismissed', tone: 'green' },
+    auto_resolve_flags:           { icon: 'check', emoji: '✅',label: 'Flags auto-resolved', tone: 'green' },
+    run_alert_rules:              { icon: 'search', emoji: '🔍',label: 'Alert checks run'              },
+    create_alert_rule:            { icon: 'bell-plus', emoji: '🚨',label: 'Alert rule created'            },
+    update_alert_rule:            { icon: 'pencil', emoji: '✏️',label: 'Alert rule updated'            },
+    deactivate_alert_rule:        { icon: 'pause', emoji: '⏸️',label: 'Alert rule deactivated'        },
+    delete_alert_rule:            { icon: 'trash-2', emoji: '🗑️',label: 'Alert rule deleted'            },
     // Registrations
-    approve_registration:         { icon: 'check',          label: 'Registration approved', tone: 'green' },
-    reject_registration:          { icon: 'x',              label: 'Registration rejected', tone: 'red' },
+    approve_registration:         { icon: 'check', emoji: '✅',label: 'Registration approved', tone: 'green' },
+    reject_registration:          { icon: 'x', emoji: '❌',label: 'Registration rejected', tone: 'red' },
     // Users
-    create_user:                  { icon: 'user-plus',      label: 'User created'                  },
-    update_user:                  { icon: 'pencil',         label: 'User updated'                  },
-    delete_user:                  { icon: 'trash-2',        label: 'User deleted'                  },
+    create_user:                  { icon: 'user-plus', emoji: '🧑',label: 'User created'                  },
+    update_user:                  { icon: 'pencil', emoji: '✏️',label: 'User updated'                  },
+    delete_user:                  { icon: 'trash-2', emoji: '🗑️',label: 'User deleted'                  },
     // Register / Attendance
-    register_complete:            { icon: 'clipboard-check',label: 'Register completed', tone: 'green' },
-    register_reset:               { icon: 'undo-2',         label: 'Register reset'                },
-    note_added:                   { icon: 'sticky-note',    label: 'Session note added'            },
-    note_deleted:                 { icon: 'sticky-note',    label: 'Session note deleted'          },
+    register_complete:            { icon: 'clipboard-check', emoji: '✔️',label: 'Register completed', tone: 'green' },
+    register_reset:               { icon: 'undo-2', emoji: '↩️',label: 'Register reset'                },
+    note_added:                   { icon: 'sticky-note', emoji: '📝',label: 'Session note added'            },
+    note_deleted:                 { icon: 'sticky-note', emoji: '📝',label: 'Session note deleted'          },
     // Calendar
-    create_session_type:          { icon: 'calendar-plus',  label: 'Session type created'          },
-    update_session_type:          { icon: 'pencil',         label: 'Session type updated'          },
-    delete_session_type:          { icon: 'trash-2',        label: 'Session type deleted'          },
-    add_term_session:             { icon: 'calendar-plus',  label: 'Calendar session added'        },
-    bulk_term_sessions:           { icon: 'calendar-days',  label: 'Term sessions generated'       },
-    update_term_session:          { icon: 'pencil',         label: 'Calendar session updated'      },
-    delete_term_session:          { icon: 'trash-2',        label: 'Calendar session deleted'      },
+    create_session_type:          { icon: 'calendar-plus', emoji: '📅',label: 'Session type created'          },
+    update_session_type:          { icon: 'pencil', emoji: '✏️',label: 'Session type updated'          },
+    delete_session_type:          { icon: 'trash-2', emoji: '🗑️',label: 'Session type deleted'          },
+    add_term_session:             { icon: 'calendar-plus', emoji: '📅',label: 'Calendar session added'        },
+    bulk_term_sessions:           { icon: 'calendar-days', emoji: '📅',label: 'Term sessions generated'       },
+    update_term_session:          { icon: 'pencil', emoji: '✏️',label: 'Calendar session updated'      },
+    delete_term_session:          { icon: 'trash-2', emoji: '🗑️',label: 'Calendar session deleted'      },
     // Documents
-    create_document_category:     { icon: 'folder-plus',    label: 'Document category created'     },
-    update_document_category:     { icon: 'pencil',         label: 'Document category updated'     },
-    deactivate_document_category: { icon: 'pause',          label: 'Document category deactivated' },
-    create_doc_field:             { icon: 'file-plus-2',    label: 'Document field created'        },
-    update_doc_field:             { icon: 'pencil',         label: 'Document field updated'        },
-    delete_doc_field:             { icon: 'trash-2',        label: 'Document field deleted'        },
-    upload_document:              { icon: 'upload',         label: 'Document uploaded'             },
-    update_document_access:       { icon: 'lock',           label: 'Document access updated'       },
-    update_document:              { icon: 'file-pen-line',  label: 'Document updated'              },
-    update_doc_metadata:          { icon: 'tag',            label: 'Document metadata saved'       },
-    download_document:            { icon: 'download',       label: 'Document downloaded'           },
-    view_document:                { icon: 'eye',            label: 'Document viewed'               },
-    delete_document:              { icon: 'trash-2',        label: 'Document removed'              },
+    create_document_category:     { icon: 'folder-plus', emoji: '📁',label: 'Document category created'     },
+    update_document_category:     { icon: 'pencil', emoji: '✏️',label: 'Document category updated'     },
+    deactivate_document_category: { icon: 'pause', emoji: '⏸️',label: 'Document category deactivated' },
+    create_doc_field:             { icon: 'file-plus-2', emoji: '📝',label: 'Document field created'        },
+    update_doc_field:             { icon: 'pencil', emoji: '✏️',label: 'Document field updated'        },
+    delete_doc_field:             { icon: 'trash-2', emoji: '🗑️',label: 'Document field deleted'        },
+    upload_document:              { icon: 'upload', emoji: '📁',label: 'Document uploaded'             },
+    update_document_access:       { icon: 'lock', emoji: '🔐',label: 'Document access updated'       },
+    update_document:              { icon: 'file-pen-line', emoji: '📝',label: 'Document updated'              },
+    update_doc_metadata:          { icon: 'tag', emoji: '🏷️',label: 'Document metadata saved'       },
+    download_document:            { icon: 'download', emoji: '⬇️',label: 'Document downloaded'           },
+    view_document:                { icon: 'eye', emoji: '👁',label: 'Document viewed'               },
+    delete_document:              { icon: 'trash-2', emoji: '🗑️',label: 'Document removed'              },
     // Email & Mailshots
-    create_email_template:        { icon: 'mail-plus',      label: 'Email template created'        },
-    edit_email_template:          { icon: 'pencil',         label: 'Email template edited'         },
-    delete_email_template:        { icon: 'trash-2',        label: 'Email template deleted'        },
-    attach_to_mailshot:           { icon: 'paperclip',      label: 'Attached to mailshot'          },
-    send_mailshot:                { icon: 'send',           label: 'Mailshot sent'                 },
+    create_email_template:        { icon: 'mail-plus', emoji: '✉️',label: 'Email template created'        },
+    edit_email_template:          { icon: 'pencil', emoji: '✏️',label: 'Email template edited'         },
+    delete_email_template:        { icon: 'trash-2', emoji: '🗑️',label: 'Email template deleted'        },
+    attach_to_mailshot:           { icon: 'paperclip', emoji: '📎',label: 'Attached to mailshot'          },
+    send_mailshot:                { icon: 'send', emoji: '📤',label: 'Mailshot sent'                 },
     // Payments
-    payment_record:               { icon: 'credit-card',    label: 'Payment recorded'              },
-    payment_edit:                 { icon: 'pencil',         label: 'Payment edited'                },
-    payment_void:                 { icon: 'ban',            label: 'Payment voided', tone: 'red'   },
-    setting_change:               { icon: 'settings',       label: 'Setting updated'               },
-    payment_type_create:          { icon: 'credit-card',    label: 'Payment type created'          },
-    payment_type_edit:            { icon: 'pencil',         label: 'Payment type updated'          },
-    payment_type_toggle:          { icon: 'pause',          label: 'Payment type toggled'          },
-    payment_method_create:        { icon: 'credit-card',    label: 'Payment method created'        },
-    payment_method_edit:          { icon: 'pencil',         label: 'Payment method updated'        },
-    payment_method_toggle:        { icon: 'pause',          label: 'Payment method toggled'        },
+    payment_record:               { icon: 'credit-card', emoji: '💳',label: 'Payment recorded'              },
+    payment_edit:                 { icon: 'pencil', emoji: '✏️',label: 'Payment edited'                },
+    payment_void:                 { icon: 'ban', emoji: '🚫',label: 'Payment voided', tone: 'red'   },
+    setting_change:               { icon: 'settings', emoji: '⚙️',label: 'Setting updated'               },
+    payment_type_create:          { icon: 'credit-card', emoji: '💳',label: 'Payment type created'          },
+    payment_type_edit:            { icon: 'pencil', emoji: '✏️',label: 'Payment type updated'          },
+    payment_type_toggle:          { icon: 'pause', emoji: '⏸️',label: 'Payment type toggled'          },
+    payment_method_create:        { icon: 'credit-card', emoji: '💳',label: 'Payment method created'        },
+    payment_method_edit:          { icon: 'pencil', emoji: '✏️',label: 'Payment method updated'        },
+    payment_method_toggle:        { icon: 'pause', emoji: '⏸️',label: 'Payment method toggled'        },
     // Admin / Settings
-    update_settings:              { icon: 'settings',       label: 'Settings updated'              },
-    update_branding:              { icon: 'palette',        label: 'Branding updated'              },
-    upload_branding_logo:         { icon: 'image',          label: 'Logo uploaded'                 },
-    delete_branding_logo:         { icon: 'image',          label: 'Logo removed'                  },
-    create_staff_role:            { icon: 'shield-plus',    label: 'Staff role created'            },
-    update_staff_role:            { icon: 'pencil',         label: 'Staff role updated'            },
-    create_role:                  { icon: 'shield',         label: 'Portal role created'           },
-    update_role:                  { icon: 'shield',         label: 'Portal role updated'           },
-    delete_role:                  { icon: 'shield',         label: 'Portal role deleted'           },
-    create_tag:                   { icon: 'tag',            label: 'Tag definition created'        },
-    update_tag:                   { icon: 'tag',            label: 'Tag definition updated'        },
-    create_member_status:         { icon: 'circle-plus',    label: 'Member status created'         },
-    update_member_status:         { icon: 'pencil',         label: 'Member status updated'         },
-    delete_member_status:         { icon: 'trash-2',        label: 'Member status deleted'         },
-    create_member_type:           { icon: 'users',          label: 'Member type created'           },
-    update_member_type:           { icon: 'pencil',         label: 'Member type updated'           },
-    delete_member_type:           { icon: 'trash-2',        label: 'Member type deleted'           },
-    create_field_definition:      { icon: 'list-plus',      label: 'Custom field created'          },
-    update_field_definition:      { icon: 'pencil',         label: 'Custom field updated'          },
-    delete_field_definition:      { icon: 'trash-2',        label: 'Custom field deleted'          },
-    assign_type_field:            { icon: 'plus',           label: 'Field assigned to member type' },
-    remove_type_field:            { icon: 'minus',          label: 'Field removed from member type'},
-    maintenance_clear:            { icon: 'brush-cleaning', label: 'Maintenance data cleared'      },
-    maintenance_clear_members:    { icon: 'triangle-alert', label: 'All members cleared', tone: 'red' },
-    maintenance_backup:           { icon: 'database-backup',label: 'Database backed up'            },
-    maintenance_restore:          { icon: 'archive-restore',label: 'Database restored'             },
-    'import.run':                 { icon: 'import',         label: 'Member import run'             },
-    resync_sessions_check:        { icon: 'refresh-cw',     label: 'Session resync check run'      },
-    export_members:               { icon: 'share',          label: 'Members exported'              },
+    update_settings:              { icon: 'settings', emoji: '⚙️',label: 'Settings updated'              },
+    update_branding:              { icon: 'palette', emoji: '🎨',label: 'Branding updated'              },
+    upload_branding_logo:         { icon: 'image', emoji: '🖼️',label: 'Logo uploaded'                 },
+    delete_branding_logo:         { icon: 'image', emoji: '🖼️',label: 'Logo removed'                  },
+    create_staff_role:            { icon: 'shield-plus', emoji: '👷',label: 'Staff role created'            },
+    update_staff_role:            { icon: 'pencil', emoji: '✏️',label: 'Staff role updated'            },
+    create_role:                  { icon: 'shield', emoji: '🛡️',label: 'Portal role created'           },
+    update_role:                  { icon: 'shield', emoji: '🛡️',label: 'Portal role updated'           },
+    delete_role:                  { icon: 'shield', emoji: '🛡️',label: 'Portal role deleted'           },
+    create_tag:                   { icon: 'tag', emoji: '🏷️',label: 'Tag definition created'        },
+    update_tag:                   { icon: 'tag', emoji: '🏷️',label: 'Tag definition updated'        },
+    create_member_status:         { icon: 'circle-plus', emoji: '🔵',label: 'Member status created'         },
+    update_member_status:         { icon: 'pencil', emoji: '✏️',label: 'Member status updated'         },
+    delete_member_status:         { icon: 'trash-2', emoji: '🗑️',label: 'Member status deleted'         },
+    create_member_type:           { icon: 'users', emoji: '👥',label: 'Member type created'           },
+    update_member_type:           { icon: 'pencil', emoji: '✏️',label: 'Member type updated'           },
+    delete_member_type:           { icon: 'trash-2', emoji: '🗑️',label: 'Member type deleted'           },
+    create_field_definition:      { icon: 'list-plus', emoji: '📋',label: 'Custom field created'          },
+    update_field_definition:      { icon: 'pencil', emoji: '✏️',label: 'Custom field updated'          },
+    delete_field_definition:      { icon: 'trash-2', emoji: '🗑️',label: 'Custom field deleted'          },
+    assign_type_field:            { icon: 'plus', emoji: '➕',label: 'Field assigned to member type' },
+    remove_type_field:            { icon: 'minus', emoji: '➖',label: 'Field removed from member type'},
+    maintenance_clear:            { icon: 'brush-cleaning', emoji: '🧹',label: 'Maintenance data cleared'      },
+    maintenance_clear_members:    { icon: 'triangle-alert', emoji: '☠️',label: 'All members cleared', tone: 'red' },
+    maintenance_backup:           { icon: 'database-backup', emoji: '💾',label: 'Database backed up'            },
+    maintenance_restore:          { icon: 'archive-restore', emoji: '♻️',label: 'Database restored'             },
+    'import.run':                 { icon: 'import', emoji: '📥',label: 'Member import run'             },
+    resync_sessions_check:        { icon: 'refresh-cw', emoji: '🔄',label: 'Session resync check run'      },
+    export_members:               { icon: 'share', emoji: '📤',label: 'Members exported'              },
     // Other
-    'notification.deleted':       { icon: 'bell-off',       label: 'Notification deleted'          },
-    qr_token_regenerated:         { icon: 'qr-code',        label: 'QR token regenerated'          },
+    'notification.deleted':       { icon: 'bell-off', emoji: '🔔',label: 'Notification deleted'          },
+    qr_token_regenerated:         { icon: 'qr-code', emoji: '📱',label: 'QR token regenerated'          },
   };
 
   /* ── Date subtitle ──────────────────────────────────── */
@@ -277,7 +278,7 @@
       renderStats(d, trends || {});
       renderAlertsCallout(d.alert_flags, d.alerts_last_run);
       renderApprovalsCallout(d.pending_approvals);
-      renderToday(d.today_attendance);
+      renderToday(d.today_attendance, trends || {});
       renderActivity(d.recent_activity);
     } catch (e) {
       document.getElementById('stat-cards').innerHTML =
@@ -309,7 +310,7 @@
 
     // Active Members tile — membership growth sparkline + new-this-month chip
     stats.push({
-      icon: 'users', value: m.active ?? 0, label: 'Active Members', href: '/members', tone: '',
+      icon: 'users', emoji: '👥', value: m.active ?? 0, label: 'Active Members', href: '/members', tone: '',
       spark: t.members?.series, delta: deltaChip(t.members?.new_30d, 'this month'),
     });
 
@@ -317,14 +318,15 @@
     for (const st of SESSION_TYPES) {
       if (!IS_SCOPED || SESSION_NAMES.includes(st.name)) {
         const val = sc[st.name]?.members ?? 0;
-        stats.push({ icon: 'calendar-days', value: val, label: st.name + ' Session', href: '/register', tone: 'green' });
+        stats.push({ icon: 'calendar-days', emoji: '📅', value: val, label: st.name + ' Session', href: '/register', tone: 'green',
+                     spark: t.sessions?.[st.name]?.series });
       }
     }
 
     // Attendance tile — only once registers have been completed
     if (t.attendance?.last_pct != null) {
       stats.push({
-        icon: 'clipboard-check', value: t.attendance.last_pct, suffix: '%',
+        icon: 'clipboard-check', emoji: '✅', value: t.attendance.last_pct, suffix: '%',
         label: 'Attendance last session', href: '/register', tone: 'green',
         spark: t.attendance.series,
         delta: { label: `avg ${t.attendance.avg_pct}%`, dir: 'flat' },
@@ -334,7 +336,7 @@
     // Pending approvals tile — submissions-per-week sparkline
     if ((d.pending_approvals ?? 0) > 0 && USER_PERMS.has('approvals.view')) {
       stats.push({
-        icon: 'inbox', value: d.pending_approvals, label: 'Pending approvals', href: '/approvals', tone: 'amber',
+        icon: 'inbox', emoji: '📋', value: d.pending_approvals, label: 'Pending approvals', href: '/approvals', tone: 'amber',
         spark: t.approvals?.series,
         delta: t.approvals?.new_7d ? { label: `${t.approvals.new_7d} new`, dir: 'up' } : null,
       });
@@ -343,31 +345,35 @@
     // Staff tile — hidden when count is 0
     if (staffCount > 0) {
       stats.push({
-        icon: 'shield-check', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', tone: 'violet',
+        icon: 'shield-check', emoji: '🧑‍🤝‍🧑', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', tone: 'violet',
         spark: t.staff?.series, delta: deltaChip(t.staff?.new_30d, 'this month'),
       });
     }
 
     // Inactive tile — hidden from readonly users
     if (USER_ROLE !== 'readonly' && (m.inactive ?? 0) > 0) {
-      stats.push({ icon: 'circle-pause', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', tone: 'amber' });
+      stats.push({ icon: 'circle-pause', emoji: '⏸️', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', tone: 'amber',
+                   spark: t.inactive?.series });
     }
 
     // Leavers tile — hidden from readonly users and when count is 0
     if (USER_ROLE !== 'readonly' && (m.leavers ?? 0) > 0) {
-      stats.push({ icon: 'user-minus', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', tone: 'grey' });
+      stats.push({ icon: 'user-minus', emoji: '👤', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', tone: 'grey',
+                   spark: t.leavers?.series });
     }
 
-    // A sparkline needs ≥2 points and some variation to be worth drawing
+    // A sparkline needs ≥2 points to draw — flat lines are kept so every
+    // card stays visually consistent
     for (const s of stats) {
-      if (s.spark && (s.spark.length < 2 || s.spark.every(v => v === s.spark[0]))) s.spark = null;
+      if (s.spark && s.spark.length < 2) s.spark = null;
     }
 
     _statCards = stats;
+    _sparkSpecs = [];
     document.getElementById('stat-cards').innerHTML = stats.map((s, i) => `
-      <a href="${s.href}" class="stat-card">
+      <a href="${s.href}" class="stat-card t-${s.tone || 'accent'}">
         <div class="stat-top">
-          <span class="stat-icon ${s.tone}"><i data-lucide="${s.icon}"></i></span>
+          <span class="stat-icon ${s.tone}"><i data-lucide="${s.icon}"></i><span class="ico-emoji">${s.emoji || ''}</span></span>
           ${s.delta ? `<span class="delta ${s.delta.dir}">${s.delta.dir === 'up' ? '<i data-lucide="trending-up"></i>' : ''}${esc(s.delta.label)}</span>` : ''}
         </div>
         <div class="stat-value"><span data-count="${s.value}">0</span>${s.suffix || ''}</div>
@@ -375,6 +381,7 @@
         ${s.spark ? `<div class="spark-wrap"><canvas id="spark-${i}"></canvas></div>` : ''}
       </a>
     `).join('');
+    stats.forEach((s, i) => { if (s.spark) _sparkSpecs.push({ id: 'spark-' + i, series: s.spark, tone: s.tone }); });
     refreshIcons();
     animateCounters(document.getElementById('stat-cards'));
     buildSparks();
@@ -382,21 +389,21 @@
 
   /* ── Sparklines (fixed-height wrappers — avoids Chart.js resize loop) ── */
   let _sparkCharts = [];
+  let _sparkSpecs  = [];
   const SPARK_TONES = { '': 'accent', green: 'green', amber: 'amber', violet: 'violet', grey: 'muted' };
 
   function buildSparks() {
     if (!window.Chart) return;
     _sparkCharts.forEach(c => c.destroy());
     _sparkCharts = [];
-    _statCards.forEach((s, i) => {
-      if (!s.spark) return;
-      const cv = document.getElementById('spark-' + i);
+    _sparkSpecs.forEach(spec => {
+      const cv = document.getElementById(spec.id);
       if (!cv) return;
-      const col = cssColor(SPARK_TONES[s.tone] || 'accent');
+      const col = cssColor(SPARK_TONES[spec.tone] || 'accent');
       _sparkCharts.push(new Chart(cv, {
         type: 'line',
-        data: { labels: s.spark.map((_, x) => x), datasets: [{
-          data: s.spark, borderColor: col, borderWidth: 2, pointRadius: 0,
+        data: { labels: spec.series.map((_, x) => x), datasets: [{
+          data: spec.series, borderColor: col, borderWidth: 2, pointRadius: 0,
           fill: true, tension: .4,
           backgroundColor: ctx => {
             const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 38);
@@ -443,19 +450,30 @@
   }
 
   /* ── Today attendance ───────────────────────────────── */
-  function renderToday(sessions) {
+  function renderToday(sessions, t) {
     if (!sessions.length) return;
     document.getElementById('today-section').style.display = '';
-    document.getElementById('today-cards').innerHTML = sessions.map(s => `
-      <div class="stat-card" style="cursor:default">
-        <span class="stat-icon green"><i data-lucide="clipboard-check"></i></span>
+    document.getElementById('today-cards').innerHTML = sessions.map((s, i) => {
+      const series = (t.session_attendance || {})[s.session_type];
+      const spark  = series && series.length >= 2;
+      return `
+      <div class="stat-card t-green" style="cursor:default">
+        <div class="stat-top">
+          <span class="stat-icon green"><i data-lucide="clipboard-check"></i><span class="ico-emoji">✅</span></span>
+        </div>
         <div class="stat-value" data-count="${s.total_signed_in}">0</div>
         <div class="stat-label">${esc(s.session_type)} — signed in today</div>
         ${s.signed_out ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${s.signed_out} signed out</div>` : ''}
-      </div>
-    `).join('');
+        ${spark ? `<div class="spark-wrap"><canvas id="spark-today-${i}"></canvas></div>` : ''}
+      </div>`;
+    }).join('');
+    sessions.forEach((s, i) => {
+      const series = (t.session_attendance || {})[s.session_type];
+      if (series && series.length >= 2) _sparkSpecs.push({ id: 'spark-today-' + i, series, tone: 'green' });
+    });
     refreshIcons();
     animateCounters(document.getElementById('today-cards'));
+    buildSparks();
   }
 
   /* ── Upcoming sessions ──────────────────────────────── */
@@ -578,7 +596,7 @@
       return;
     }
     feed.innerHTML = items.map(a => {
-      const def    = ACTION_LABELS[a.action] || { icon: 'list', label: a.action };
+      const def    = ACTION_LABELS[a.action] || { icon: 'list', emoji: '📋', label: a.action };
       const time   = a.timestamp
         ? new Date(a.timestamp + 'Z').toLocaleString('en-GB',
             { dateStyle: 'short', timeStyle: 'short' })
@@ -592,7 +610,7 @@
       } catch (_) {}
       return `
         <div class="activity-row">
-          <span class="activity-icon ${def.tone || ''}"><i data-lucide="${def.icon}"></i></span>
+          <span class="activity-icon ${def.tone || ''}"><i data-lucide="${def.icon}"></i><span class="ico-emoji">${def.emoji || ''}</span></span>
           <div class="activity-body">
             <span class="activity-label">${def.label}</span>
             ${detail ? `<span class="activity-detail">${detail}</span>` : ''}
@@ -773,6 +791,28 @@
 
   /* ── Entrance animation ────────────────────────────── */
   .dash-grid, .callout, .dash-cols { animation: rise .4s ease both; }
+
+  /* ── Casual (v11) dashboard fidelity ─────────────────
+     Plain 26px emoji icons, big colour-coded values — exactly v11. */
+  html[data-skin="casual"] .stat-icon,
+  html[data-skin="casual"] .activity-icon,
+  html[data-skin="casual"] .callout-icon {
+    width: auto; height: auto; background: transparent; border: none; border-radius: 0;
+  }
+  html[data-skin="casual"] .stat-icon     { font-size: 26px; line-height: 1; }
+  html[data-skin="casual"] .activity-icon { font-size: 20px; }
+  html[data-skin="casual"] .callout-icon  { font-size: 22px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .stat-value { font-size: 36px; font-weight: 900; }
+
+  /* Casual stat cards: content centred horizontally (Formal stays left-aligned) */
+  html[data-skin="casual"] .stat-card { align-items: center; text-align: center; }
+  html[data-skin="casual"] .stat-top { flex-direction: column; justify-content: center; gap: 8px; }
+  html[data-skin="casual"] .stat-card .spark-wrap { width: 100%; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .t-accent .stat-value { color: var(--accent); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .t-green  .stat-value { color: var(--green); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .t-amber  .stat-value { color: #f59e0b; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .t-violet .stat-value { color: #7c3aed; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .t-grey   .stat-value { color: var(--muted); }
 
   /* ── Dashboard responsive ──────────────────────────── */
 

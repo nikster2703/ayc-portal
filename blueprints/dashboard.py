@@ -244,6 +244,55 @@ def api_stat_trends():
     staff_series = cumulative(staff_rows)
     staff_new = sum(1 for r in staff_rows if (r['created_at'] or '')[:10] >= month_ago)
 
+    # ── Per-session membership growth (session stat tiles) ──────────────────
+    per_sess_rows = db.execute(f'''
+        SELECT m.created_at, m.session FROM members m
+        JOIN member_types mt ON mt.slug = m.member_type
+        LEFT JOIN member_statuses ms ON ms.name = m.status
+        WHERE mt.registration_style != 'staff' AND ms.behaviour = 'active'{sess_filter}
+    ''', sess_args).fetchall()
+    by_session = {}
+    for r in per_sess_rows:
+        if r['session']:
+            by_session.setdefault(r['session'], []).append(r)
+    session_series = {name: {'series': cumulative(rows)} for name, rows in by_session.items()}
+
+    # ── Inactive / Leaver cohorts (their stat tiles) ─────────────────────────
+    def cohort_series(behaviour):
+        rows = db.execute(f'''
+            SELECT m.created_at FROM members m
+            JOIN member_types mt ON mt.slug = m.member_type
+            LEFT JOIN member_statuses ms ON ms.name = m.status
+            WHERE mt.registration_style != 'staff' AND ms.behaviour = ?{sess_filter}
+        ''', [behaviour] + sess_args).fetchall()
+        return cumulative(rows)
+    inactive_series = cohort_series('inactive')
+    leaver_series   = cohort_series('leaver')
+
+    # ── Per-session attendance headcounts (Today's Sessions cards) ──────────
+    if scoped is None:
+        att_by_type = db.execute('''
+            SELECT session_type, session_date,
+                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS n
+            FROM attendance
+            GROUP BY session_type, session_date
+            ORDER BY session_date
+        ''').fetchall()
+    else:
+        ph2 = ','.join('?' * len(scoped))
+        att_by_type = db.execute(f'''
+            SELECT session_type, session_date,
+                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS n
+            FROM attendance
+            WHERE session_type IN ({ph2})
+            GROUP BY session_type, session_date
+            ORDER BY session_date
+        ''', list(scoped)).fetchall()
+    session_attendance = {}
+    for r in att_by_type:
+        session_attendance.setdefault(r['session_type'], []).append(r['n'])
+    session_attendance = {k: v[-12:] for k, v in session_attendance.items()}
+
     # ── Registration submissions per week ────────────────────────────────────
     if scoped is None:
         sub_rows = db.execute(
@@ -303,6 +352,10 @@ def api_stat_trends():
         'members':   {'series': member_series, 'new_30d': members_new},
         'staff':     {'series': staff_series,  'new_30d': staff_new},
         'approvals': {'series': approvals_series, 'new_7d': approvals_week},
+        'sessions':  session_series,            # {session_name: {series}}
+        'inactive':  {'series': inactive_series},
+        'leavers':   {'series': leaver_series},
+        'session_attendance': session_attendance,  # {session_type: [headcounts]}
         'attendance': {
             'series':   [a['pct'] for a in att],
             'last_pct': att[-1]['pct'] if att else None,

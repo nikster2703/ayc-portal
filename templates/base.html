@@ -7,18 +7,21 @@
   <title>{% block title %}{{ club_short_name }} Portal{% endblock %}</title>
   <script>
     /* Apply saved theme + skin before first paint to avoid a flash.
-       theme: light/dark · skin: formal (default) / casual */
+       theme: light (default) / dark · skin: casual (default) / formal */
     (function () {
       try {
         if (localStorage.getItem('ayc-theme') === 'dark')
           document.documentElement.dataset.theme = 'dark';
-        if (localStorage.getItem('ayc-skin') === 'casual')
+        if (localStorage.getItem('ayc-skin') !== 'formal')
           document.documentElement.dataset.skin = 'casual';
-      } catch (_) {}
+      } catch (_) {
+        document.documentElement.dataset.skin = 'casual';
+      }
     })();
   </script>
   <link rel="stylesheet" href="/static/vendor/fonts.css?v={{ app_version }}">
   <link rel="stylesheet" href="/static/css/shared.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/css/skin-casual.css?v={{ app_version }}">
   <script src="/static/vendor/lucide.min.js?v={{ app_version }}"></script>
   {% if brand %}
   <style>
@@ -40,6 +43,16 @@
       --nav-effective-text:   {{ brand._nav_text }};
       --nav-effective-border: {{ brand._nav_border }};
     }
+    /* Casual (v11) defines its own defaults at higher specificity, so
+       re-assert the org's branding there too — exactly as v11 behaved. */
+    html[data-skin="casual"]:not([data-theme="dark"]) {
+      --accent:       {{ brand._palette.accent }};
+      --accent-dark:  {{ brand._palette.accent_dark }};
+      --accent-light: {{ brand._palette.accent_light }};
+      --nav-effective-bg:     {{ brand._nav_bg }};
+      --nav-effective-text:   {{ brand._nav_text }};
+      --nav-effective-border: {{ brand._nav_border }};
+    }
   </style>
   {% endif %}
   {% block head %}{% endblock %}
@@ -54,6 +67,7 @@
           <img src="{{ brand._logo_url }}" alt="{{ club_name }}" class="brand-logo">
         {% else %}
           <span class="brand-mark"><i data-lucide="medal"></i></span>
+          <span class="brand-icon ico-emoji">🏅</span>
           <span class="brand-label">{{ club_name }}</span>
         {% endif %}
       </a>
@@ -231,14 +245,14 @@
   <nav class="app-nav">
     <a href="/dashboard"
        class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="layout-dashboard"></i></span>
+      <span class="nav-icon"><i data-lucide="layout-dashboard"></i><span class="ico-emoji">🏠</span></span>
       <span class="nav-label">Dashboard</span>
     </a>
 
     {% if 'members.view' in user_permissions %}
     <a href="/members"
        class="nav-link{% if active_page == 'members' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="users"></i></span>
+      <span class="nav-icon"><i data-lucide="users"></i><span class="ico-emoji">👥</span></span>
       <span class="nav-label">Members</span>
     </a>
     {% endif %}
@@ -246,27 +260,27 @@
     {% if 'approvals.view' in user_permissions %}
     <a href="/approvals"
        class="nav-link{% if active_page == 'approvals' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="inbox"></i></span>
+      <span class="nav-icon"><i data-lucide="inbox"></i><span class="ico-emoji">📋</span></span>
       <span class="nav-label">Approvals</span>
     </a>
     {% endif %}
 
     <a href="/register"
        class="nav-link{% if active_page == 'register' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="clipboard-check"></i></span>
+      <span class="nav-icon"><i data-lucide="clipboard-check"></i><span class="ico-emoji">✅</span></span>
       <span class="nav-label">Register</span>
     </a>
 
     <a href="/calendar"
        class="nav-link{% if active_page == 'calendar' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="calendar-days"></i></span>
+      <span class="nav-icon"><i data-lucide="calendar-days"></i><span class="ico-emoji">📅</span></span>
       <span class="nav-label">Calendar</span>
     </a>
 
     {% if 'documents.view' in user_permissions %}
     <a href="/documents"
        class="nav-link{% if active_page == 'documents' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="folder-open"></i></span>
+      <span class="nav-icon"><i data-lucide="folder-open"></i><span class="ico-emoji">📁</span></span>
       <span class="nav-label">Documents</span>
     </a>
     {% endif %}
@@ -274,7 +288,7 @@
     {% if 'mailshots.send' in user_permissions %}
     <a href="/communications"
        class="nav-link{% if active_page == 'communications' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="mail"></i></span>
+      <span class="nav-icon"><i data-lucide="mail"></i><span class="ico-emoji">✉️</span></span>
       <span class="nav-label">Comms</span>
     </a>
     {% endif %}
@@ -282,14 +296,14 @@
     {% if 'audit.view' in user_permissions %}
     <a href="/admin/audit"
        class="nav-link{% if active_page == 'audit' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="scroll-text"></i></span>
+      <span class="nav-icon"><i data-lucide="scroll-text"></i><span class="ico-emoji">🔍</span></span>
       <span class="nav-label">Audit Log</span>
     </a>
     {% endif %}
     {% if 'admin.settings' in user_permissions %}
     <a href="/admin/settings"
        class="nav-link{% if active_page == 'settings' %} active{% endif %}">
-      <span class="nav-icon"><i data-lucide="settings"></i></span>
+      <span class="nav-icon"><i data-lucide="settings"></i><span class="ico-emoji">🛠️</span></span>
       <span class="nav-label">Settings</span>
     </a>
     {% endif %}
@@ -299,7 +313,7 @@
             style="border:none;background:none;cursor:pointer;font-family:inherit"
             title="Notifications">
       <span class="nav-icon" style="position:relative;display:inline-flex">
-        <i data-lucide="bell"></i>
+        <i data-lucide="bell"></i><span class="ico-emoji">🔔</span>
         <span id="nav-bell-badge" style="
             display:none;position:absolute;top:-5px;right:-7px;
             background:var(--red);color:white;font-size:9px;font-weight:700;

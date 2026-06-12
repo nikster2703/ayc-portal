@@ -147,25 +147,20 @@ html[data-skin="casual"] :is(h1, h2, h3, .btn, .stat-value) { font-weight: 800; 
 html[data-skin="casual"] .avatar { border-radius: 50%; }      /* classic round avatars */
 html[data-skin="casual"] .btn { border-radius: 12px; }
 
-/* Casual light keeps the classic solid-navy header from v11 */
-html[data-skin="casual"]:not([data-theme="dark"]) .app-header {
-  background: rgba(27,45,79,.94);
-  border-bottom-color: rgba(255,255,255,.08);
-  color: #fff;
-}
-html[data-skin="casual"]:not([data-theme="dark"]) .app-header .brand a { color: #fff; }
-html[data-skin="casual"]:not([data-theme="dark"]) .app-header :is(.user-pill, .session-pill, .icon-btn) {
-  background: rgba(255,255,255,.13);
-  border-color: transparent;
-  color: #fff;
-  box-shadow: none;
-}
-html[data-skin="casual"]:not([data-theme="dark"]) .app-header .icon-btn:hover { background: rgba(255,255,255,.24); color: #fff; }
-html[data-skin="casual"]:not([data-theme="dark"]) .app-header .logout-btn {
-  color: rgba(255,255,255,.85);
-  border-color: rgba(255,255,255,.3);
-}
-html[data-skin="casual"]:not([data-theme="dark"]) .app-header .logout-btn:hover { color: #fff; border-color: #fff; }
+/* ── Casual LIGHT is the faithful v11 stylesheet ──
+   Loaded from static/css/skin-casual.css (generated verbatim from git
+   42906ff). Its rules are scoped html[data-skin="casual"]:not([data-theme=
+   "dark"]) and out-rank everything above, so casual light = exact v11:
+   navy header (via --nav-effective-*), white underline nav, cream pages.
+   Casual DARK falls back to the v12 components with the warm tokens above. */
+
+/* ── Emoji ↔ Lucide icon switching ──
+   Templates render both forms; the active skin decides which shows.
+   Formal: Lucide SVGs.  Casual (light & dark): the classic emojis. */
+.ico-emoji { display: none; }
+html[data-skin="casual"] .ico-emoji { display: inline; }
+html[data-skin="casual"] .brand-mark { display: none; }
+html[data-skin="casual"] :is(.nav-icon, .stat-icon, .activity-icon, .callout-icon) .lucide { display: none; }
 
 html { color-scheme: light; }
 html[data-theme="dark"] { color-scheme: dark; }

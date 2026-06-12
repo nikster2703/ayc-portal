@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.0.1'  # v12.0.1: self-host fonts/Lucide/Chart.js (CSP blocked CDNs — icons & fonts never loaded). v12.0: 2026 UI restyle — dual skins (Formal: Inter/minimal · Casual: Nunito/navy-cream) × light/dark themes, color-mix-derived accent shades, frosted header/nav, Lucide icons, Chart.js dashboard; design tokens in shared.css v12; display.html intentionally excluded
+APP_VERSION = 'v12.1'  # v12.1: Casual skin is now the faithful v11 stylesheet (skin-casual.css, generated from git 42906ff) + emojis return in Casual via dual-render icon switching; Casual is the default skin. v12.0.x: restyle + self-hosted assets
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
