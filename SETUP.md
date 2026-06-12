@@ -11,7 +11,7 @@ Built with Python / Flask / SQLite. Can run directly on a Mac Mini (development)
 |-------|----------|
 | 1 | Login, member lookup, edit/soft-delete, audit log, user management |
 | 2 | Public self-registration form + staff approval workflow |
-| 3 | Digital session register (sign-in/out), attendance history, At Risk tracking |
+| 3 | Digital session register (sign-in/out), attendance history, configurable member alert flags |
 | 4 | Document repository, email templates, mailshots via Gmail |
 | 5 | Term calendar, staff registrations, permanent record delete |
 | 6 | Configurable Roles & Permissions — fully database-driven, customisable per-role |
@@ -55,13 +55,25 @@ source venv/bin/activate
 cp .env.example .env
 ```
 
-Open `.env` and fill in two things:
+Open `.env` and fill in the following:
 
 **SECRET_KEY** — a long random string Flask uses to sign session cookies:
 ```bash
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 Paste the output as the value for `SECRET_KEY`.
+
+**DB_ENCRYPTION_KEY** — the key that encrypts the database. Generate a *different* random value:
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+**Keep this safe — if you lose it, the database is permanently unreadable.**
+
+**DOCUMENT_ENCRYPTION_KEY** — a dedicated key that encrypts uploaded documents, kept separate from the database key. On a fresh install, generate one now:
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+Keep this safe too. If you leave it blank the portal still works (it falls back to deriving a key from `DB_ENCRYPTION_KEY`), but setting a dedicated key is the recommended best practice. **Do not change this value once documents have been uploaded, or those files become unreadable** — to switch keys later you must run `scripts/reencrypt_documents.py` (see "Rotating the document key" below).
 
 **Gmail SMTP** (needed for mailshots):
 1. Make sure 2-Step Verification is on for your Gmail account
@@ -235,14 +247,15 @@ From Phase 6 onwards, roles are fully database-driven. There are no hard-coded r
 
 ### Default roles
 
-Four roles are created on first run and cannot be deleted:
+Three roles are created on first run and cannot be deleted:
 
 | Role | Description |
 |------|-------------|
-| **Admin** | Full access — user management, audit log, settings, all member data |
-| **Core Leader** | Edit members, approve registrations, send mailshots, manage documents |
-| **Leader** | Sign members in/out for their assigned session; view attendance |
-| **Read-only** | View member list and attendance for their assigned session only |
+| **Admin** | Full access — user management, audit log, settings, all member data (unscoped — sees every session) |
+| **Editor** | Day-to-day staff role — edit members, approve registrations, run the register, send mailshots, manage documents and alert rules (scoped to assigned session) |
+| **Read Only** | Limited access for the assigned session — sign members out, view documents, payments and notifications |
+
+> An earlier "Leader" role was retired and its users were automatically migrated to **Read Only**. Custom roles with any mix of permissions can still be created (see below).
 
 ### Managing roles
 
@@ -265,7 +278,7 @@ Permissions are grouped into categories. The full list is visible in the role ed
 | `members.hard_delete` | Permanent delete of member records |
 | `approvals.view` | See and action the self-registration queue |
 | `register.signin` / `register.signout` | Sign members in or out on the register |
-| `register.at_risk` | Mark/unmark members as At Risk |
+| `alerts.view` / `alerts.manage` | View member flags; create and edit alert rules |
 | `documents.upload` | Upload new documents to the repository |
 | `mailshots.send` | Compose and send mailshots |
 | `calendar.create` | Add / generate term calendar entries |
@@ -488,6 +501,7 @@ Fill in at minimum:
 - `CLUB_NAME` / `CLUB_SHORT_NAME` — full name and member ID prefix
 - `SECRET_KEY` — generate with: `docker run --rm python:3.11-slim python3 -c "import secrets; print(secrets.token_hex(32))"`
 - `DB_ENCRYPTION_KEY` — run the same command again for a second unique value. **Keep this safe — losing it means losing the database.**
+- `DOCUMENT_ENCRYPTION_KEY` — a dedicated key for uploaded documents, unique to this server. Generate with: `docker run --rm python:3.11-slim sh -c "pip install -q cryptography && python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"`. Optional (a blank value falls back to deriving from `DB_ENCRYPTION_KEY`), but recommended on a fresh install. **Keep it safe and never change it once documents exist.**
 - `FLASK_ENV` — set to `production`
 - Gmail credentials — can be added later
 
@@ -536,6 +550,28 @@ cd /share/Container/ara-portal
 ```
 
 Downtime is typically under 10 seconds. Your data is never touched.
+
+> **Note — updates never modify your `.env`.** `update.sh` only pulls code and rebuilds; it does not change the server's `.env`. So when a new config variable is introduced (for example `DOCUMENT_ENCRYPTION_KEY`), `git pull` updates `.env.example` but **not** your live `.env` — you must add the new line to `.env` by hand and then `docker compose up -d --force-recreate`. Compare the two after an update with `diff <(sed -E 's/=.*//' .env | sort) <(sed -E 's/=.*//' .env.example | sort)` to spot any new variables you're missing.
+
+#### Adding the document key to an existing server
+
+If a server has been running **without** `DOCUMENT_ENCRYPTION_KEY`, its existing documents are encrypted with a key derived from `DB_ENCRYPTION_KEY`. You have two safe choices:
+
+- **Leave it blank** — everything keeps working on the derived key. No action needed.
+- **Switch to a dedicated key** — add `DOCUMENT_ENCRYPTION_KEY` to `.env`, then re-encrypt the existing files (see "Rotating the document key" below). Do **not** add the key without re-encrypting, or previously uploaded documents will fail to open.
+
+A brand-new server with no documents yet can simply set a fresh key from the start — nothing to migrate.
+
+#### Rotating the document key
+
+To move existing documents from the old (derived) key to a new dedicated key, or to rotate to a brand-new key:
+
+1. **Back up the documents first:** `cp -r data/documents data/documents.bak` (or, in Docker, snapshot the volume — see "Backing up and restoring data").
+2. Add the new `DOCUMENT_ENCRYPTION_KEY` to `.env` (keep `DB_ENCRYPTION_KEY` unchanged so the script can read the old files).
+3. Run the re-encryption script from the portal folder:
+   - Local: `python3 scripts/reencrypt_documents.py`
+   - Docker: `docker compose run --rm portal python scripts/reencrypt_documents.py`
+4. The script decrypts each file with the old key and re-encrypts it with the new one. It's idempotent — safe to re-run if interrupted — and reports any errors. Only delete `data/documents.bak` once it reports success.
 
 ---
 

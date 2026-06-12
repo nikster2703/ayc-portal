@@ -60,9 +60,10 @@ USER ayc
 
 EXPOSE 5001
 
-# Gunicorn: 2 worker processes, 4 threads each.
-# Single worker keeps the in-process rate limiters coherent until a shared
-# backend (Redis) is added.  Increase workers then.
+# Gunicorn: 1 worker, 4 threads.
+# Rate limiters are DB-backed since v11.29 (shared across processes via the
+# rate_limits table), so it is now safe to raise --workers for more concurrency
+# on busy nights — bump the number below and `docker compose up -d --force-recreate`.
 CMD ["gunicorn", \
      "--workers", "1", \
      "--threads", "4", \
