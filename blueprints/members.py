@@ -9,8 +9,8 @@ import json
 from flask import Blueprint, current_app, jsonify, request, session
 
 from helpers import (
-    get_db, log_action, login_required, permission_required,
-    _assigned_session, _fetch_tags_for_members, get_session_types,
+    get_db, log_action, permission_required,
+    _assigned_session, get_session_types,
 )
 from config import GETADDRESS_KEY
 

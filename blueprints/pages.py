@@ -12,7 +12,7 @@ from config import APP_VERSION, BRANDING_DIR, CLUB_NAME, CLUB_SHORT_NAME
 from helpers import (
     get_db, login_required, permission_required,
     tpl_ctx, get_brand_settings, get_session_types, get_valid_session_names,
-    _is_register_locked, _ensure_qr_tokens_for_today, get_setting,
+    _ensure_qr_tokens_for_today,
 )
 
 bp = Blueprint('pages', __name__)
@@ -443,7 +443,9 @@ def document_categories_page():
 @permission_required('admin.settings')
 def document_fields_page(cat_id):
     db  = get_db()
-    cat = db.execute('SELECT * FROM document_categories WHERE id = ?', (cat_id,)).fetchone()
+    cat = db.execute('SELECT id FROM document_categories WHERE id = ?', (cat_id,)).fetchone()
+    if not cat:
+        return redirect('/admin/document-categories')
     return render_template('admin/document_fields.html',
                            cat_id=cat_id, active_page='settings', **tpl_ctx())
 

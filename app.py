@@ -31,7 +31,7 @@ from logging.handlers import RotatingFileHandler
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from flask import Flask, g, jsonify, redirect, request, session, url_for
+from flask import Flask, jsonify, redirect, request, session, url_for
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import HTTPException
 
@@ -41,7 +41,7 @@ from config import (
 )
 from db import ensure_tables
 from extensions import csrf
-from helpers import close_db, get_brand_settings
+from helpers import close_db
 
 
 # ── Create app ────────────────────────────────────────────────────────────────

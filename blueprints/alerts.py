@@ -13,7 +13,7 @@ from flask import Blueprint, jsonify, render_template, request, session
 
 from helpers import (
     get_db, log_action, permission_required, _assigned_session,
-    get_session_types, get_setting, send_notification, tpl_ctx,
+    get_setting, send_notification, tpl_ctx,
     _connect_db,
 )
 

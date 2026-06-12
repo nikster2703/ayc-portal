@@ -17,8 +17,7 @@ from extensions import csrf
 from flask import render_template
 from helpers import (
     get_db, log_action, login_required, validate_password,
-    get_brand_settings, get_session_types, get_valid_session_names,
-    _assigned_session, tpl_ctx,
+    get_brand_settings,
     login_rate_status, record_login_failure, clear_login_failures,
 )
 

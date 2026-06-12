@@ -49,7 +49,7 @@ def _connect_db(path):
     return conn
 
 # The spreadsheet lives one level up (inside the AYC Member Lookup folder)
-XLSX_PATH    = os.path.join(BASE_DIR, '..', 'SYC Member Details-2.xlsx')
+XLSX_PATH    = os.path.join(APP_DIR, '..', 'SYC Member Details-2.xlsx')
 XLSX_PATH    = os.path.normpath(XLSX_PATH)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ def migrate():
     conn.commit()
     conn.close()
 
-    print(f'\nMigration complete:')
+    print('\nMigration complete:')
     print(f'  Imported : {imported} new members')
     print(f'  Updated  : {updated} existing members')
     print(f'  Skipped  : {skipped} blank rows')

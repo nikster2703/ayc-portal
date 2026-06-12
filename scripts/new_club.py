@@ -26,7 +26,6 @@ import secrets
 import sys
 
 import sqlcipher3
-from dotenv import load_dotenv
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
@@ -148,7 +147,7 @@ DB_ENCRYPTION_KEY={db_key}
     with open(env_path, 'w') as f:
         f.write(content)
     os.chmod(env_path, 0o600)
-    print(f'✓  Generated .env  (permissions 600)')
+    print('✓  Generated .env  (permissions 600)')
     return env_path
 
 
@@ -262,12 +261,12 @@ def write_service_file(inst_dir, slug, details, app_py_path):
         print(f'✓  launchd plist written: {plist_path}')
 
         install_path = os.path.expanduser(f'~/Library/LaunchAgents/{label}.plist')
-        print(f'\n── macOS next steps ──')
-        print(f'  1. Copy the plist to LaunchAgents:')
+        print('\n── macOS next steps ──')
+        print('  1. Copy the plist to LaunchAgents:')
         print(f'       cp "{plist_path}" "{install_path}"')
-        print(f'  2. Load it:')
+        print('  2. Load it:')
         print(f'       launchctl load "{install_path}"')
-        print(f'  3. Check it started:')
+        print('  3. Check it started:')
         print(f'       launchctl list | grep {slug}')
 
     else:
@@ -296,13 +295,13 @@ WantedBy=multi-user.target
             f.write(unit)
         print(f'✓  systemd unit written: {unit_path}')
 
-        print(f'\n── Linux next steps ──')
-        print(f'  1. Copy the unit file:')
+        print('\n── Linux next steps ──')
+        print('  1. Copy the unit file:')
         print(f'       sudo cp "{unit_path}" /etc/systemd/system/{unit_name}.service')
-        print(f'  2. Reload and enable:')
-        print(f'       sudo systemctl daemon-reload')
+        print('  2. Reload and enable:')
+        print('       sudo systemctl daemon-reload')
         print(f'       sudo systemctl enable --now {unit_name}')
-        print(f'  3. Check status:')
+        print('  3. Check status:')
         print(f'       sudo systemctl status {unit_name}')
 
 

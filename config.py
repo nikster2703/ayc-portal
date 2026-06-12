@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.31'  # v11.31: Display SSE stream no longer holds a DB connection for its lifetime — attendance changes now signalled via a marker file polled with a cheap os.stat, avoiding per-poll SQLCipher unlock cost and freeing the connection between checks
+APP_VERSION = 'v11.32'  # v11.32: Static-analysis sweep — remove unused imports/locals across app + blueprints + scripts (zero pyflakes warnings); fix latent NameError in migrate_members.py (BASE_DIR → APP_DIR); add 404 guard to document-fields admin page
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

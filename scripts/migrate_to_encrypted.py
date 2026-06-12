@@ -70,7 +70,7 @@ def main():
     source = sqlcipher3.connect(DB_PATH)  # no PRAGMA key — source is plaintext
 
     # 4. Attach a new encrypted file and export everything into it
-    source.execute(f'ATTACH DATABASE ? AS encrypted KEY ?', (temp_encrypted, key))
+    source.execute('ATTACH DATABASE ? AS encrypted KEY ?', (temp_encrypted, key))
     source.execute("SELECT sqlcipher_export('encrypted');")
     source.execute('DETACH DATABASE encrypted;')
     source.close()

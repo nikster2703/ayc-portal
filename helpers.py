@@ -14,16 +14,15 @@ import secrets
 from datetime import datetime
 from functools import wraps
 
-import bcrypt
 import sqlcipher3 as sqlite3
 from cryptography.fernet import Fernet
 from flask import g, has_request_context, jsonify, redirect, request, session, url_for
 
 from config import (
-    DATABASE, UPLOAD_DIR, BRANDING_DIR, ALLOWED_EXTENSIONS,
+    DATABASE, UPLOAD_DIR, ALLOWED_EXTENSIONS,
     BRAND_KEYS, CLUB_NAME, CLUB_SHORT_NAME,
     ROLE_ADMIN,
-    SESSION_IDLE_TIMEOUT, LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
+    LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
 )
 
 # ── Database ───────────────────────────────────────────────────────────────────

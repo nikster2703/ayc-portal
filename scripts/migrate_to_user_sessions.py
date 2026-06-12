@@ -160,11 +160,11 @@ def run(db_path):
     conn.close()
 
     # ── Step 5: Summary ───────────────────────────────────────────────────────
-    print(f'\n  Migration complete:')
+    print('\n  Migration complete:')
     print(f'    Users migrated:       {migrated}')
     print(f'    Users skipped:        {skipped}')
     if not_found:
-        print(f'\n  WARNING — session name not found for these users:')
+        print('\n  WARNING — session name not found for these users:')
         for username, sess in not_found:
             print(f'    {username!r:20s} → session_assigned={sess!r} (no matching session_types row)')
         print('  These users will have no session access until manually assigned in the portal.')

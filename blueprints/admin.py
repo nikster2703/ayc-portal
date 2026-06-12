@@ -27,7 +27,6 @@ from datetime import datetime
 
 import bcrypt
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, session
-from werkzeug.utils import secure_filename
 
 from config import (
     BRANDING_DIR, CLUB_SHORT_NAME, DATABASE, INSTANCE_DIR, LOG_DIR,
@@ -35,9 +34,9 @@ from config import (
 )
 from extensions import csrf
 from helpers import (
-    get_db, log_action, login_required, permission_required, has_permission,
+    get_db, log_action, permission_required, has_permission,
     _assigned_session, _connect_db, _validate_hex_colour, _invalidate_brand_cache,
-    get_brand_settings, get_valid_session_names, get_session_types, validate_password,
+    get_brand_settings, get_session_types, validate_password,
     get_setting, encrypt_file, decrypt_file,
 )
 
@@ -2110,13 +2109,8 @@ def api_import_run():
         'unattended_exit', 'gdpr_consent', 'staff_role',
         'date_registered', 'comments', 'status',
     }
-    # email and mobile are first-class columns on members (added v10.13).
-    # They are also kept in SPECIAL_KEYS so they bypass the custom_vals path.
-    SPECIAL_KEYS = {
-        'email', 'mobile', 'member_id',
-        'contact1_name', 'contact1_phone', 'contact1_email',
-        'contact2_name', 'contact2_phone', 'contact2_email',
-    }
+    # email, mobile, member_id and the contact_* fields are handled explicitly in
+    # the mapping loop below — they bypass the custom_vals / EAV path.
     PAYMENT_KEYS = {'_payment_paid'}
 
     # Pre-fetch payment type + current period if any payment column is mapped
@@ -2585,7 +2579,7 @@ def _ayc_import_members(db, save_path, file_ext):
             if provided_id:
                 imported_ids_used.append(member_id)
 
-        except Exception as exc:
+        except Exception:
             skipped += 1
             try: db.rollback()
             except Exception: pass
@@ -2925,8 +2919,7 @@ def api_import_history_run():
         default_type = (data.get('default_session_type') or '').strip()
 
         if att_format == 'wide':
-            # Wide: member col + date columns
-            member_col_i = int(next((k for k, v in mapping.items() if v == 'member_id'), -1))
+            # Wide: member col + date columns (member is resolved via _resolve())
             date_col_indices = [int(k) for k, v in mapping.items() if v == 'date_column']
             date_labels      = [headers[i] for i in date_col_indices if i < len(headers)]
 
@@ -3334,7 +3327,6 @@ def api_export_members_xlsx():
 
     member_ids   = [m['id'] for m in members]
     placeholders = ','.join('?' * len(member_ids))
-    mid_map      = {m['id']: m for m in members}  # for joining history rows to names
 
     # ── Attendance summary for Sheet 1 ───────────────────────────────────────
     att_map = {}
