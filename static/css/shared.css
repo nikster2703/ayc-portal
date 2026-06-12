@@ -75,6 +75,12 @@ html[data-theme="dark"] {
   --shadow-md: 0 6px 20px -4px rgba(0,0,0,.45);
   --header-bg: rgba(14,19,32,.72);
 
+  /* Branded nav colours apply in light mode only — dark keeps a neutral
+     header so a white/light branding choice can't blind a dark page. */
+  --nav-effective-bg:     var(--surface);
+  --nav-effective-text:   var(--text);
+  --nav-effective-border: var(--border);
+
   /* Legacy aliases re-pointed for dark surfaces */
   --navy:       #dbe4f3;   /* mostly used as a text colour */
   --navy-dark:  #eef3fb;
@@ -177,19 +183,22 @@ body {
 /* Lucide icon defaults */
 .lucide { width: 18px; height: 18px; stroke-width: 2; flex-shrink: 0; vertical-align: -3px; }
 
-/* ─── APP HEADER — frosted, sticky ───────────────── */
+/* ─── APP HEADER — frosted, sticky, honours per-org nav branding ──
+   --nav-effective-* come from the branding settings (dark/accent/white).
+   The colour is applied as a translucent tint so the frosted blur keeps
+   working; with no branding it resolves to the neutral surface colour.  */
 .app-header {
   position: sticky; top: 0; z-index: 100;
   display: flex; align-items: center; justify-content: space-between;
   height: 60px; padding: 0 24px;
-  background: var(--header-bg);
+  background: color-mix(in srgb, var(--nav-effective-bg) 84%, transparent);
   backdrop-filter: blur(14px) saturate(1.4);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
+  border-bottom: 1px solid var(--nav-effective-border);
+  color: var(--nav-effective-text);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 15.5px; font-weight: 800; letter-spacing: -.01em; }
-.brand a { color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 10px; }
+.brand a { color: var(--nav-effective-text); text-decoration: none; display: flex; align-items: center; gap: 10px; }
 .brand-mark {
   width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
@@ -200,36 +209,43 @@ body {
 .brand-logo { height: 34px; width: auto; max-width: 160px; object-fit: contain; }
 
 .header-right { display: flex; align-items: center; gap: 10px; }
+/* Header pills/buttons derive from the nav text colour so they read
+   correctly on white, dark-navy and accent branded headers alike. */
 .user-pill {
   display: inline-flex; align-items: center; gap: 6px;
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  background: color-mix(in srgb, var(--nav-effective-text) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nav-effective-text) 16%, transparent);
   border-radius: 99px; padding: 5px 13px;
-  font-size: 12.5px; font-weight: 600; color: var(--text);
+  font-size: 12.5px; font-weight: 600; color: var(--nav-effective-text);
 }
 .logout-btn {
-  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--nav-effective-text) 28%, transparent);
+  color: color-mix(in srgb, var(--nav-effective-text) 80%, transparent);
   border-radius: 9px; padding: 6px 13px;
   font-family: inherit; font-size: 12.5px; font-weight: 600;
   cursor: pointer; transition: all .18s;
 }
-.logout-btn:hover { color: var(--text); border-color: color-mix(in srgb, var(--muted) 40%, var(--border)); }
+.logout-btn:hover { color: var(--nav-effective-text); border-color: var(--nav-effective-text); }
 
 /* Square icon button (theme toggle, etc.) */
 .icon-btn {
   display: grid; place-items: center; width: 34px; height: 34px;
-  border-radius: 9px; border: 1px solid var(--border); background: var(--surface);
-  color: var(--muted); cursor: pointer; transition: all .15s; box-shadow: var(--shadow-sm);
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--nav-effective-text) 16%, transparent);
+  background: color-mix(in srgb, var(--nav-effective-text) 9%, transparent);
+  color: color-mix(in srgb, var(--nav-effective-text) 80%, transparent);
+  cursor: pointer; transition: all .15s;
 }
-.icon-btn:hover { color: var(--text); border-color: color-mix(in srgb, var(--muted) 40%, var(--border)); }
+.icon-btn:hover { color: var(--nav-effective-text); background: color-mix(in srgb, var(--nav-effective-text) 16%, transparent); }
 
 /* ─── SESSION PILL / SWITCHER ──────────────────── */
 .session-pill {
   display: flex; align-items: center; gap: 7px;
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  background: color-mix(in srgb, var(--nav-effective-text) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nav-effective-text) 16%, transparent);
   border-radius: 99px; padding: 5px 12px;
-  font-size: 12.5px; font-weight: 600; color: var(--text);
+  font-size: 12.5px; font-weight: 600; color: var(--nav-effective-text);
   white-space: nowrap;
 }
 .session-pill-dot {
