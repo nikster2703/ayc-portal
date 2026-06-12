@@ -58,8 +58,8 @@
         <option value="__staff__">Staff / Volunteers</option>
       </select>
       {% else %}
-      <span class="session-select" style="display:inline-flex;align-items:center;
-            padding:0 14px;background:var(--navy);color:white;border-radius:8px;
+      <span class="session-select session-locked" style="display:inline-flex;align-items:center;
+            padding:0 14px;border-radius:8px;
             font-size:13px;font-weight:700;pointer-events:none;opacity:.8">
         {{ current_session or 'Your session' }}
       </span>
@@ -121,10 +121,10 @@
 <!-- ── Edit Member Modal ─────────────────────────────── -->
 <div class="modal-overlay" id="edit-modal">
   <div class="modal" style="max-width:580px">
-    <h2>✏️ Edit Member</h2>
+    <h2><span class="ico-emoji">✏️ </span>Edit Member</h2>
 
     <!-- Member ID badge — always read-only -->
-    <div style="margin-bottom:14px;padding:10px 12px;background:#f8fafc;
+    <div style="margin-bottom:14px;padding:10px 12px;background:var(--surface-2);
                 border:1.5px solid var(--border);border-radius:8px;
                 display:flex;align-items:center;gap:10px">
       <span style="font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap">Member ID</span>
@@ -230,7 +230,7 @@
 
     <!-- Step 1: summary -->
     <div id="pdel-step1">
-      <h2 style="color:var(--red)">⚠️ Permanently Delete Record</h2>
+      <h2 style="color:var(--red)"><span class="ico-emoji">⚠️ </span>Permanently Delete Record</h2>
       <div style="background:var(--red-bg);border:1.5px solid #fca5a5;border-radius:10px;
                   padding:14px 16px;margin:16px 0">
         <p style="font-weight:800;color:var(--red);margin-bottom:8px" id="pdel-warning"></p>
@@ -250,7 +250,7 @@
 
     <!-- Step 2: type-to-confirm -->
     <div id="pdel-step2" style="display:none">
-      <h2 style="color:var(--red)">🗑 Confirm Deletion</h2>
+      <h2 style="color:var(--red)"><span class="ico-emoji">🗑 </span>Confirm Deletion</h2>
       <p style="font-size:14px;margin:16px 0 8px">
         Type <strong id="pdel-name-hint" style="color:var(--red)"></strong> below to confirm:
       </p>
@@ -275,7 +275,7 @@
 {% if 'members.edit' in user_permissions %}
 <div class="modal-overlay" id="status-modal">
   <div class="modal" style="max-width:440px">
-    <h2>🔄 Change Status</h2>
+    <h2><span class="ico-emoji">🔄 </span>Change Status</h2>
     <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
       Changing status for <strong id="status-modal-name"></strong>.
       Current status: <span id="status-modal-current" style="font-weight:700"></span>
@@ -305,7 +305,7 @@
 {% if 'payments.record' in user_permissions %}
 <div class="modal-overlay" id="payment-modal" onclick="if(event.target===this)closePaymentModal()">
   <div class="modal" style="max-width:480px">
-    <h2 id="payment-modal-title">💳 Record Payment</h2>
+    <h2 id="payment-modal-title"><span class="ico-emoji">💳 </span>Record Payment</h2>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div class="form-group">
@@ -355,7 +355,7 @@
 {% if 'payments.manage' in user_permissions %}
 <div class="modal-overlay" id="void-payment-modal" onclick="if(event.target===this)closeVoidModal()">
   <div class="modal" style="max-width:420px">
-    <h2>🚫 Void Payment</h2>
+    <h2><span class="ico-emoji">🚫 </span>Void Payment</h2>
     <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
       This will mark the payment as voided. It remains in the history for audit purposes.
     </p>
@@ -656,17 +656,24 @@
   function showSearchPrompt() {
     document.getElementById('members-container').innerHTML = `
       <div class="prompt-state">
-        <div class="prompt-icon">🔍</div>
+        <div class="prompt-icon"><span class="ico-emoji">🔍</span><i data-lucide="search" style="width:36px;height:36px;color:var(--muted)"></i></div>
         <h3>Search for a member</h3>
         <p>Type a name above, or click the member count to show all.</p>
       </div>`;
+    refreshIcons();
   }
 
   function getColCount() {
     return window.innerWidth >= 1100 ? 3 : window.innerWidth >= 680 ? 2 : 1;
   }
 
+  /* Formal renders a flat CSS grid (expanded card spans the full row);
+     Casual keeps the v11 independent-column layout exactly as it was. */
+  function isFormalSkin() { return document.documentElement.dataset.skin !== 'casual'; }
+  let _lastList = null;
+
   function renderMembers(list) {
+    _lastList = list;
     const container = document.getElementById('members-container');
     if (!list.length) {
       container.innerHTML = `<div class="empty-state">No members match your search.</div>`;
@@ -674,14 +681,22 @@
     }
     cardIdx = 0;
     const sorted = sortMembers(list);
-    const nCols  = getColCount();
-    const cols   = Array.from({length: nCols}, () => []);
-    sorted.forEach((m, i) => cols[i % nCols].push(m));
-    const colsHtml = cols.map(col =>
-      `<div class="member-col">${col.map(memberCard).join('')}</div>`
-    ).join('');
-    container.innerHTML = `<div class="members-grid">${colsHtml}</div>`;
+    if (isFormalSkin()) {
+      container.innerHTML = `<div class="members-grid-f">${sorted.map(memberCard).join('')}</div>`;
+    } else {
+      const nCols  = getColCount();
+      const cols   = Array.from({length: nCols}, () => []);
+      sorted.forEach((m, i) => cols[i % nCols].push(m));
+      const colsHtml = cols.map(col =>
+        `<div class="member-col">${col.map(memberCard).join('')}</div>`
+      ).join('');
+      container.innerHTML = `<div class="members-grid">${colsHtml}</div>`;
+    }
+    refreshIcons();
   }
+
+  // Re-render the open list when the user flips skin (paintbrush toggle)
+  document.addEventListener('themechange', () => { if (_lastList) renderMembers(_lastList); });
 
   /* ── Card rendering ────────────────────────────────── */
   const COLOURS = ['#1b2d4f','#0096b4','#2d6a4f','#6d3fa0','#b5451b','#155e8a','#7c6e00'];
@@ -800,7 +815,7 @@
 
     const detailSectionHtml = detailRowsHtml
       ? `<div class="detail-section">
-           <div class="sec-title">📋 Details</div>
+           <div class="sec-title"><span class="ico-emoji">📋 </span>Details</div>
            <div class="dg">${detailRowsHtml}</div>
          </div>`
       : '';
@@ -812,7 +827,7 @@
     const hasC2        = m.contact2_name || m.contact2_phone || m.contact2_email;
     const contactsHtml = hasC1 ? `
       <div class="detail-section">
-        <div class="sec-title">📞 Contact 1</div>
+        <div class="sec-title"><span class="ico-emoji">📞 </span>Contact 1</div>
         <div class="dg">
           <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact1_name))}</div></div>
           <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact1_phone))}</div></div>
@@ -821,7 +836,7 @@
       </div>
       ${hasC2 ? `
       <div class="detail-section">
-        <div class="sec-title">📞 Contact 2</div>
+        <div class="sec-title"><span class="ico-emoji">📞 </span>Contact 2</div>
         <div class="dg">
           <div class="di"><div class="lbl">Name</div><div class="val">${esc(v(m.contact2_name))}</div></div>
           <div class="di"><div class="lbl">Number</div><div class="val">${esc(v(m.contact2_phone))}</div></div>
@@ -832,7 +847,7 @@
     // ── Tags section ─────────────────────────────────────────────────────────────
     const tagsHtml = `
       <div class="detail-section" id="member-tags-detail-section-${m.id}">
-        <div class="sec-title">🎖 Skills &amp; Badges</div>
+        <div class="sec-title"><span class="ico-emoji">🎖 </span>Skills &amp; Badges</div>
         <div id="member-tags-detail-${m.id}" style="display:flex;flex-wrap:wrap;gap:6px;min-height:22px">
           <span style="font-size:13px;color:var(--muted)">No skills or badges assigned.</span>
         </div>
@@ -842,7 +857,7 @@
     const CAN_DISMISS_FLAGS = USER_PERMS && USER_PERMS.has('alerts.dismiss');
     const flagsPanelHtml = (activeFlags.length || CAN_DISMISS_FLAGS)
       ? `<div class="detail-section" id="flags-section-${m.id}">
-           <div class="sec-title">🚨 Alert Flags</div>
+           <div class="sec-title"><span class="ico-emoji">🚨 </span>Alert Flags</div>
            <div id="flags-list-${m.id}">
              ${activeFlags.length
                ? activeFlags.map(f => `
@@ -862,7 +877,7 @@
     // ── Attendance section ────────────────────────────────────────────────────────
     const attHtml = `
       <div class="detail-section">
-        <div class="sec-title">📅 Attendance History</div>
+        <div class="sec-title"><span class="ico-emoji">📅 </span>Attendance History</div>
         <div id="att-${m.id}" class="att-history">
           <span style="font-size:13px;color:var(--muted)">Loading…</span>
         </div>
@@ -870,7 +885,7 @@
 
     const activityHtml = `
       <div class="detail-section">
-        <div class="sec-title">🕓 Activity</div>
+        <div class="sec-title"><span class="ico-emoji">🕓 </span>Activity</div>
         <div id="activity-${m.id}">
           <span style="font-size:13px;color:var(--muted)">Loading…</span>
         </div>
@@ -913,6 +928,71 @@
         ${sectionSelectEl}
       </div>`;
 
+    /* Section bodies — shared verbatim between the two skins */
+    const sectionsHtml = `
+    ${flagsPanelHtml}
+    <div class="card-section" data-sec="details"${defaultSection !== 'details' ? ' style="display:none"' : ''}>${detailSectionHtml || '<div class="detail-section"><span style="font-size:13px;color:var(--muted)">No additional details configured.</span></div>'}</div>
+    <div class="card-section" data-sec="contacts"${defaultSection !== 'contacts' ? ' style="display:none"' : ''}>${contactsHtml || '<div class="detail-section"><span style="font-size:13px;color:var(--muted)">No contacts on record.</span></div>'}</div>
+    <div class="card-section" data-sec="attendance"${defaultSection !== 'attendance' ? ' style="display:none"' : ''}>${attHtml}</div>
+    <div class="card-section" data-sec="activity"${defaultSection !== 'activity' ? ' style="display:none"' : ''}>${activityHtml}</div>
+    <div class="card-section" data-sec="tags"${defaultSection !== 'tags' ? ' style="display:none"' : ''}>${tagsHtml}</div>
+    ${USER_PERMS.has('payments.view') ? `<div class="card-section" data-sec="payments" style="display:none">
+      <div class="detail-section">
+        <div id="payments-status-${m.id}" style="margin-bottom:8px"></div>
+        <div id="payments-list-${m.id}"><span style="font-size:13px;color:var(--muted)">Loading…</span></div>
+      </div>
+    </div>` : ''}
+    ${permDeleteHtml}`;
+
+    /* ── FORMAL skin — mockup layout: badge row, segmented tabs ── */
+    if (isFormalSkin()) {
+      const TABS = [
+        ['details',    'list',           'Details'],
+        ['contacts',   'phone',          'Contacts'],
+        ['attendance', 'calendar-check', 'Attendance'],
+        ['activity',   'history',        'Activity'],
+      ];
+      if (USER_PERMS.has('members.tags'))  TABS.push(['tags',     'award',       'Skills & Badges']);
+      if (USER_PERMS.has('payments.view')) TABS.push(['payments', 'credit-card', 'Payments']);
+      const tabsHtml = TABS.map(([sec, icon, label]) => `
+        <button class="${sec === defaultSection ? 'on' : ''}" data-sec="${sec}"
+                onclick="event.stopPropagation();switchSection(${m.id},'${sec}')">
+          <i data-lucide="${icon}"></i>${label}
+        </button>`).join('');
+
+      const typeBadgeF = showBadge
+        ? `<span class="badge badge-type-f">${esc(typeInfo.icon || '')} ${esc(m.staff_role || typeInfo.name || typeSlug)}</span>` : '';
+      const paidBadgeF = (!isStaff && m.paid_current === 1)
+        ? `<span class="badge badge-paid-f"><i data-lucide="credit-card"></i>Paid</span>` : '';
+      const listInfoF = listFields.length
+        ? `<div class="meta-line">${listFields.map(f =>
+             `<span>${esc(f.label)} <b>${renderFieldVal(f, m)}</b></span>`).join('')}</div>`
+        : '';
+
+      return `
+<div class="member-card${isLeaver ? ' leaver-card' : isInactive ? ' inactive-card' : ''}" id="mc${idx}" data-member-id="${m.id}" onclick="toggleCard(${idx})">
+  <div class="card-head">
+    <div class="avatar" style="background:${colour}">${esc(init)}</div>
+    <div class="card-name-wrap">
+      <h3 class="card-name-f">${esc(full)} ${memberIdBadge}</h3>
+      <div class="badge-row">${typeBadgeF}${statusBadge}${paidBadgeF}${flagBadgesHtml}</div>
+      ${listInfoF}
+    </div>
+    <div class="chevron"><i data-lucide="chevron-down"></i></div>
+  </div>
+  <div class="card-body">
+    <div class="card-toolbar" onclick="event.stopPropagation()">
+      <div class="seg">${tabsHtml}</div>
+      ${CAN_EDIT ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="openEditModal(${m.id})"><i data-lucide="pencil"></i> Edit</button>` : ''}
+    </div>
+    <div class="body-inner">
+      ${sectionsHtml}
+    </div>
+  </div>
+</div>`;
+    }
+
+    /* ── CASUAL skin — the v11 card, unchanged ── */
     return `
 <div class="member-card${isLeaver ? ' leaver-card' : isInactive ? ' inactive-card' : ''}" id="mc${idx}" data-member-id="${m.id}" onclick="toggleCard(${idx})">
   <div class="card-head">
@@ -929,19 +1009,7 @@
   </div>
   ${actionBtns}
   <div class="card-body">
-    ${flagsPanelHtml}
-    <div class="card-section" data-sec="details"${defaultSection !== 'details' ? ' style="display:none"' : ''}>${detailSectionHtml || '<div class="detail-section"><span style="font-size:13px;color:var(--muted)">No additional details configured.</span></div>'}</div>
-    <div class="card-section" data-sec="contacts"${defaultSection !== 'contacts' ? ' style="display:none"' : ''}>${contactsHtml || '<div class="detail-section"><span style="font-size:13px;color:var(--muted)">No contacts on record.</span></div>'}</div>
-    <div class="card-section" data-sec="attendance"${defaultSection !== 'attendance' ? ' style="display:none"' : ''}>${attHtml}</div>
-    <div class="card-section" data-sec="activity"${defaultSection !== 'activity' ? ' style="display:none"' : ''}>${activityHtml}</div>
-    <div class="card-section" data-sec="tags"${defaultSection !== 'tags' ? ' style="display:none"' : ''}>${tagsHtml}</div>
-    ${USER_PERMS.has('payments.view') ? `<div class="card-section" data-sec="payments" style="display:none">
-      <div class="detail-section">
-        <div id="payments-status-${m.id}" style="margin-bottom:8px"></div>
-        <div id="payments-list-${m.id}"><span style="font-size:13px;color:var(--muted)">Loading…</span></div>
-      </div>
-    </div>` : ''}
-    ${permDeleteHtml}
+    ${sectionsHtml}
   </div>
 </div>`;
   }
@@ -956,8 +1024,14 @@
       // as they may be relevant evidence of data access patterns.
       apiFetch(`/api/members/${memberId}/viewed`, { method: 'POST' }).catch(() => {});
       // Lazy-load whichever section is currently selected
+      // (Casual uses the dropdown; Formal uses the segmented tab bar)
       const selEl = document.getElementById('sec-sel-' + memberId);
-      switchSection(parseInt(memberId), selEl ? selEl.value : 'details');
+      let sec = selEl ? selEl.value : null;
+      if (!sec) {
+        const onTab = card.querySelector('.seg button.on');
+        sec = onTab ? onTab.dataset.sec : 'details';
+      }
+      switchSection(parseInt(memberId), sec);
     }
   }
 
@@ -974,6 +1048,12 @@
     card.querySelectorAll('.card-section').forEach(s => { s.style.display = 'none'; });
     const target = card.querySelector(`.card-section[data-sec="${section}"]`);
     if (target) target.style.display = '';
+
+    // Keep both section controls in sync (dropdown in Casual, tabs in Formal)
+    const syncSel = document.getElementById('sec-sel-' + memberId);
+    if (syncSel) syncSel.value = section;
+    card.querySelectorAll('.seg button[data-sec]').forEach(b =>
+      b.classList.toggle('on', b.dataset.sec === section));
 
     // Lazy-load section data on first access
     if (section === 'attendance') {
@@ -1027,6 +1107,35 @@
         el.innerHTML = `<span style="font-size:13px;color:var(--muted)">No attendance recorded yet.</span>`;
         return;
       }
+
+      /* Formal: dot strip with short d/m dates above each slot (per mockup) */
+      if (isFormalSkin()) {
+        const recent = [...rows]
+          .sort((a, b) => (a.session_date || '').localeCompare(b.session_date || ''))
+          .slice(-12);
+        let present = 0;
+        const dots = recent.map(r => {
+          const d   = new Date(r.session_date + 'T00:00:00');
+          const lbl = d.getDate() + '/' + (d.getMonth() + 1);
+          const inAt = r.signed_in_at;
+          if (inAt) present++;
+          const tip = `${fmtDate(r.session_date)} — ${esc(r.session_type)}${inAt ? ` · in ${inAt}${r.signed_out_at ? ', out ' + r.signed_out_at : ''}` : ' · absent'}`;
+          return `<span class="att-col" title="${tip}">
+            <span class="att-date">${lbl}</span>
+            <span class="att-dot ${inAt ? 'p' : 'a'}"><i data-lucide="${inAt ? 'check' : 'x'}"></i></span>
+          </span>`;
+        }).join('');
+        el.innerHTML = `
+          <div class="att-strip">${dots}</div>
+          <div class="att-legend">
+            <span><i class="lg p"></i>Present (${present})</span>
+            <span><i class="lg a"></i>Absent (${recent.length - present})</span>
+            ${rows.length > 12 ? `<span style="opacity:.7">Showing last 12 of ${rows.length}</span>` : ''}
+          </div>`;
+        refreshIcons();
+        return;
+      }
+
       el.innerHTML = `
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
@@ -1197,7 +1306,7 @@
 
     if (paymentId) {
       // Edit mode — fetch existing payment
-      document.getElementById('payment-modal-title').textContent = '✏️ Edit Payment';
+      document.getElementById('payment-modal-title').innerHTML = '<span class="ico-emoji">✏️ </span>Edit Payment';
       try {
         const data = await apiFetch(`/api/members/${memberId}/payments?include_voided=1`);
         const pay  = (data.payments || []).find(p => p.id === paymentId);
@@ -1211,7 +1320,7 @@
         }
       } catch(e) { /* ignore */ }
     } else {
-      document.getElementById('payment-modal-title').textContent = '💳 Record Payment';
+      document.getElementById('payment-modal-title').innerHTML = '<span class="ico-emoji">💳 </span>Record Payment';
     }
 
     document.getElementById('payment-modal').classList.add('open');
@@ -1909,7 +2018,14 @@
   .leaver-card .card-head { background: var(--cream); }
   /* Inactive cards are subtly indicated */
   .inactive-card { opacity: .82; }
-  .inactive-card .card-head { background: #fefce8; }
+  .inactive-card .card-head { background: var(--amber-bg); }
+  /* v11-exact tint preserved for casual light */
+  html[data-skin="casual"]:not([data-theme="dark"]) .inactive-card .card-head { background: #fefce8; }
+
+  /* Session-locked pill (single-session users) — navy in casual light (v11),
+     token-based everywhere else so dark mode stays readable */
+  .session-locked { background: var(--accent-soft); color: var(--accent); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .session-locked { background: var(--navy); color: #fff; }
   /* Action buttons bar — always visible below the card head */
   .card-actions {
     display: flex;
@@ -1928,14 +2044,14 @@
   }
   /* Section nav select in card-actions bar */
   .card-section-select {
-    font-family: 'Nunito', sans-serif;
+    font-family: inherit;
     font-size: 12px;
     font-weight: 700;
     height: 30px;
     padding: 0 8px;
     border: 1.5px solid var(--border);
     border-radius: 8px;
-    background: white;
+    background: var(--surface);
     color: var(--text);
     cursor: pointer;
     outline: none;
@@ -1944,5 +2060,100 @@
   }
   .card-section-select:hover,
   .card-section-select:focus { border-color: var(--accent); }
+
+  /* ════════════════════════════════════════════════════════════
+     FORMAL skin — mockup card layout
+     (Casual renders entirely different markup, so these classes
+      simply don't exist there.)
+     ════════════════════════════════════════════════════════════ */
+
+  .members-grid-f {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+  .members-grid-f .member-card.expanded { grid-column: 1 / -1; cursor: default; }
+  .members-grid-f .member-card.expanded:hover { transform: none; }
+
+  .members-grid-f .card-head { padding: 16px 16px 14px; gap: 13px; }
+  .card-name-f {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    font-size: 15px; font-weight: 700; letter-spacing: -.01em;
+  }
+  .badge-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+  .badge-type-f {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--violet); background: var(--violet-bg);
+    border: 1px solid color-mix(in srgb, var(--violet) 28%, transparent);
+    text-transform: uppercase; font-size: 10px; letter-spacing: .04em; font-weight: 700;
+  }
+  .badge-paid-f {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--green); background: var(--green-bg);
+    border: 1px solid color-mix(in srgb, var(--green) 28%, transparent);
+  }
+  .badge-paid-f .lucide { width: 11px; height: 11px; }
+  .meta-line { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .meta-line b { color: var(--text); font-weight: 600; }
+  .members-grid-f .chevron .lucide { width: 17px; height: 17px; }
+
+  /* Segmented tab bar */
+  .card-toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 12px 16px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  }
+  .seg {
+    display: inline-flex; gap: 2px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; padding: 3px;
+    flex-wrap: wrap;
+  }
+  .seg button {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: none; background: transparent; color: var(--muted);
+    font-family: inherit; font-size: 12.5px; font-weight: 600;
+    padding: 6px 13px; border-radius: 8px; cursor: pointer;
+    transition: all .15s;
+  }
+  .seg button .lucide { width: 13.5px; height: 13.5px; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+
+  .members-grid-f .body-inner { padding: 4px 4px 6px; }
+
+  /* Detail fields as tiles (mockup) — the .dg/.di content is shared with
+     Casual, so this is a pure restyle of the same markup */
+  .members-grid-f .dg {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px;
+  }
+  .members-grid-f .di {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px 12px;
+  }
+  .members-grid-f .di .lbl { font-size: 10.5px; }
+  .members-grid-f .di .val { font-size: 13px; margin-top: 2px; }
+
+  /* Attendance dot strip (Formal only) */
+  .att-strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
+  .att-col { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .att-date { font-size: 9.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .att-dot { width: 26px; height: 24px; border-radius: 7px; display: grid; place-items: center; }
+  .att-dot .lucide { width: 12px; height: 12px; }
+  .att-dot.p { background: var(--green-bg); color: var(--green); }
+  .att-dot.a { background: var(--red-bg); color: var(--red); }
+  .att-legend { font-size: 11.5px; color: var(--muted); margin-top: 9px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .att-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .att-legend .lg { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .att-legend .lg.p { background: var(--green-bg); border: 1px solid var(--green); }
+  .att-legend .lg.a { background: var(--red-bg); border: 1px solid var(--red); }
+
+  /* Formal toolbar — card-like container around search + filters */
+  html:not([data-skin="casual"]) .members-toolbar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 14px 16px;
+  }
 </style>
 {% endblock %}

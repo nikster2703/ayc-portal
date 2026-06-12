@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.1'  # v12.1: Casual skin is now the faithful v11 stylesheet (skin-casual.css, generated from git 42906ff) + emojis return in Casual via dual-render icon switching; Casual is the default skin. v12.0.x: restyle + self-hosted assets
+APP_VERSION = 'v12.2'  # v12.2: Members page dual-skin — Formal gets mockup layout (badge rows, segmented section tabs, attendance dot strip with d/m dates, full-row card expansion, tile detail fields); Casual light pixel-identical to v11; casual/formal dark via tokens. v12.1: casual v11 revival
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
