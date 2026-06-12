@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.29'  # v11.29: Move login/registration/QR rate limiters from per-process memory to a shared rate_limits DB table so limits stay accurate across multiple gunicorn workers and survive restarts
+APP_VERSION = 'v11.30'  # v11.30: Dedicated DOCUMENT_ENCRYPTION_KEY (decoupled from DB key) added to .env/.env.example; fix reencrypt_documents.py to walk bucket subdirectories (store/) instead of only the top-level documents folder
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

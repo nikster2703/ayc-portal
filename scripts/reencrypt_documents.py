@@ -68,8 +68,15 @@ if not os.path.isdir(upload_dir):
     sys.exit(1)
 
 # ── Re-encrypt each file ──────────────────────────────────────────────────────
-files       = [f for f in os.listdir(upload_dir)
-               if os.path.isfile(os.path.join(upload_dir, f))]
+# Walk the whole tree so files inside bucket subdirectories (e.g. store/) are
+# included. Uploads are written to data/documents/<bucket>/<uuid>, NOT the top
+# level, so a flat os.listdir() would silently miss every real document.
+files = []
+for _root, _dirs, _names in os.walk(upload_dir):
+    for _n in _names:
+        if _n == '.DS_Store':
+            continue
+        files.append(os.path.join(_root, _n))
 total       = len(files)
 converted   = 0
 already_new = 0
@@ -79,8 +86,8 @@ print(f'Found {total} files in {upload_dir}')
 print('Starting re-encryption...')
 print()
 
-for filename in files:
-    path = os.path.join(upload_dir, filename)
+for path in files:
+    filename = os.path.relpath(path, upload_dir)
     try:
         with open(path, 'rb') as fh:
             ciphertext = fh.read()
