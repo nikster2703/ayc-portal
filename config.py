@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v11.32'  # v11.32: Static-analysis sweep — remove unused imports/locals across app + blueprints + scripts (zero pyflakes warnings); fix latent NameError in migrate_members.py (BASE_DIR → APP_DIR); add 404 guard to document-fields admin page
+APP_VERSION = 'v12.0'  # v12.0: 2026 UI restyle — dual skins (Formal: Inter/minimal · Casual: Nunito/navy-cream) × light/dark themes, color-mix-derived accent shades, frosted header/nav, Lucide icons, Chart.js dashboard; design tokens in shared.css v12; display.html intentionally excluded
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

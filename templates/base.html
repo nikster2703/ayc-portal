@@ -5,9 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}{{ club_short_name }} Portal{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/shared.css">
+  <script>
+    /* Apply saved theme + skin before first paint to avoid a flash.
+       theme: light/dark · skin: formal (default) / casual */
+    (function () {
+      try {
+        if (localStorage.getItem('ayc-theme') === 'dark')
+          document.documentElement.dataset.theme = 'dark';
+        if (localStorage.getItem('ayc-skin') === 'casual')
+          document.documentElement.dataset.skin = 'casual';
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/css/shared.css?v={{ app_version }}">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   {% if brand %}
   <style>
+    /* ── Per-org branding (v12 restyle) ─────────────────────────────
+       --accent is the single source of truth: shared.css derives
+       --accent-strong / --accent-soft / --accent-ring from it via
+       color-mix(), in both light and dark themes.
+       --accent-dark / --accent-light are still injected for templates
+       not yet converted to v12; the dark theme overrides them with
+       derived values (html[data-theme="dark"] outranks :root).
+       --nav-effective-* are retained but dormant — the v12 header is
+       neutral/frosted. To be revisited in the post-restyle branding
+       review. */
     :root {
       --accent:       {{ brand._palette.accent }};
       --accent-dark:  {{ brand._palette.accent_dark }};
@@ -29,7 +52,7 @@
         {% if brand and brand._logo_url %}
           <img src="{{ brand._logo_url }}" alt="{{ club_name }}" class="brand-logo">
         {% else %}
-          <span class="brand-icon">🏅</span>
+          <span class="brand-mark"><i data-lucide="medal"></i></span>
           <span class="brand-label">{{ club_name }}</span>
         {% endif %}
       </a>
@@ -71,6 +94,12 @@
         {% endif %}
       {% endif %}
 
+      <button class="icon-btn" id="skin-toggle" title="Switch style — Casual / Formal" aria-label="Switch style">
+        <i data-lucide="paintbrush"></i>
+      </button>
+      <button class="icon-btn" id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+        <i data-lucide="moon"></i>
+      </button>
       <div class="user-pill" onclick="openPwModal()" title="Change password" style="cursor:pointer">
         {{ current_user }} <span style="opacity:.6;font-size:11px">▾</span>
       </div>
@@ -81,7 +110,7 @@
   <!-- Change Password Modal -->
   <div class="modal-overlay" id="pw-modal">
     <div class="modal" style="max-width:400px">
-      <h2>🔒 Change Password</h2>
+      <h2>Change Password</h2>
       <div class="form-group" style="margin-top:16px">
         <label>Current Password</label>
         <input id="pw-current" type="password" autocomplete="current-password">
@@ -107,52 +136,54 @@
       display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.35)">
     <div id="notif-panel" style="
         position:absolute;top:0;right:0;bottom:0;width:min(390px,100vw);
-        background:#fff;display:flex;flex-direction:column;
-        box-shadow:-6px 0 32px rgba(0,0,0,.18);
+        background:var(--surface);color:var(--text);display:flex;flex-direction:column;
+        border-left:1px solid var(--border);
+        box-shadow:-6px 0 32px rgba(0,0,0,.25);
         transform:translateX(100%);transition:transform .22s ease">
 
       <!-- Panel header -->
-      <div style="padding:16px 20px;border-bottom:1px solid #e5e9f0;
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);
                   display:flex;align-items:center;gap:10px;flex-shrink:0">
-        <span style="font-size:20px;line-height:1">🔔</span>
-        <span style="font-weight:900;color:#1b2d4f;font-size:16px;flex:1">Notifications</span>
+        <i data-lucide="bell" style="color:var(--accent)"></i>
+        <span style="font-weight:800;font-size:16px;flex:1">Notifications</span>
         <span id="notif-unread-chip" style="
-            display:none;background:#e53e3e;color:white;border-radius:10px;
+            display:none;background:var(--red);color:white;border-radius:10px;
             padding:2px 8px;font-size:11px;font-weight:700">0 unread</span>
         <button onclick="closeNotifications()" style="
-            background:none;border:none;cursor:pointer;font-size:18px;
-            color:#6b7d96;padding:4px;line-height:1">✕</button>
+            background:none;border:none;cursor:pointer;
+            color:var(--muted);padding:4px;line-height:1"><i data-lucide="x"></i></button>
       </div>
 
       <!-- Actions bar -->
-      <div style="padding:10px 20px;border-bottom:1px solid #e5e9f0;
+      <div style="padding:10px 20px;border-bottom:1px solid var(--border);
                   display:flex;gap:8px;flex-shrink:0">
         <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px"
                 onclick="markAllRead()">Mark all read</button>
         {% if 'notifications.send' in user_permissions %}
         <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px"
-                onclick="toggleComposeForm()" id="notif-compose-btn">✏️ Compose</button>
+                onclick="toggleComposeForm()" id="notif-compose-btn"><i data-lucide="pencil"></i> Compose</button>
         {% endif %}
       </div>
 
       <!-- Compose form -->
       {% if 'notifications.send' in user_permissions %}
       <div id="notif-compose" style="display:none;padding:16px 20px;
-           border-bottom:1px solid #e5e9f0;background:#f8faff;flex-shrink:0">
+           border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0">
         <div class="form-group" style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;color:#4a5568">Title</label>
+          <label style="font-size:12px;font-weight:700;color:var(--muted)">Title</label>
           <input id="nc-title" type="text" placeholder="Notification title" style="margin-top:4px">
         </div>
         <div class="form-group" style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;color:#4a5568">Message</label>
+          <label style="font-size:12px;font-weight:700;color:var(--muted)">Message</label>
           <textarea id="nc-body" rows="3" placeholder="Message body…"
                     style="margin-top:4px;resize:vertical;width:100%;
-                           box-sizing:border-box;padding:8px;border:1px solid #d0d9e8;
+                           box-sizing:border-box;padding:8px;border:1px solid var(--border);
+                           background:var(--surface);color:var(--text);
                            border-radius:8px;font-family:inherit;font-size:13px"></textarea>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div class="form-group" style="flex:1;margin-bottom:0">
-            <label style="font-size:12px;font-weight:700;color:#4a5568">Type</label>
+            <label style="font-size:12px;font-weight:700;color:var(--muted)">Type</label>
             <select id="nc-type" style="margin-top:4px">
               <option value="Info">Info</option>
               <option value="Reminder">Reminder</option>
@@ -161,7 +192,7 @@
             </select>
           </div>
           <div class="form-group" style="flex:1;margin-bottom:0">
-            <label style="font-size:12px;font-weight:700;color:#4a5568">Send to</label>
+            <label style="font-size:12px;font-weight:700;color:var(--muted)">Send to</label>
             <select id="nc-target-type" onchange="updateTargetValueField()" style="margin-top:4px">
               <option value="all">All users</option>
               <option value="role">Role</option>
@@ -171,7 +202,7 @@
         </div>
         <div id="nc-target-value-wrap" style="display:none;margin-bottom:10px">
           <label id="nc-target-label"
-                 style="font-size:12px;font-weight:700;color:#4a5568">Value</label>
+                 style="font-size:12px;font-weight:700;color:var(--muted)">Value</label>
           <input id="nc-target-value" type="text" placeholder="" style="margin-top:4px">
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -185,7 +216,7 @@
 
       <!-- Notification list -->
       <div id="notif-list" style="flex:1;overflow-y:auto;padding:4px 0">
-        <div style="padding:40px 20px;text-align:center;color:#9dafc2;font-size:14px">
+        <div style="padding:40px 20px;text-align:center;color:var(--muted);font-size:14px">
           Loading…
         </div>
       </div>
@@ -199,14 +230,14 @@
   <nav class="app-nav">
     <a href="/dashboard"
        class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">
-      <span class="nav-icon">🏠</span>
+      <span class="nav-icon"><i data-lucide="layout-dashboard"></i></span>
       <span class="nav-label">Dashboard</span>
     </a>
 
     {% if 'members.view' in user_permissions %}
     <a href="/members"
        class="nav-link{% if active_page == 'members' %} active{% endif %}">
-      <span class="nav-icon">👥</span>
+      <span class="nav-icon"><i data-lucide="users"></i></span>
       <span class="nav-label">Members</span>
     </a>
     {% endif %}
@@ -214,27 +245,27 @@
     {% if 'approvals.view' in user_permissions %}
     <a href="/approvals"
        class="nav-link{% if active_page == 'approvals' %} active{% endif %}">
-      <span class="nav-icon">📋</span>
+      <span class="nav-icon"><i data-lucide="inbox"></i></span>
       <span class="nav-label">Approvals</span>
     </a>
     {% endif %}
 
     <a href="/register"
        class="nav-link{% if active_page == 'register' %} active{% endif %}">
-      <span class="nav-icon">✅</span>
+      <span class="nav-icon"><i data-lucide="clipboard-check"></i></span>
       <span class="nav-label">Register</span>
     </a>
 
     <a href="/calendar"
        class="nav-link{% if active_page == 'calendar' %} active{% endif %}">
-      <span class="nav-icon">📅</span>
+      <span class="nav-icon"><i data-lucide="calendar-days"></i></span>
       <span class="nav-label">Calendar</span>
     </a>
 
     {% if 'documents.view' in user_permissions %}
     <a href="/documents"
        class="nav-link{% if active_page == 'documents' %} active{% endif %}">
-      <span class="nav-icon">📁</span>
+      <span class="nav-icon"><i data-lucide="folder-open"></i></span>
       <span class="nav-label">Documents</span>
     </a>
     {% endif %}
@@ -242,7 +273,7 @@
     {% if 'mailshots.send' in user_permissions %}
     <a href="/communications"
        class="nav-link{% if active_page == 'communications' %} active{% endif %}">
-      <span class="nav-icon">✉️</span>
+      <span class="nav-icon"><i data-lucide="mail"></i></span>
       <span class="nav-label">Comms</span>
     </a>
     {% endif %}
@@ -250,27 +281,27 @@
     {% if 'audit.view' in user_permissions %}
     <a href="/admin/audit"
        class="nav-link{% if active_page == 'audit' %} active{% endif %}">
-      <span class="nav-icon">🔍</span>
+      <span class="nav-icon"><i data-lucide="scroll-text"></i></span>
       <span class="nav-label">Audit Log</span>
     </a>
     {% endif %}
     {% if 'admin.settings' in user_permissions %}
     <a href="/admin/settings"
        class="nav-link{% if active_page == 'settings' %} active{% endif %}">
-      <span class="nav-icon">🛠️</span>
+      <span class="nav-icon"><i data-lucide="settings"></i></span>
       <span class="nav-label">Settings</span>
     </a>
     {% endif %}
 
     {% if 'notifications.view' in user_permissions %}
     <button onclick="openNotifications()" class="nav-link"
-            style="border:none;background:none;cursor:pointer;width:100%;padding:0;font-family:inherit"
+            style="border:none;background:none;cursor:pointer;font-family:inherit"
             title="Notifications">
-      <span class="nav-icon" style="position:relative;display:inline-block">
-        🔔
+      <span class="nav-icon" style="position:relative;display:inline-flex">
+        <i data-lucide="bell"></i>
         <span id="nav-bell-badge" style="
-            display:none;position:absolute;top:-4px;right:-6px;
-            background:#e53e3e;color:white;font-size:9px;font-weight:700;
+            display:none;position:absolute;top:-5px;right:-7px;
+            background:var(--red);color:white;font-size:9px;font-weight:700;
             border-radius:8px;min-width:14px;height:14px;line-height:14px;
             text-align:center;padding:0 3px">0</span>
       </span>
@@ -329,28 +360,70 @@
     document.getElementById('pw-modal').addEventListener('click', function(e) {
       if (e.target === this) closePwModal();
     });
+
+    /* ── Theme toggle (light/dark) ──────────────────── */
+    (function () {
+      const btn = document.getElementById('theme-toggle');
+      if (!btn) return;
+      function syncIcon() {
+        const dark = document.documentElement.dataset.theme === 'dark';
+        btn.innerHTML = `<i data-lucide="${dark ? 'sun' : 'moon'}"></i>`;
+        if (window.lucide) lucide.createIcons();
+      }
+      btn.addEventListener('click', () => {
+        const dark = document.documentElement.dataset.theme === 'dark';
+        document.documentElement.dataset.theme = dark ? '' : 'dark';
+        try { localStorage.setItem('ayc-theme', dark ? 'light' : 'dark'); } catch (_) {}
+        syncIcon();
+        document.dispatchEvent(new CustomEvent('themechange'));
+      });
+      syncIcon();
+    })();
+
+    /* ── Skin toggle (Formal/Casual) ────────────────── */
+    (function () {
+      const btn = document.getElementById('skin-toggle');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const casual = document.documentElement.dataset.skin === 'casual';
+        if (casual) delete document.documentElement.dataset.skin;
+        else document.documentElement.dataset.skin = 'casual';
+        try { localStorage.setItem('ayc-skin', casual ? 'formal' : 'casual'); } catch (_) {}
+        showToast('Style: ' + (casual ? 'Formal' : 'Casual'));
+        // Charts and other theme-aware widgets re-read CSS variables on this event
+        document.dispatchEvent(new CustomEvent('themechange'));
+      });
+    })();
+
+    /* ── Lucide icons: render any <i data-lucide> injected after load ── */
+    window.refreshIcons = function () { if (window.lucide) lucide.createIcons(); };
+    refreshIcons();
   </script>
 
   <!-- ── Inactivity timeout ──────────────────────────────────────────── -->
   <div id="idle-warning-overlay" style="
       display:none;position:fixed;inset:0;z-index:9999;
       background:rgba(0,0,0,.55);align-items:center;justify-content:center">
-    <div style="background:white;border-radius:16px;padding:32px 28px;
+    <div style="background:var(--surface);color:var(--text);border:1px solid var(--border);
+                border-radius:16px;padding:32px 28px;
                 max-width:380px;width:90%;text-align:center;
-                box-shadow:0 20px 60px rgba(0,0,0,.3)">
-      <div style="font-size:42px;margin-bottom:12px">⏱️</div>
-      <h2 style="font-size:20px;font-weight:900;color:#1b2d4f;margin-bottom:8px">
+                box-shadow:0 20px 60px rgba(0,0,0,.35)">
+      <div style="width:52px;height:52px;border-radius:14px;display:grid;place-items:center;
+                  margin:0 auto 14px;background:var(--amber-bg);color:var(--amber)">
+        <i data-lucide="timer" style="width:26px;height:26px"></i>
+      </div>
+      <h2 style="font-size:20px;font-weight:800;margin-bottom:8px">
         Still there?
       </h2>
-      <p style="font-size:14px;color:#6b7d96;margin-bottom:20px;line-height:1.5">
+      <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.5">
         You'll be signed out automatically in
-        <strong id="idle-countdown" style="color:#c53030;font-size:16px">60</strong>s
+        <strong id="idle-countdown" style="color:var(--red);font-size:16px">60</strong>s
         due to inactivity.
       </p>
       <button onclick="resetIdleTimer()"
-              style="width:100%;padding:13px;background:#1b2d4f;color:white;
-                     border:none;border-radius:10px;font-family:'Nunito',sans-serif;
-                     font-size:15px;font-weight:900;cursor:pointer">
+              style="width:100%;padding:13px;background:var(--accent);color:white;
+                     border:none;border-radius:10px;font-family:inherit;
+                     font-size:14.5px;font-weight:700;cursor:pointer">
         I'm still here
       </button>
     </div>
@@ -457,29 +530,31 @@
         return;
       }
       list.innerHTML = data.notifications.map(renderNotifItem).join('');
+      refreshIcons();
     } catch (e) {
-      list.innerHTML = '<div style="padding:24px 20px;text-align:center;color:#c53030;font-size:13px">Could not load notifications</div>';
+      list.innerHTML = '<div style="padding:24px 20px;text-align:center;color:var(--red);font-size:13px">Could not load notifications</div>';
     }
   }
 
   /* ── Render one notification row ─────────────────────────────── */
   function renderNotifItem(n) {
     const colour  = NOTIF_TYPE_COLOURS[n.notification_type] || '#4a5568';
-    const bgColour = n.is_read ? '#fff' : '#f0f7ff';
+    const bgColour = n.is_read ? 'var(--surface)' : 'var(--accent-soft)';
     const dotHtml  = n.is_read ? '' :
-      '<span style="width:8px;height:8px;background:#3182ce;border-radius:50%;flex-shrink:0;margin-top:5px;display:inline-block"></span>';
-    const sender  = n.is_system ? '🤖 System' : ('👤 ' + esc(n.sender_name || 'Staff'));
+      '<span data-unread-dot style="width:8px;height:8px;background:var(--accent);border-radius:50%;flex-shrink:0;margin-top:5px;display:inline-block"></span>';
+    const sender  = n.is_system ? 'System' : esc(n.sender_name || 'Staff');
     const ts      = (n.created_at || '').slice(0, 16).replace('T', ' ');
 
     const deleteBtn = CAN_MANAGE_NOTIFS
       ? `<button onclick="deleteNotif(${n.id},event)" title="Delete" style="
-             background:none;border:none;cursor:pointer;color:#c53030;
-             font-size:13px;padding:2px 4px;line-height:1;opacity:.6">🗑</button>`
+             background:none;border:none;cursor:pointer;color:var(--red);
+             padding:2px 4px;line-height:1;opacity:.6"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>`
       : '';
 
     return `
-      <div data-notif-id="${n.id}" onclick="markOneRead(${n.id}, this)" style="
-           padding:13px 20px;border-bottom:1px solid #edf2f7;cursor:pointer;
+      <div data-notif-id="${n.id}" data-read="${n.is_read ? 1 : 0}"
+           onclick="markOneRead(${n.id}, this)" style="
+           padding:13px 20px;border-bottom:1px solid var(--border);cursor:pointer;
            background:${bgColour};transition:background .15s">
         <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
           <span style="background:${colour}20;color:${colour};border-radius:5px;
@@ -491,27 +566,28 @@
           <span style="flex:1"></span>
           ${deleteBtn}
         </div>
-        <div style="font-weight:${n.is_read ? 600 : 800};color:#1b2d4f;
+        <div style="font-weight:${n.is_read ? 600 : 800};color:var(--text);
                     font-size:13px;line-height:1.35;margin-bottom:4px">
           ${esc(n.title)}
         </div>
-        <div style="font-size:12px;color:#4a5568;line-height:1.45;margin-bottom:6px">
+        <div style="font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:6px">
           ${esc(n.body)}
         </div>
-        <div style="font-size:11px;color:#9dafc2">${sender} · ${ts}</div>
+        <div style="font-size:11px;color:var(--muted);opacity:.8">${sender} · ${ts}</div>
       </div>`;
   }
 
   /* ── Mark one notification read on click ─────────────────────── */
   async function markOneRead(id, el) {
-    if (el && el.style.background !== 'rgb(255, 255, 255)') {
+    if (el && el.dataset.read !== '1') {
       try {
         await apiFetch('/api/notifications/mark-read', {
           method: 'POST',
           body: JSON.stringify({ notification_ids: [id] }),
         });
-        el.style.background = '#fff';
-        el.querySelector('span[style*="border-radius:50%"]')?.remove();
+        el.dataset.read = '1';
+        el.style.background = 'var(--surface)';
+        el.querySelector('[data-unread-dot]')?.remove();
         pollUnreadCount();
       } catch (_) { /* silent */ }
     }

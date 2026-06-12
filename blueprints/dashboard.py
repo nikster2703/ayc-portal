@@ -146,6 +146,41 @@ def api_dashboard():
     })
 
 
+@bp.route('/api/dashboard/attendance-trend')
+@login_required
+def api_attendance_trend():
+    """Headcount per session date for the dashboard trend chart.
+    Returns the last 12 session dates that have any attendance,
+    scoped to the user's assigned sessions (all sessions for admins).
+    """
+    db     = get_db()
+    scoped = _assigned_session()
+
+    if scoped is None:
+        rows = db.execute('''
+            SELECT session_date, COUNT(*) AS headcount
+            FROM attendance
+            GROUP BY session_date
+            ORDER BY session_date DESC
+            LIMIT 12
+        ''').fetchall()
+    else:
+        if not scoped:
+            return jsonify([])
+        ph = ','.join('?' * len(scoped))
+        rows = db.execute(f'''
+            SELECT session_date, COUNT(*) AS headcount
+            FROM attendance
+            WHERE session_type IN ({ph})
+            GROUP BY session_date
+            ORDER BY session_date DESC
+            LIMIT 12
+        ''', list(scoped)).fetchall()
+
+    # Oldest → newest for charting
+    return jsonify([dict(r) for r in reversed(rows)])
+
+
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
 @bp.route('/api/admin/audit')

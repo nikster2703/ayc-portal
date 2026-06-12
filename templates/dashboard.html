@@ -1,9 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ club_short_name }} Portal — Dashboard{% endblock %}
 
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
-<div class="page-header" style="margin-bottom:24px">
-  <h1>🏅 Welcome back, {{ current_user }}</h1>
+<div class="page-header" style="margin-bottom:26px">
+  <div>
+    <h1>Welcome back, {{ current_user }}</h1>
+    <div class="sub" id="dash-date-sub"></div>
+  </div>
 </div>
 
 <!-- ── Stat cards ─────────────────────────────────────────────── -->
@@ -15,84 +22,82 @@
 </div>
 
 <!-- ── Pending approvals callout ─────────────────────────────── -->
-<div id="approvals-callout" style="display:none;margin-bottom:24px">
-  <div class="callout callout-warn">
-    <span class="callout-icon">📋</span>
+<div id="approvals-callout" style="display:none;margin-bottom:14px">
+  <div class="callout">
+    <span class="callout-icon"><i data-lucide="inbox"></i></span>
     <div>
       <strong id="approvals-callout-text"></strong>
-      <span style="font-size:13px;color:var(--muted);margin-left:8px">awaiting review</span>
+      <span style="font-size:12.5px;color:var(--muted);margin-left:8px">awaiting review</span>
     </div>
-    <a href="/approvals" class="btn btn-primary btn-sm" style="margin-left:auto">Review now →</a>
+    <a href="/approvals" class="btn btn-primary btn-sm" style="margin-left:auto">Review now <i data-lucide="arrow-right"></i></a>
   </div>
 </div>
 
 <!-- ── Member Alerts callout — users with alerts.view permission only ─── -->
 {% if 'alerts.view' in user_permissions %}
-<div id="alerts-callout" style="display:none;margin-bottom:24px">
-  <div class="callout" style="background:#fff8e1;border-color:#f59e0b;border-radius:12px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <span style="font-size:20px;flex-shrink:0">🚨</span>
-    <div style="flex:1;min-width:0">
-      <div style="font-weight:800;font-size:14px;color:#92400e;margin-bottom:6px">Member Alerts</div>
-      <div id="alerts-flags-list"></div>
-      <div style="font-size:11px;color:#78350f;margin-top:6px">Last check: <span id="alerts-last-run">—</span></div>
+<div id="alerts-callout" style="display:none;margin-bottom:14px">
+  <div class="callout">
+    <span class="callout-icon"><i data-lucide="bell-ring"></i></span>
+    <div style="flex:1;min-width:200px">
+      <strong>Member alerts</strong>
+      <div class="callout-meta">Last check: <span id="alerts-last-run">—</span></div>
+      <div id="alerts-flags-list" class="flag-chips"></div>
     </div>
-    <a href="/admin/alerts" class="btn btn-sm" style="margin-left:auto;background:#f59e0b;color:#fff;border:none;flex-shrink:0">Manage Rules →</a>
+    <a href="/admin/alerts" class="btn btn-ghost btn-sm" style="margin-left:auto;flex-shrink:0">Manage rules <i data-lucide="arrow-right"></i></a>
   </div>
 </div>
 {% endif %}
 
-<!-- ── Upcoming sessions ──────────────────────────────────────── -->
-<div style="margin-bottom:24px">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <div class="dash-section-title" style="margin-bottom:0">Upcoming Sessions</div>
-    <a href="/calendar" class="btn btn-ghost btn-sm">View calendar →</a>
+<!-- ── Upcoming sessions + attendance trend ───────────────────── -->
+<div class="dash-cols" id="dash-cols" style="margin-bottom:24px">
+
+  <div class="card" style="padding:18px 20px 8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="dash-section-title" style="margin-bottom:0"><i data-lucide="calendar-days"></i>Upcoming sessions</div>
+      <a href="/calendar" class="link-btn">View calendar <i data-lucide="arrow-right"></i></a>
+    </div>
+    <div id="upcoming-sessions">
+      <div class="loading-state" style="padding:16px 0"><div class="spinner"></div></div>
+    </div>
   </div>
-  <div id="upcoming-sessions">
-    <div class="loading-state" style="padding:16px 0"><div class="spinner"></div></div>
+
+  <div class="card" id="trend-card" style="padding:18px 20px;display:none">
+    <div class="dash-section-title" style="margin-bottom:10px"><i data-lucide="activity"></i>Attendance — recent sessions</div>
+    <div style="height:190px;position:relative"><canvas id="trend-chart"></canvas></div>
   </div>
+
 </div>
 
 <!-- ── Registration links ─────────────────────────────────────── -->
 <div style="margin-bottom:24px">
-  <div class="dash-section-title" style="margin-bottom:12px">Registration Links</div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+  <div class="dash-section-title" style="margin-bottom:12px"><i data-lucide="link"></i>Registration links</div>
+  <div class="reg-grid">
 
     {% for mtype in reg_types %}
-    <div style="background:white;border:2px solid var(--border);border-radius:14px;
-                padding:16px 18px;display:flex;align-items:center;gap:14px">
-      <span style="font-size:28px;flex-shrink:0">{{ mtype.icon }}</span>
+    <div class="reg-card">
+      <span class="reg-icon">{{ mtype.icon }}</span>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:14px;color:var(--navy);margin-bottom:2px">
+        <div class="reg-name">
           {{ mtype.name }} Registration
-          {% if not mtype.public_registration %}
-          <span style="font-size:10px;font-weight:700;background:#f1f5f9;color:var(--muted);
-                       border-radius:4px;padding:1px 6px;margin-left:4px">Staff only</span>
-          {% endif %}
+          {% if not mtype.public_registration %}<span class="reg-tag">Staff only</span>{% endif %}
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
-          {{ mtype.description or (mtype.name + ' sign-up form') }}
-        </div>
-        <div style="display:flex;gap:6px">
-          <a href="/registration/{{ mtype.slug }}" target="_blank"
-             class="btn btn-ghost btn-sm" style="font-size:12px">Open form ↗</a>
-          <button class="btn btn-ghost btn-sm" style="font-size:12px"
-                  onclick="copyLink('/registration/{{ mtype.slug }}', this)">Copy link</button>
+        <div class="reg-desc">{{ mtype.description or (mtype.name + ' sign-up form') }}</div>
+        <div class="reg-actions">
+          <a href="/registration/{{ mtype.slug }}" target="_blank" class="mini-btn">Open form <i data-lucide="external-link"></i></a>
+          <button class="mini-btn" onclick="copyLink('/registration/{{ mtype.slug }}', this)"><i data-lucide="copy"></i> Copy link</button>
         </div>
       </div>
     </div>
     {% endfor %}
 
-    <div style="background:white;border:2px solid #dce3ef55;border-radius:14px;
-                padding:16px 18px;display:flex;align-items:center;gap:14px;opacity:.8">
-      <span style="font-size:28px;flex-shrink:0">🔗</span>
+    <div class="reg-card" style="opacity:.85">
+      <span class="reg-icon"><i data-lucide="layout-list"></i></span>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:14px;color:var(--navy);margin-bottom:2px">General Registration Page</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Landing page — lets them choose type</div>
-        <div style="display:flex;gap:6px">
-          <a href="/registration" target="_blank"
-             class="btn btn-ghost btn-sm" style="font-size:12px">Open page ↗</a>
-          <button class="btn btn-ghost btn-sm" style="font-size:12px"
-                  onclick="copyLink('/registration', this)">Copy link</button>
+        <div class="reg-name">General Registration Page</div>
+        <div class="reg-desc">Landing page — lets them choose type</div>
+        <div class="reg-actions">
+          <a href="/registration" target="_blank" class="mini-btn">Open page <i data-lucide="external-link"></i></a>
+          <button class="mini-btn" onclick="copyLink('/registration', this)"><i data-lucide="copy"></i> Copy link</button>
         </div>
       </div>
     </div>
@@ -102,14 +107,14 @@
 
 <!-- ── Today's attendance ─────────────────────────────────────── -->
 <div id="today-section" style="display:none;margin-bottom:24px">
-  <div class="dash-section-title">Today's Sessions</div>
-  <div id="today-cards" class="dash-grid"></div>
+  <div class="dash-section-title"><i data-lucide="clipboard-check"></i>Today's Sessions</div>
+  <div id="today-cards" class="dash-grid" style="margin-bottom:0"></div>
 </div>
 
 <!-- ── Recent activity ───────────────────────────────────────── -->
 <div style="margin-bottom:24px">
-  <div class="dash-section-title">Recent Activity</div>
-  <div class="activity-feed" id="activity-feed">
+  <div class="dash-section-title"><i data-lucide="history"></i>Recent Activity</div>
+  <div class="activity-feed card" id="activity-feed">
     <div class="loading-state" style="padding:20px"><div class="spinner"></div></div>
   </div>
 </div>
@@ -124,123 +129,142 @@
   // IS_SCOPED: true for non-admin users who have at least one session assigned
   const IS_SCOPED     = SESSION_NAMES.length > 0;
 
+  /* Action → Lucide icon + label for the activity feed */
   const ACTION_LABELS = {
     // Auth
-    login:                        { icon: '🔑', label: 'Logged in'                     },
-    logout:                       { icon: '🚪', label: 'Logged out'                    },
-    login_failed:                 { icon: '🚫', label: 'Failed login attempt'          },
-    change_password:              { icon: '🔒', label: 'Password changed'              },
-    switch_session:               { icon: '🔄', label: 'Session switched'              },
+    login:                        { icon: 'key-round',      label: 'Logged in'                     },
+    logout:                       { icon: 'log-out',        label: 'Logged out'                    },
+    login_failed:                 { icon: 'ban',            label: 'Failed login attempt', tone: 'red' },
+    change_password:              { icon: 'lock',           label: 'Password changed'              },
+    switch_session:               { icon: 'refresh-cw',     label: 'Session switched'              },
     // Members
-    view_member:                  { icon: '👁',  label: 'Viewed member'                },
-    edit_member:                  { icon: '✏️',  label: 'Member details updated'       },
-    status_change:                { icon: '🔄', label: 'Member status changed'         },
-    soft_delete_member:           { icon: '👤', label: 'Marked as Leaver'             },
-    permanent_delete_member:      { icon: '🗑️', label: 'Permanently deleted'           },
-    tag_add:                      { icon: '🏷️', label: 'Tag added'                    },
-    tag_remove:                   { icon: '🏷️', label: 'Tag removed'                  },
+    view_member:                  { icon: 'eye',            label: 'Viewed member'                 },
+    edit_member:                  { icon: 'pencil',         label: 'Member details updated'        },
+    status_change:                { icon: 'refresh-cw',     label: 'Member status changed'         },
+    soft_delete_member:           { icon: 'user-minus',     label: 'Marked as Leaver'              },
+    permanent_delete_member:      { icon: 'trash-2',        label: 'Permanently deleted', tone: 'red' },
+    tag_add:                      { icon: 'tag',            label: 'Tag added'                     },
+    tag_remove:                   { icon: 'tag',            label: 'Tag removed'                   },
     // Alerts & Flags
-    dismiss_flag:                 { icon: '✅', label: 'Flag dismissed'                },
-    auto_resolve_flags:           { icon: '✅', label: 'Flags auto-resolved'           },
-    run_alert_rules:              { icon: '🔍', label: 'Alert checks run'              },
-    create_alert_rule:            { icon: '🚨', label: 'Alert rule created'            },
-    update_alert_rule:            { icon: '✏️', label: 'Alert rule updated'            },
-    deactivate_alert_rule:        { icon: '⏸️', label: 'Alert rule deactivated'        },
-    delete_alert_rule:            { icon: '🗑️', label: 'Alert rule deleted'            },
+    dismiss_flag:                 { icon: 'check',          label: 'Flag dismissed', tone: 'green' },
+    auto_resolve_flags:           { icon: 'check',          label: 'Flags auto-resolved', tone: 'green' },
+    run_alert_rules:              { icon: 'search',         label: 'Alert checks run'              },
+    create_alert_rule:            { icon: 'bell-plus',      label: 'Alert rule created'            },
+    update_alert_rule:            { icon: 'pencil',         label: 'Alert rule updated'            },
+    deactivate_alert_rule:        { icon: 'pause',          label: 'Alert rule deactivated'        },
+    delete_alert_rule:            { icon: 'trash-2',        label: 'Alert rule deleted'            },
     // Registrations
-    approve_registration:         { icon: '✅', label: 'Registration approved'         },
-    reject_registration:          { icon: '❌', label: 'Registration rejected'         },
+    approve_registration:         { icon: 'check',          label: 'Registration approved', tone: 'green' },
+    reject_registration:          { icon: 'x',              label: 'Registration rejected', tone: 'red' },
     // Users
-    create_user:                  { icon: '🧑', label: 'User created'                  },
-    update_user:                  { icon: '✏️', label: 'User updated'                  },
-    delete_user:                  { icon: '🗑️', label: 'User deleted'                  },
+    create_user:                  { icon: 'user-plus',      label: 'User created'                  },
+    update_user:                  { icon: 'pencil',         label: 'User updated'                  },
+    delete_user:                  { icon: 'trash-2',        label: 'User deleted'                  },
     // Register / Attendance
-    register_complete:            { icon: '✔️', label: 'Register completed'            },
-    register_reset:               { icon: '↩️', label: 'Register reset'                },
-    note_added:                   { icon: '📝', label: 'Session note added'            },
-    note_deleted:                 { icon: '📝', label: 'Session note deleted'          },
+    register_complete:            { icon: 'clipboard-check',label: 'Register completed', tone: 'green' },
+    register_reset:               { icon: 'undo-2',         label: 'Register reset'                },
+    note_added:                   { icon: 'sticky-note',    label: 'Session note added'            },
+    note_deleted:                 { icon: 'sticky-note',    label: 'Session note deleted'          },
     // Calendar
-    create_session_type:          { icon: '📅', label: 'Session type created'          },
-    update_session_type:          { icon: '✏️', label: 'Session type updated'          },
-    delete_session_type:          { icon: '🗑️', label: 'Session type deleted'          },
-    add_term_session:             { icon: '📅', label: 'Calendar session added'        },
-    bulk_term_sessions:           { icon: '📅', label: 'Term sessions generated'       },
-    update_term_session:          { icon: '✏️', label: 'Calendar session updated'      },
-    delete_term_session:          { icon: '🗑️', label: 'Calendar session deleted'      },
+    create_session_type:          { icon: 'calendar-plus',  label: 'Session type created'          },
+    update_session_type:          { icon: 'pencil',         label: 'Session type updated'          },
+    delete_session_type:          { icon: 'trash-2',        label: 'Session type deleted'          },
+    add_term_session:             { icon: 'calendar-plus',  label: 'Calendar session added'        },
+    bulk_term_sessions:           { icon: 'calendar-days',  label: 'Term sessions generated'       },
+    update_term_session:          { icon: 'pencil',         label: 'Calendar session updated'      },
+    delete_term_session:          { icon: 'trash-2',        label: 'Calendar session deleted'      },
     // Documents
-    create_document_category:     { icon: '📁', label: 'Document category created'     },
-    update_document_category:     { icon: '✏️', label: 'Document category updated'     },
-    deactivate_document_category: { icon: '⏸️', label: 'Document category deactivated' },
-    create_doc_field:             { icon: '📝', label: 'Document field created'        },
-    update_doc_field:             { icon: '✏️', label: 'Document field updated'        },
-    delete_doc_field:             { icon: '🗑️', label: 'Document field deleted'        },
-    upload_document:              { icon: '📁', label: 'Document uploaded'             },
-    update_document_access:       { icon: '🔐', label: 'Document access updated'       },
-    update_document:              { icon: '📝', label: 'Document updated'              },
-    update_doc_metadata:          { icon: '🏷️', label: 'Document metadata saved'       },
-    download_document:            { icon: '⬇️', label: 'Document downloaded'           },
-    view_document:                { icon: '👁', label: 'Document viewed'               },
-    delete_document:              { icon: '🗑️', label: 'Document removed'              },
+    create_document_category:     { icon: 'folder-plus',    label: 'Document category created'     },
+    update_document_category:     { icon: 'pencil',         label: 'Document category updated'     },
+    deactivate_document_category: { icon: 'pause',          label: 'Document category deactivated' },
+    create_doc_field:             { icon: 'file-plus-2',    label: 'Document field created'        },
+    update_doc_field:             { icon: 'pencil',         label: 'Document field updated'        },
+    delete_doc_field:             { icon: 'trash-2',        label: 'Document field deleted'        },
+    upload_document:              { icon: 'upload',         label: 'Document uploaded'             },
+    update_document_access:       { icon: 'lock',           label: 'Document access updated'       },
+    update_document:              { icon: 'file-pen-line',  label: 'Document updated'              },
+    update_doc_metadata:          { icon: 'tag',            label: 'Document metadata saved'       },
+    download_document:            { icon: 'download',       label: 'Document downloaded'           },
+    view_document:                { icon: 'eye',            label: 'Document viewed'               },
+    delete_document:              { icon: 'trash-2',        label: 'Document removed'              },
     // Email & Mailshots
-    create_email_template:        { icon: '✉️',  label: 'Email template created'       },
-    edit_email_template:          { icon: '✏️',  label: 'Email template edited'        },
-    delete_email_template:        { icon: '🗑️',  label: 'Email template deleted'       },
-    attach_to_mailshot:           { icon: '📎', label: 'Attached to mailshot'          },
-    send_mailshot:                { icon: '📤', label: 'Mailshot sent'                 },
+    create_email_template:        { icon: 'mail-plus',      label: 'Email template created'        },
+    edit_email_template:          { icon: 'pencil',         label: 'Email template edited'         },
+    delete_email_template:        { icon: 'trash-2',        label: 'Email template deleted'        },
+    attach_to_mailshot:           { icon: 'paperclip',      label: 'Attached to mailshot'          },
+    send_mailshot:                { icon: 'send',           label: 'Mailshot sent'                 },
     // Payments
-    payment_record:               { icon: '💳', label: 'Payment recorded'             },
-    payment_edit:                 { icon: '✏️', label: 'Payment edited'               },
-    payment_void:                 { icon: '🚫', label: 'Payment voided'               },
-    setting_change:               { icon: '⚙️', label: 'Setting updated'              },
-    payment_type_create:          { icon: '💳', label: 'Payment type created'         },
-    payment_type_edit:            { icon: '✏️', label: 'Payment type updated'         },
-    payment_type_toggle:          { icon: '⏸️', label: 'Payment type toggled'         },
-    payment_method_create:        { icon: '💳', label: 'Payment method created'       },
-    payment_method_edit:          { icon: '✏️', label: 'Payment method updated'       },
-    payment_method_toggle:        { icon: '⏸️', label: 'Payment method toggled'       },
+    payment_record:               { icon: 'credit-card',    label: 'Payment recorded'              },
+    payment_edit:                 { icon: 'pencil',         label: 'Payment edited'                },
+    payment_void:                 { icon: 'ban',            label: 'Payment voided', tone: 'red'   },
+    setting_change:               { icon: 'settings',       label: 'Setting updated'               },
+    payment_type_create:          { icon: 'credit-card',    label: 'Payment type created'          },
+    payment_type_edit:            { icon: 'pencil',         label: 'Payment type updated'          },
+    payment_type_toggle:          { icon: 'pause',          label: 'Payment type toggled'          },
+    payment_method_create:        { icon: 'credit-card',    label: 'Payment method created'        },
+    payment_method_edit:          { icon: 'pencil',         label: 'Payment method updated'        },
+    payment_method_toggle:        { icon: 'pause',          label: 'Payment method toggled'        },
     // Admin / Settings
-    update_settings:              { icon: '⚙️', label: 'Settings updated'             },
-    update_branding:              { icon: '🎨', label: 'Branding updated'             },
-    upload_branding_logo:         { icon: '🖼️', label: 'Logo uploaded'                },
-    delete_branding_logo:         { icon: '🖼️', label: 'Logo removed'                 },
-    create_staff_role:            { icon: '👷', label: 'Staff role created'           },
-    update_staff_role:            { icon: '✏️', label: 'Staff role updated'           },
-    create_role:                  { icon: '🛡️', label: 'Portal role created'          },
-    update_role:                  { icon: '🛡️', label: 'Portal role updated'          },
-    delete_role:                  { icon: '🛡️', label: 'Portal role deleted'          },
-    create_tag:                   { icon: '🏷️', label: 'Tag definition created'       },
-    update_tag:                   { icon: '🏷️', label: 'Tag definition updated'       },
-    create_member_status:         { icon: '🔵', label: 'Member status created'        },
-    update_member_status:         { icon: '✏️', label: 'Member status updated'        },
-    delete_member_status:         { icon: '🗑️', label: 'Member status deleted'        },
-    create_member_type:           { icon: '👥', label: 'Member type created'          },
-    update_member_type:           { icon: '✏️', label: 'Member type updated'          },
-    delete_member_type:           { icon: '🗑️', label: 'Member type deleted'          },
-    create_field_definition:      { icon: '📋', label: 'Custom field created'         },
-    update_field_definition:      { icon: '✏️', label: 'Custom field updated'         },
-    delete_field_definition:      { icon: '🗑️', label: 'Custom field deleted'         },
-    assign_type_field:            { icon: '➕', label: 'Field assigned to member type' },
-    remove_type_field:            { icon: '➖', label: 'Field removed from member type'},
-    maintenance_clear:            { icon: '🧹', label: 'Maintenance data cleared'     },
-    maintenance_clear_members:    { icon: '☠️',  label: 'All members cleared'          },
-    maintenance_backup:           { icon: '💾', label: 'Database backed up'           },
-    maintenance_restore:          { icon: '♻️', label: 'Database restored'            },
-    'import.run':                 { icon: '📥', label: 'Member import run'            },
-    resync_sessions_check:        { icon: '🔄', label: 'Session resync check run'     },
-    export_members:               { icon: '📤', label: 'Members exported'             },
+    update_settings:              { icon: 'settings',       label: 'Settings updated'              },
+    update_branding:              { icon: 'palette',        label: 'Branding updated'              },
+    upload_branding_logo:         { icon: 'image',          label: 'Logo uploaded'                 },
+    delete_branding_logo:         { icon: 'image',          label: 'Logo removed'                  },
+    create_staff_role:            { icon: 'shield-plus',    label: 'Staff role created'            },
+    update_staff_role:            { icon: 'pencil',         label: 'Staff role updated'            },
+    create_role:                  { icon: 'shield',         label: 'Portal role created'           },
+    update_role:                  { icon: 'shield',         label: 'Portal role updated'           },
+    delete_role:                  { icon: 'shield',         label: 'Portal role deleted'           },
+    create_tag:                   { icon: 'tag',            label: 'Tag definition created'        },
+    update_tag:                   { icon: 'tag',            label: 'Tag definition updated'        },
+    create_member_status:         { icon: 'circle-plus',    label: 'Member status created'         },
+    update_member_status:         { icon: 'pencil',         label: 'Member status updated'         },
+    delete_member_status:         { icon: 'trash-2',        label: 'Member status deleted'         },
+    create_member_type:           { icon: 'users',          label: 'Member type created'           },
+    update_member_type:           { icon: 'pencil',         label: 'Member type updated'           },
+    delete_member_type:           { icon: 'trash-2',        label: 'Member type deleted'           },
+    create_field_definition:      { icon: 'list-plus',      label: 'Custom field created'          },
+    update_field_definition:      { icon: 'pencil',         label: 'Custom field updated'          },
+    delete_field_definition:      { icon: 'trash-2',        label: 'Custom field deleted'          },
+    assign_type_field:            { icon: 'plus',           label: 'Field assigned to member type' },
+    remove_type_field:            { icon: 'minus',          label: 'Field removed from member type'},
+    maintenance_clear:            { icon: 'brush-cleaning', label: 'Maintenance data cleared'      },
+    maintenance_clear_members:    { icon: 'triangle-alert', label: 'All members cleared', tone: 'red' },
+    maintenance_backup:           { icon: 'database-backup',label: 'Database backed up'            },
+    maintenance_restore:          { icon: 'archive-restore',label: 'Database restored'             },
+    'import.run':                 { icon: 'import',         label: 'Member import run'             },
+    resync_sessions_check:        { icon: 'refresh-cw',     label: 'Session resync check run'      },
+    export_members:               { icon: 'share',          label: 'Members exported'              },
     // Other
-    'notification.deleted':       { icon: '🔔', label: 'Notification deleted'         },
-    qr_token_regenerated:         { icon: '📱', label: 'QR token regenerated'         },
+    'notification.deleted':       { icon: 'bell-off',       label: 'Notification deleted'          },
+    qr_token_regenerated:         { icon: 'qr-code',        label: 'QR token regenerated'          },
   };
+
+  /* ── Date subtitle ──────────────────────────────────── */
+  document.getElementById('dash-date-sub').textContent =
+    new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+    + " · here's what's happening across your sessions";
 
   function copyLink(path, btn) {
     const url = window.location.origin + path;
     navigator.clipboard.writeText(url).then(() => {
-      const orig = btn.textContent;
-      btn.textContent = '✓ Copied!';
-      setTimeout(() => { btn.textContent = orig; }, 2000);
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<i data-lucide="check" style="width:12.5px;height:12.5px"></i> Copied!';
+      refreshIcons();
+      setTimeout(() => { btn.innerHTML = orig; refreshIcons(); }, 2000);
     }).catch(() => {
       showToast('Could not copy — please copy the URL manually.', true);
+    });
+  }
+
+  /* ── Animated counters ──────────────────────────────── */
+  function animateCounters(scope) {
+    (scope || document).querySelectorAll('[data-count]').forEach(el => {
+      const target = +el.dataset.count, dur = 800, t0 = performance.now();
+      (function tick(t) {
+        const p = Math.min((t - t0) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(target * e);
+        if (p < 1) requestAnimationFrame(tick);
+      })(t0);
     });
   }
 
@@ -254,7 +278,7 @@
       renderActivity(d.recent_activity);
     } catch (e) {
       document.getElementById('stat-cards').innerHTML =
-        `<div class="alert-box err" style="grid-column:1/-1">⚠️ Could not load dashboard: ${esc(e.message)}</div>`;
+        `<div class="alert-box err" style="grid-column:1/-1">Could not load dashboard: ${esc(e.message)}</div>`;
     }
   }
 
@@ -275,38 +299,40 @@
     const stats = [];
 
     // Active Members tile
-    stats.push({ icon: '👥', value: m.active ?? 0, label: 'Active Members', href: '/members', colour: 'var(--accent)' });
+    stats.push({ icon: 'users', value: m.active ?? 0, label: 'Active Members', href: '/members', tone: '' });
 
     // Session tiles — generated from SESSION_TYPES, scoped where applicable
     for (const st of SESSION_TYPES) {
       if (!IS_SCOPED || SESSION_NAMES.includes(st.name)) {
         const val = sc[st.name]?.members ?? 0;
-        stats.push({ icon: '📅', value: val, label: st.name + ' Session', href: '/register', colour: 'var(--navy)' });
+        stats.push({ icon: 'calendar-days', value: val, label: st.name + ' Session', href: '/register', tone: 'green' });
       }
     }
 
     // Staff tile — hidden when count is 0
     if (staffCount > 0) {
-      stats.push({ icon: '🧑‍🤝‍🧑', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', colour: '#7c3aed' });
+      stats.push({ icon: 'shield-check', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', tone: 'violet' });
     }
 
     // Inactive tile — hidden from readonly users
     if (USER_ROLE !== 'readonly' && (m.inactive ?? 0) > 0) {
-      stats.push({ icon: '⏸️', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', colour: '#f59e0b' });
+      stats.push({ icon: 'circle-pause', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', tone: 'amber' });
     }
 
     // Leavers tile — hidden from readonly users and when count is 0
     if (USER_ROLE !== 'readonly' && (m.leavers ?? 0) > 0) {
-      stats.push({ icon: '👤', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', colour: 'var(--muted)' });
+      stats.push({ icon: 'user-minus', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', tone: 'grey' });
     }
 
     document.getElementById('stat-cards').innerHTML = stats.map(s => `
-      <a href="${s.href}" class="stat-card" style="text-decoration:none">
-        <div class="stat-icon" style="color:${s.colour}">${s.icon}</div>
-        <div class="stat-value" style="color:${s.colour}">${s.value}</div>
-        <div class="stat-label">${s.label}</div>
+      <a href="${s.href}" class="stat-card">
+        <span class="stat-icon ${s.tone}"><i data-lucide="${s.icon}"></i></span>
+        <div class="stat-value" data-count="${s.value}">0</div>
+        <div class="stat-label">${esc(s.label)}</div>
       </a>
     `).join('');
+    refreshIcons();
+    animateCounters(document.getElementById('stat-cards'));
   }
 
   /* ── Alerts callout ─────────────────────────────────── */
@@ -318,13 +344,9 @@
     if (!active.length) return;
     document.getElementById('alerts-last-run').textContent = lastRun || 'Never';
     document.getElementById('alerts-flags-list').innerHTML = active.map(f => `
-      <a href="/members?status=flagged&flag_rule_id=${f.id}"
-         style="display:inline-flex;align-items:center;gap:6px;margin:3px 4px 3px 0;text-decoration:none">
-        <span style="display:inline-block;padding:2px 9px;border-radius:20px;
-                     background:${esc(f.flag_colour)};color:white;font-size:11px;font-weight:700">
-          ${esc(f.flag_label)}
-        </span>
-        <span style="font-size:12px;color:#78350f;font-weight:600">${f.flag_count}</span>
+      <a href="/members?status=flagged&flag_rule_id=${f.id}" class="flag-chip"
+         style="background:${esc(f.flag_colour)}">
+        ${esc(f.flag_label)} <span class="flag-chip-n">${f.flag_count}</span>
       </a>
     `).join('');
     el.style.display = '';
@@ -338,6 +360,7 @@
     document.getElementById('approvals-callout-text').textContent =
       `${n} pending registration${n !== 1 ? 's' : ''}`;
     el.style.display = '';
+    refreshIcons();
   }
 
   /* ── Today attendance ───────────────────────────────── */
@@ -346,12 +369,14 @@
     document.getElementById('today-section').style.display = '';
     document.getElementById('today-cards').innerHTML = sessions.map(s => `
       <div class="stat-card" style="cursor:default">
-        <div class="stat-icon">✅</div>
-        <div class="stat-value" style="color:var(--green)">${s.total_signed_in}</div>
+        <span class="stat-icon green"><i data-lucide="clipboard-check"></i></span>
+        <div class="stat-value" data-count="${s.total_signed_in}">0</div>
         <div class="stat-label">${esc(s.session_type)} — signed in today</div>
         ${s.signed_out ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${s.signed_out} signed out</div>` : ''}
       </div>
     `).join('');
+    refreshIcons();
+    animateCounters(document.getElementById('today-cards'));
   }
 
   /* ── Upcoming sessions ──────────────────────────────── */
@@ -360,44 +385,111 @@
     try {
       const sessions = await apiFetch('/api/calendar/upcoming?limit=6');
       if (!sessions.length) {
-        el.innerHTML = `<p style="color:var(--muted);font-size:13px;padding:6px 0">
+        el.innerHTML = `<p style="color:var(--muted);font-size:13px;padding:6px 0 14px">
           No upcoming sessions in the calendar yet.
           <a href="/calendar" style="color:var(--accent)">Set up the term →</a></p>`;
         return;
       }
-      const STATUS_COLOURS = { planned: 'var(--green)', special: '#f59e0b', cancelled: 'var(--red)' };
-      const STATUS_ICONS   = { planned: '✅', special: '⭐', cancelled: '❌' };
-      el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">` +
-        sessions.map(s => {
-          const d       = new Date(s.session_date + 'T00:00:00');
-          const dLabel  = d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' });
-          const colour  = STATUS_COLOURS[s.status] || 'var(--muted)';
-          const icon    = STATUS_ICONS[s.status]   || '📅';
-          const isCancelled = s.status === 'cancelled';
-          return `
-            <a href="/register" style="text-decoration:none">
-              <div style="background:white;border:2px solid var(--border);border-radius:12px;
-                          padding:12px 14px;transition:border-color .15s"
-                   onmouseover="this.style.borderColor='var(--accent)'"
-                   onmouseout="this.style.borderColor='var(--border)'">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                  <span style="font-size:16px">${icon}</span>
-                  <span style="font-size:13px;font-weight:900;color:${colour}">${esc(s.status.toUpperCase())}</span>
-                  ${s.term_name ? `<span style="font-size:11px;color:var(--muted);margin-left:auto">${esc(s.term_name)}</span>` : ''}
-                </div>
-                <div style="font-weight:900;font-size:15px;color:var(--navy);
-                            ${isCancelled ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(dLabel)}</div>
-                <div style="font-size:12px;color:var(--muted);font-weight:700">${esc(s.session_type)}</div>
-                ${s.notes ? `<div style="font-size:11px;color:var(--accent);margin-top:3px;font-weight:700">📝 ${esc(s.notes)}</div>` : ''}
-              </div>
-            </a>`;
-        }).join('') + `</div>`;
+      const STATUS_BADGES = {
+        planned:   { label: 'Planned',   cls: 'green' },
+        special:   { label: 'Special',   cls: 'amber' },
+        cancelled: { label: 'Cancelled', cls: 'red'   },
+      };
+      el.innerHTML = sessions.map(s => {
+        const d      = new Date(s.session_date + 'T00:00:00');
+        const day    = d.toLocaleDateString('en-GB', { day: 'numeric' });
+        const mon    = d.toLocaleDateString('en-GB', { month: 'short' });
+        const wday   = d.toLocaleDateString('en-GB', { weekday: 'long' });
+        const badge  = STATUS_BADGES[s.status] || { label: s.status, cls: 'grey' };
+        const isCancelled = s.status === 'cancelled';
+        return `
+          <a href="/register" class="sess-row">
+            <span class="date-chip"><span class="d">${day}</span><span class="m">${mon}</span></span>
+            <span class="sess-info">
+              <span class="sess-name" ${isCancelled ? 'style="text-decoration:line-through;opacity:.6"' : ''}>${esc(s.session_type)}</span>
+              <span class="sess-meta">${esc(wday)}${s.term_name ? ' · ' + esc(s.term_name) : ''}${s.notes ? ' · ' + esc(s.notes) : ''}</span>
+            </span>
+            <span class="sess-badge ${badge.cls}">${esc(badge.label)}</span>
+          </a>`;
+      }).join('');
     } catch (_) {
       el.innerHTML = '';  // Fail silently if calendar not yet set up
     }
   }
 
   loadUpcomingSessions();
+
+  /* ── Attendance trend chart ─────────────────────────── */
+  let _trendChart = null;
+  let _trendData  = null;
+
+  function cssColor(name) {
+    const probe = document.createElement('span');
+    probe.style.color = `var(--${name})`;
+    document.body.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  }
+
+  function buildTrendChart() {
+    if (!_trendData || _trendData.length < 2 || !window.Chart) return;
+    if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
+
+    const accent  = cssColor('accent');
+    const muted   = cssColor('muted');
+    const border  = cssColor('border');
+    const fontFam = getComputedStyle(document.body).fontFamily;  // tracks Formal/Casual skin
+    const labels = _trendData.map(r => {
+      const d = new Date(r.session_date + 'T00:00:00');
+      return d.getDate() + '/' + (d.getMonth() + 1);
+    });
+
+    _trendChart = new Chart(document.getElementById('trend-chart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: _trendData.map(r => r.headcount),
+          backgroundColor: accent.replace('rgb', 'rgba').replace(')', ',.75)'),
+          hoverBackgroundColor: accent,
+          borderRadius: 6, borderSkipped: false, maxBarThickness: 26,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.parsed.y} signed in` } },
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: muted, font: { family: fontFam, size: 10.5 } } },
+          y: { beginAtZero: true, grid: { color: border }, border: { display: false },
+               ticks: { color: muted, font: { family: fontFam, size: 10.5 }, precision: 0 } },
+        },
+      },
+    });
+  }
+
+  async function loadTrend() {
+    try {
+      _trendData = await apiFetch('/api/dashboard/attendance-trend');
+      if (!_trendData || _trendData.length < 2) {
+        // Not enough history for a meaningful chart — let sessions span the row
+        document.getElementById('dash-cols').style.gridTemplateColumns = '1fr';
+        return;
+      }
+      document.getElementById('trend-card').style.display = '';
+      buildTrendChart();
+    } catch (_) {
+      document.getElementById('dash-cols').style.gridTemplateColumns = '1fr';
+    }
+  }
+
+  loadTrend();
+
+  // Re-skin the chart when the theme toggles (base.html dispatches 'themechange')
+  document.addEventListener('themechange', buildTrendChart);
 
   /* ── Recent activity ────────────────────────────────── */
   function renderActivity(items) {
@@ -407,7 +499,7 @@
       return;
     }
     feed.innerHTML = items.map(a => {
-      const def    = ACTION_LABELS[a.action] || { icon: '📋', label: a.action };
+      const def    = ACTION_LABELS[a.action] || { icon: 'list', label: a.action };
       const time   = a.timestamp
         ? new Date(a.timestamp + 'Z').toLocaleString('en-GB',
             { dateStyle: 'short', timeStyle: 'short' })
@@ -421,7 +513,7 @@
       } catch (_) {}
       return `
         <div class="activity-row">
-          <span class="activity-icon">${def.icon}</span>
+          <span class="activity-icon ${def.tone || ''}"><i data-lucide="${def.icon}"></i></span>
           <div class="activity-body">
             <span class="activity-label">${def.label}</span>
             ${detail ? `<span class="activity-detail">${detail}</span>` : ''}
@@ -432,106 +524,199 @@
           </div>
         </div>`;
     }).join('');
+    refreshIcons();
   }
 </script>
 
 <style>
+  /* ── Stat cards ────────────────────────────────────── */
   .dash-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 14px;
     margin-bottom: 24px;
   }
   .stat-card {
-    background: white;
-    border: 2px solid var(--border);
-    border-radius: 14px;
-    padding: 20px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 18px;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    transition: border-color .18s, box-shadow .18s;
+    text-decoration: none;
+    color: inherit;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s;
   }
-  .stat-card:hover { border-color: var(--accent); box-shadow: 0 4px 18px rgba(0,150,180,.1); }
-  .stat-card.skeleton { min-height: 100px; background: #f0f2f5; border-color: transparent; animation: pulse 1.4s infinite; }
+  a.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+  .stat-card.skeleton { min-height: 118px; background: var(--surface-2); border-color: transparent; animation: pulse 1.4s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-  .stat-icon  { font-size: 26px; }
-  .stat-value { font-size: 36px; font-weight: 900; line-height: 1; margin: 4px 0; }
-  .stat-label { font-size: 13px; color: var(--muted); font-weight: 700; }
+  .stat-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: grid; place-items: center; margin-bottom: 8px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .stat-icon.green  { background: var(--green-bg);  color: var(--green); }
+  .stat-icon.amber  { background: var(--amber-bg);  color: var(--amber); }
+  .stat-icon.red    { background: var(--red-bg);    color: var(--red); }
+  .stat-icon.violet { background: var(--violet-bg); color: var(--violet); }
+  .stat-icon.grey   { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .stat-value {
+    font-size: 28px; font-weight: 800; letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--text);
+  }
+  .stat-label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
 
+  /* ── Callouts ──────────────────────────────────────── */
   .callout {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
-    border-radius: 12px;
-    font-size: 15px;
-    font-weight: 700;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--border); border-left: 3px solid var(--amber);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm);
+    padding: 14px 18px; font-size: 14px;
   }
-  .callout-warn { background: var(--orange-bg); border: 2px solid #fde68a; color: var(--orange); }
-  .callout-risk { background: #fff7ed;          border: 2px solid #fed7aa; color: #b45309; }
-  .callout-icon { font-size: 22px; }
+  .callout strong { font-size: 14px; font-weight: 700; }
+  .callout-icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: grid; place-items: center; flex-shrink: 0;
+    background: var(--amber-bg); color: var(--amber);
+  }
+  .callout-meta { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .flag-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+  .flag-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 99px;
+    color: #fff; text-decoration: none; transition: opacity .15s;
+  }
+  .flag-chip:hover { opacity: .85; }
+  .flag-chip-n {
+    background: rgba(255,255,255,.25); border-radius: 99px;
+    padding: 0 6px; font-variant-numeric: tabular-nums;
+  }
 
-  .activity-feed {
-    background: white;
-    border: 2px solid var(--border);
-    border-radius: 14px;
-    overflow: hidden;
+  /* ── Upcoming sessions + trend ─────────────────────── */
+  .dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .sess-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 4px; border-bottom: 1px solid var(--border);
+    text-decoration: none; color: inherit;
   }
+  .sess-row:last-child { border-bottom: none; }
+  .sess-row:hover .sess-name { color: var(--accent); }
+  .date-chip {
+    width: 46px; flex-shrink: 0; text-align: center;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 5px 0 6px; display: block;
+  }
+  .date-chip .d { display: block; font-size: 17px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+  .date-chip .m { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .sess-info { flex: 1; min-width: 0; }
+  .sess-name { display: block; font-weight: 700; font-size: 13.5px; transition: color .15s; }
+  .sess-meta { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .sess-badge {
+    font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; white-space: nowrap;
+    color: var(--muted); background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .sess-badge.green { color: var(--green); background: var(--green-bg); border-color: transparent; }
+  .sess-badge.amber { color: var(--amber); background: var(--amber-bg); border-color: transparent; }
+  .sess-badge.red   { color: var(--red);   background: var(--red-bg);   border-color: transparent; }
+
+  /* ── Registration link cards ───────────────────────── */
+  .reg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .reg-card {
+    display: flex; gap: 13px; align-items: flex-start;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm);
+    padding: 15px 16px;
+    transition: transform .18s, box-shadow .18s, border-color .18s;
+  }
+  .reg-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+  .reg-icon {
+    width: 38px; height: 38px; border-radius: 11px;
+    display: grid; place-items: center; flex-shrink: 0;
+    background: var(--accent-soft); color: var(--accent); font-size: 19px;
+  }
+  .reg-name { font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .reg-desc { font-size: 12px; color: var(--muted); margin: 2px 0 9px; }
+  .reg-tag {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    padding: 2px 7px; border-radius: 5px;
+  }
+  .reg-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .mini-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 10px; cursor: pointer; text-decoration: none; font-family: inherit;
+    transition: all .15s;
+  }
+  .mini-btn:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); }
+  .mini-btn .lucide { width: 12.5px; height: 12.5px; }
+
+  /* ── Activity feed ─────────────────────────────────── */
+  .activity-feed { overflow: hidden; }
   .activity-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 13px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
   }
   .activity-row:last-child { border-bottom: none; }
-  .activity-icon  { font-size: 20px; flex-shrink: 0; }
+  .activity-icon {
+    width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .activity-icon .lucide { width: 15px; height: 15px; }
+  .activity-icon.green { color: var(--green); background: var(--green-bg); border-color: transparent; }
+  .activity-icon.red   { color: var(--red);   background: var(--red-bg);   border-color: transparent; }
   .activity-body  { flex: 1; min-width: 0; }
-  .activity-label { font-weight: 700; font-size: 14px; }
+  .activity-label { font-weight: 600; font-size: 13.5px; }
   .activity-detail { font-size: 13px; color: var(--muted); margin-left: 6px; }
   .activity-meta  { text-align: right; flex-shrink: 0; }
-  .activity-user  { display: block; font-size: 13px; font-weight: 700; color: var(--accent); }
-  .activity-time  { display: block; font-size: 12px; color: var(--muted); }
+  .activity-user  { display: block; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+  .activity-time  { display: block; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* ── Entrance animation ────────────────────────────── */
+  .dash-grid, .callout, .dash-cols { animation: rise .4s ease both; }
 
   /* ── Dashboard responsive ──────────────────────────── */
 
   /* Tablet portrait (768–1023px) */
   @media (max-width: 1023px) {
-    .stat-value   { font-size: 30px; }
-    .dash-grid    { gap: 12px; }
+    .stat-value { font-size: 25px; }
+    .dash-grid  { gap: 12px; }
+    .dash-cols  { grid-template-columns: 1fr; }
   }
 
   /* Mobile landscape (480–767px) */
   @media (max-width: 767px) {
-    .dash-grid    { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .stat-card    { padding: 14px 12px; }
-    .stat-value   { font-size: 26px; }
-    .stat-icon    { font-size: 22px; }
-    .stat-label   { font-size: 12px; }
+    .dash-grid  { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-card  { padding: 14px 12px; }
+    .stat-value { font-size: 23px; }
+    .stat-label { font-size: 11.5px; }
 
-    /* Callout — wrap the action button below the text */
     .callout      { flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
     .callout .btn { margin-left: 0 !important; }
 
-    /* Activity feed — stack meta below on small screens */
     .activity-row   { flex-wrap: wrap; gap: 4px 12px; }
     .activity-meta  { flex-basis: 100%; text-align: left; display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 2px; }
     .activity-user  { display: inline; }
     .activity-time  { display: inline; }
     .activity-detail { display: block; margin-left: 0; margin-top: 2px; font-size: 12px; }
-
-    /* Upcoming sessions grid override (inline style) */
-    #upcoming-sessions > div { grid-template-columns: repeat(2, 1fr) !important; }
   }
 
   /* Mobile portrait (< 480px) */
   @media (max-width: 479px) {
-    .dash-grid    { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .stat-value   { font-size: 22px; }
-    .stat-card    { padding: 12px 10px; }
-    .callout      { font-size: 13px; }
-    #upcoming-sessions > div { grid-template-columns: 1fr !important; }
+    .dash-grid  { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat-value { font-size: 20px; }
+    .stat-card  { padding: 12px 10px; }
+    .callout    { font-size: 13px; }
+    .reg-grid   { grid-template-columns: 1fr; }
   }
 </style>
 {% endblock %}
