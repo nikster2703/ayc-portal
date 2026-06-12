@@ -804,6 +804,17 @@
   html[data-skin="casual"] .stat-icon     { font-size: 26px; line-height: 1; }
   html[data-skin="casual"] .activity-icon { font-size: 20px; }
   html[data-skin="casual"] .callout-icon  { font-size: 22px; }
+
+  /* Casual light: the v11 stylesheet drops the body line-height to the
+     browser default, which cramps these newer callout cards — restore the
+     breathing room they get in dark mode. */
+  html[data-skin="casual"]:not([data-theme="dark"]) .callout {
+    padding: 16px 20px;
+    gap: 14px;
+    line-height: 1.5;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .callout .callout-meta { margin-top: 2px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .callout .flag-chips { gap: 8px; }
   html[data-skin="casual"]:not([data-theme="dark"]) .stat-value { font-size: 36px; font-weight: 900; }
 
   /* Casual stat cards: icon top-left, trend chip top-right (full-width row),
