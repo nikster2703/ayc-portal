@@ -103,10 +103,13 @@ def api_dashboard():
     session_counts = {r['session']: {'members': r['members'], 'staff': r['staff']}
                       for r in session_rows if r['session'] is not None}
 
+    # NB: completing a register writes absence rows (signed_in_at IS NULL) for
+    # every member who didn't attend — count only actual sign-ins/outs.
     if scoped is None:
         today_att = db.execute('''
-            SELECT COUNT(*) AS total_signed_in,
-                   SUM(CASE WHEN signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
+            SELECT SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS total_signed_in,
+                   SUM(CASE WHEN signed_in_at IS NOT NULL
+                             AND signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
                    session_type
             FROM attendance
             WHERE session_date = ?
@@ -114,8 +117,9 @@ def api_dashboard():
         ''', (today,)).fetchall()
     else:
         today_att = db.execute(f'''
-            SELECT COUNT(*) AS total_signed_in,
-                   SUM(CASE WHEN signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
+            SELECT SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS total_signed_in,
+                   SUM(CASE WHEN signed_in_at IS NOT NULL
+                             AND signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
                    session_type
             FROM attendance
             WHERE session_date = ? AND session_type IN ({ph})
