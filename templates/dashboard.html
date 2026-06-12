@@ -285,8 +285,10 @@
       }
     }
 
-    // Staff tile — visible to all roles
-    stats.push({ icon: '🧑‍🤝‍🧑', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', colour: '#7c3aed' });
+    // Staff tile — hidden when count is 0
+    if (staffCount > 0) {
+      stats.push({ icon: '🧑‍🤝‍🧑', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', colour: '#7c3aed' });
+    }
 
     // Inactive tile — hidden from readonly users
     if (USER_ROLE !== 'readonly' && (m.inactive ?? 0) > 0) {
