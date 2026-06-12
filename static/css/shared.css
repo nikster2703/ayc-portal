@@ -3,7 +3,8 @@
    Inter · light/dark themes · accent shades derived via color-mix
    ================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap');
+/* Fonts are self-hosted (static/vendor/fonts.css, linked in base.html)
+   so the strict same-origin CSP holds — no Google Fonts at runtime. */
 
 :root {
   /* ── Typeface — Formal: Inter; Casual skin overrides to Nunito ── */
@@ -135,6 +136,7 @@ html[data-skin="casual"][data-theme="dark"] {
 }
 
 /* ── Casual personality — chunkier strokes, heavier type ── */
+html[data-skin="casual"] { --radius: 16px; }
 html[data-skin="casual"] :is(.btn, .search-input, .session-select, .tab-btn,
                              .leaver-toggle, .form-group input, .form-group select,
                              .form-group textarea, .form-input) { border-width: 2px; }
@@ -142,6 +144,28 @@ html[data-skin="casual"] :is(.card, .member-card, .stat-card, .reg-card,
                              .data-table, .activity-feed, .callout) { border-width: 2px; }
 html[data-skin="casual"] .callout { border-left-width: 3px; }
 html[data-skin="casual"] :is(h1, h2, h3, .btn, .stat-value) { font-weight: 800; }
+html[data-skin="casual"] .avatar { border-radius: 50%; }      /* classic round avatars */
+html[data-skin="casual"] .btn { border-radius: 12px; }
+
+/* Casual light keeps the classic solid-navy header from v11 */
+html[data-skin="casual"]:not([data-theme="dark"]) .app-header {
+  background: rgba(27,45,79,.94);
+  border-bottom-color: rgba(255,255,255,.08);
+  color: #fff;
+}
+html[data-skin="casual"]:not([data-theme="dark"]) .app-header .brand a { color: #fff; }
+html[data-skin="casual"]:not([data-theme="dark"]) .app-header :is(.user-pill, .session-pill, .icon-btn) {
+  background: rgba(255,255,255,.13);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: none;
+}
+html[data-skin="casual"]:not([data-theme="dark"]) .app-header .icon-btn:hover { background: rgba(255,255,255,.24); color: #fff; }
+html[data-skin="casual"]:not([data-theme="dark"]) .app-header .logout-btn {
+  color: rgba(255,255,255,.85);
+  border-color: rgba(255,255,255,.3);
+}
+html[data-skin="casual"]:not([data-theme="dark"]) .app-header .logout-btn:hover { color: #fff; border-color: #fff; }
 
 html { color-scheme: light; }
 html[data-theme="dark"] { color-scheme: dark; }

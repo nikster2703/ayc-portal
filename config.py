@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.0'  # v12.0: 2026 UI restyle — dual skins (Formal: Inter/minimal · Casual: Nunito/navy-cream) × light/dark themes, color-mix-derived accent shades, frosted header/nav, Lucide icons, Chart.js dashboard; design tokens in shared.css v12; display.html intentionally excluded
+APP_VERSION = 'v12.0.1'  # v12.0.1: self-host fonts/Lucide/Chart.js (CSP blocked CDNs — icons & fonts never loaded). v12.0: 2026 UI restyle — dual skins (Formal: Inter/minimal · Casual: Nunito/navy-cream) × light/dark themes, color-mix-derived accent shades, frosted header/nav, Lucide icons, Chart.js dashboard; design tokens in shared.css v12; display.html intentionally excluded
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
