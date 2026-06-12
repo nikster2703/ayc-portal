@@ -40,8 +40,10 @@
     <span class="callout-icon"><i data-lucide="bell-ring"></i><span class="ico-emoji">🚨</span></span>
     <div style="flex:1;min-width:200px">
       <strong>Member alerts</strong>
-      <div class="callout-meta">Last check: <span id="alerts-last-run">—</span></div>
-      <div id="alerts-flags-list" class="flag-chips"></div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px">
+        <span class="callout-meta" style="white-space:nowrap">Last check: <span id="alerts-last-run">—</span></span>
+        <div id="alerts-flags-list" class="flag-chips" style="margin-top:0"></div>
+      </div>
     </div>
     <a href="/admin/alerts" class="btn btn-ghost btn-sm" style="margin-left:auto;flex-shrink:0">Manage rules <i data-lucide="arrow-right"></i></a>
   </div>
@@ -804,9 +806,11 @@
   html[data-skin="casual"] .callout-icon  { font-size: 22px; }
   html[data-skin="casual"]:not([data-theme="dark"]) .stat-value { font-size: 36px; font-weight: 900; }
 
-  /* Casual stat cards: content centred horizontally (Formal stays left-aligned) */
-  html[data-skin="casual"] .stat-card { align-items: center; text-align: center; }
-  html[data-skin="casual"] .stat-top { flex-direction: column; justify-content: center; gap: 8px; }
+  /* Casual stat cards: icon top-left, trend chip top-right (full-width row),
+     count + label centred beneath. Fixed top row = consistent count position
+     whether or not a card has a trend chip. (Formal stays left-aligned.) */
+  html[data-skin="casual"] .stat-card { align-items: center; text-align: center; padding-top: 10px; }
+  html[data-skin="casual"] .stat-top { align-self: stretch; align-items: flex-start; min-height: 32px; margin-bottom: 4px; }
   html[data-skin="casual"] .stat-card .spark-wrap { width: 100%; }
   html[data-skin="casual"]:not([data-theme="dark"]) .t-accent .stat-value { color: var(--accent); }
   html[data-skin="casual"]:not([data-theme="dark"]) .t-green  .stat-value { color: var(--green); }
