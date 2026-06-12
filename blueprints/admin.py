@@ -3233,8 +3233,8 @@ def api_export_members_csv():
         ('last_attended',  'Last Attended'),
     ]
     payment_cols = [
-        ('payment_count',    f'Payment Count'),
-        ('total_paid',       f'Total Paid'),
+        ('payment_count',    'Payment Count'),
+        ('total_paid',       'Total Paid'),
         ('last_payment_date','Last Payment Date'),
         ('paid_this_period', f'Paid This Period ({current_period})' if current_period else 'Paid This Period'),
     ]

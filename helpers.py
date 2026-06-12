@@ -662,6 +662,114 @@ def _invalidate_qr_token_for_session(session_type: str, session_date: str):
     db.commit()
 
 
+# ── Rate limiting (DB-backed, shared across worker processes) ──────────────────
+# These replace the old per-process in-memory dicts so the limits stay accurate
+# regardless of how many gunicorn workers are running.  Each limiter uses its own
+# short-lived connection so it never entangles the request's main transaction.
+
+def rate_limit_touch(bucket_key, max_count, window_seconds):
+    """Sliding-window limiter that counts the current attempt.
+
+    Returns (allowed: bool, retry_after_seconds: int).  Used by the public
+    registration and QR endpoints.  Shared across workers via the rate_limits
+    table, so N workers can't multiply the effective limit.
+    """
+    db  = _connect_db()
+    now = time.time()
+    try:
+        db.row_factory = sqlite3.Row
+        row = db.execute(
+            'SELECT window_start, count FROM rate_limits WHERE bucket_key = ?',
+            (bucket_key,)
+        ).fetchone()
+
+        # Fresh window (no row yet, or the previous window has elapsed)
+        if row is None or (now - row['window_start']) >= window_seconds:
+            db.execute(
+                'INSERT INTO rate_limits (bucket_key, window_start, count, locked_until, updated_at) '
+                "VALUES (?,?,1,0,datetime('now')) "
+                'ON CONFLICT(bucket_key) DO UPDATE SET '
+                'window_start=excluded.window_start, count=1, locked_until=0, updated_at=excluded.updated_at',
+                (bucket_key, now)
+            )
+            # Opportunistic cleanup so the table can't grow without bound
+            db.execute(
+                'DELETE FROM rate_limits WHERE locked_until < ? AND window_start < ?',
+                (now, now - 86400)
+            )
+            db.commit()
+            return True, 0
+
+        new_count = row['count'] + 1
+        db.execute(
+            "UPDATE rate_limits SET count=?, updated_at=datetime('now') WHERE bucket_key=?",
+            (new_count, bucket_key)
+        )
+        db.commit()
+        if new_count > max_count:
+            retry = int(window_seconds - (now - row['window_start']))
+            return False, max(retry, 1)
+        return True, 0
+    finally:
+        db.close()
+
+
+def login_rate_status(ip):
+    """Return (allowed, retry_after_seconds) for a login attempt from this IP."""
+    db  = _connect_db()
+    now = time.time()
+    try:
+        db.row_factory = sqlite3.Row
+        row = db.execute(
+            'SELECT locked_until FROM rate_limits WHERE bucket_key = ?', (f'login:{ip}',)
+        ).fetchone()
+        if row and row['locked_until'] and now < row['locked_until']:
+            return False, int(row['locked_until'] - now) + 1
+        return True, 0
+    finally:
+        db.close()
+
+
+def record_login_failure(ip):
+    """Count a failed login from this IP; lock the IP out once the threshold is hit."""
+    db  = _connect_db()
+    now = time.time()
+    key = f'login:{ip}'
+    try:
+        db.row_factory = sqlite3.Row
+        row   = db.execute('SELECT count FROM rate_limits WHERE bucket_key = ?', (key,)).fetchone()
+        count = (row['count'] if row else 0) + 1
+        if count >= LOGIN_MAX_FAILURES:
+            # Lock out and reset the counter (mirrors the previous in-memory behaviour)
+            db.execute(
+                'INSERT INTO rate_limits (bucket_key, window_start, count, locked_until, updated_at) '
+                "VALUES (?,?,0,?,datetime('now')) "
+                'ON CONFLICT(bucket_key) DO UPDATE SET count=0, locked_until=excluded.locked_until, '
+                'updated_at=excluded.updated_at',
+                (key, now, now + LOGIN_LOCKOUT_SECONDS)
+            )
+        else:
+            db.execute(
+                'INSERT INTO rate_limits (bucket_key, window_start, count, locked_until, updated_at) '
+                "VALUES (?,?,?,0,datetime('now')) "
+                'ON CONFLICT(bucket_key) DO UPDATE SET count=excluded.count, updated_at=excluded.updated_at',
+                (key, now, count)
+            )
+        db.commit()
+    finally:
+        db.close()
+
+
+def clear_login_failures(ip):
+    """Clear the failure counter / lockout for this IP after a successful login."""
+    db = _connect_db()
+    try:
+        db.execute('DELETE FROM rate_limits WHERE bucket_key = ?', (f'login:{ip}',))
+        db.commit()
+    finally:
+        db.close()
+
+
 # ── General utilities ──────────────────────────────────────────────────────────
 
 def _bool_val(v):

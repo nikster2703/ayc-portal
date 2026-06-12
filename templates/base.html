@@ -231,11 +231,13 @@
       <span class="nav-label">Calendar</span>
     </a>
 
+    {% if 'documents.view' in user_permissions %}
     <a href="/documents"
        class="nav-link{% if active_page == 'documents' %} active{% endif %}">
       <span class="nav-icon">📁</span>
       <span class="nav-label">Documents</span>
     </a>
+    {% endif %}
 
     {% if 'mailshots.send' in user_permissions %}
     <a href="/communications"
@@ -589,8 +591,8 @@
       wrap.style.display = 'none';
     } else if (type === 'role') {
       wrap.style.display = 'block';
-      label.textContent  = 'Role name (e.g. leader, editor)';
-      input.placeholder  = 'leader';
+      label.textContent  = 'Role name (e.g. editor, readonly)';
+      input.placeholder  = 'editor';
     } else if (type === 'session') {
       wrap.style.display = 'block';
       label.textContent  = 'Session name';

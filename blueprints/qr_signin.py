@@ -7,7 +7,6 @@ A session token (quick_signin_tokens table) is the sole gate.
 All public API endpoints are CSRF-exempt; they validate via the token instead.
 """
 
-import secrets
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
@@ -19,28 +18,21 @@ from helpers import (
     _is_register_locked, _touch_attendance,
     _get_or_create_qr_token,
     _validate_qr_token,
+    rate_limit_touch,
 )
 
 bp = Blueprint('qr_signin', __name__)
 
-# Simple in-memory rate limiter — (ip, endpoint, minute_bucket) → request count.
-_rl_store: dict = {}
-
 
 def _rl_check(endpoint: str, max_per_min: int) -> bool:
-    """Return True if the request is within rate limit, False if exceeded."""
-    ip     = request.remote_addr or 'unknown'
-    bucket = datetime.now().strftime('%Y%m%d%H%M')
-    key    = (ip, endpoint, bucket)
-    count  = _rl_store.get(key, 0) + 1
-    _rl_store[key] = count
-    # Prune old buckets (keep store small)
-    if len(_rl_store) > 2000:
-        cur = datetime.now().strftime('%Y%m%d%H%M')
-        for k in list(_rl_store.keys()):
-            if k[2] != cur:
-                del _rl_store[k]
-    return count <= max_per_min
+    """Return True if the request is within rate limit, False if exceeded.
+
+    Backed by the rate_limits table (helpers.rate_limit_touch) so the per-minute
+    cap is shared across all worker processes.
+    """
+    ip = request.remote_addr or 'unknown'
+    allowed, _ = rate_limit_touch(f'qr:{endpoint}:{ip}', max_per_min, 60)
+    return allowed
 
 
 # ── Authenticated: token management (called by register page JS) ──────────────

@@ -91,10 +91,10 @@ def api_dashboard():
         ).fetchone()['n']
         alert_rows = db.execute(f'''
             SELECT ar.id, ar.flag_label, ar.flag_colour,
-                   COUNT(mf.id) AS flag_count
+                   COUNT(CASE WHEN m.session IN ({ph}) THEN mf.id END) AS flag_count
             FROM alert_rules ar
             LEFT JOIN member_flags mf ON mf.rule_id = ar.id AND mf.resolved_at IS NULL
-            LEFT JOIN members m ON m.id = mf.member_id AND m.session IN ({ph})
+            LEFT JOIN members m ON m.id = mf.member_id
             WHERE ar.is_active = 1
             GROUP BY ar.id
             ORDER BY flag_count DESC, ar.name

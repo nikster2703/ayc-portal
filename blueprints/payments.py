@@ -18,13 +18,13 @@ Routes:
   POST /api/payments/current-period        — update current_membership_period setting
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import sqlcipher3 as sqlite3
 from flask import Blueprint, jsonify, request, session
 
 from helpers import (
-    get_db, get_setting, log_action, permission_required,
+    get_db, get_setting, log_action, permission_required, _assigned_session,
 )
 
 bp = Blueprint('payments', __name__)
@@ -42,15 +42,29 @@ def _current_period():
     return get_setting('current_membership_period', '')
 
 
+def _member_in_scope(member_session):
+    """Return True if the current user may access a member in the given session.
+
+    Mirrors the scoping used across members/attendance/approvals: admins (scope
+    None) see everything; non-admins are restricted to their assigned sessions.
+    """
+    scoped = _assigned_session()  # None (admin) or list of session names
+    if scoped is None:
+        return True
+    return (member_session or '') in (scoped or [])
+
+
 # ── Member payment endpoints ──────────────────────────────────────────────────
 
 @bp.route('/api/members/<int:member_id>/payments')
 @permission_required('payments.view')
 def api_member_payments_list(member_id):
     db = get_db()
-    member = db.execute('SELECT id, first_name, surname FROM members WHERE id = ?', (member_id,)).fetchone()
+    member = db.execute('SELECT id, first_name, surname, session FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Member not found'}), 404
+    if not _member_in_scope(member['session']):
+        return jsonify({'error': 'Forbidden'}), 403
 
     include_voided = request.args.get('include_voided', '0') == '1'
     void_clause = '' if include_voided else 'AND mp.voided_at IS NULL'
@@ -103,9 +117,11 @@ def api_member_payments_list(member_id):
 @permission_required('payments.record')
 def api_member_payments_create(member_id):
     db = get_db()
-    member = db.execute('SELECT id, first_name, surname FROM members WHERE id = ?', (member_id,)).fetchone()
+    member = db.execute('SELECT id, first_name, surname, session FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Member not found'}), 404
+    if not _member_in_scope(member['session']):
+        return jsonify({'error': 'Forbidden'}), 403
 
     data = request.get_json() or {}
     payment_type_id = data.get('payment_type_id')
@@ -167,6 +183,9 @@ def api_payment_update(payment_id):
     ).fetchone()
     if not pay:
         return jsonify({'error': 'Payment not found or already voided'}), 404
+    _m = db.execute('SELECT session FROM members WHERE id = ?', (pay['member_id'],)).fetchone()
+    if not _m or not _member_in_scope(_m['session']):
+        return jsonify({'error': 'Forbidden'}), 403
 
     data = request.get_json() or {}
     payment_type_id = data.get('payment_type_id', pay['payment_type_id'])
@@ -221,11 +240,14 @@ def api_payment_void(payment_id):
     ).fetchone()
     if not pay:
         return jsonify({'error': 'Payment not found or already voided'}), 404
+    _m = db.execute('SELECT session FROM members WHERE id = ?', (pay['member_id'],)).fetchone()
+    if not _m or not _member_in_scope(_m['session']):
+        return jsonify({'error': 'Forbidden'}), 403
 
     data        = request.get_json() or {}
     void_reason = (data.get('reason') or '').strip() or None
     user_id     = session.get('user_id')
-    now         = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    now         = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
     db.execute(
         'UPDATE member_payments SET voided_at=?, voided_by=?, void_reason=? WHERE id=?',
@@ -273,7 +295,7 @@ def api_current_period_set():
 
     db      = get_db()
     user_id = session.get('user_id')
-    now     = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    now     = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
     upsert = (
         'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?,?,?,?) '

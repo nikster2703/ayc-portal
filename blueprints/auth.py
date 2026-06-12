@@ -4,14 +4,13 @@ Routes: /, /api/auth/*
 """
 
 import json
-import time
 from datetime import datetime, timezone
 
 import bcrypt
 from flask import Blueprint, jsonify, redirect, request, session, url_for
 
 from config import (
-    ROLE_DISPLAY_NAMES, LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
+    ROLE_DISPLAY_NAMES,
     APP_VERSION, CLUB_NAME, CLUB_SHORT_NAME,
 )
 from extensions import csrf
@@ -20,34 +19,10 @@ from helpers import (
     get_db, log_action, login_required, validate_password,
     get_brand_settings, get_session_types, get_valid_session_names,
     _assigned_session, tpl_ctx,
+    login_rate_status, record_login_failure, clear_login_failures,
 )
 
 bp = Blueprint('auth', __name__)
-
-# ── Login rate limiter (in-memory, per-IP) ─────────────────────────────────────
-_login_attempts: dict = {}
-
-
-def _check_login_rate_limit(ip: str):
-    now = time.time()
-    rec = _login_attempts.get(ip, {'count': 0, 'locked_until': 0})
-    if now < rec['locked_until']:
-        return False, int(rec['locked_until'] - now)
-    return True, 0
-
-
-def _record_login_failure(ip: str):
-    now = time.time()
-    rec = _login_attempts.get(ip, {'count': 0, 'locked_until': 0})
-    rec['count'] += 1
-    if rec['count'] >= LOGIN_MAX_FAILURES:
-        rec['locked_until'] = now + LOGIN_LOCKOUT_SECONDS
-        rec['count']        = 0
-    _login_attempts[ip] = rec
-
-
-def _clear_login_failures(ip: str):
-    _login_attempts.pop(ip, None)
 
 
 # ── Page routes ────────────────────────────────────────────────────────────────
@@ -69,7 +44,7 @@ def login_page():
 @csrf.exempt
 def api_login():
     ip      = request.remote_addr or '0.0.0.0'
-    allowed, retry_after = _check_login_rate_limit(ip)
+    allowed, retry_after = login_rate_status(ip)
     if not allowed:
         return jsonify({
             'error': f'Too many failed login attempts. Please try again in {retry_after // 60 + 1} minutes.'
@@ -166,7 +141,7 @@ def api_login():
                    (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), user['id']))
         db.commit()
 
-        _clear_login_failures(ip)
+        clear_login_failures(ip)
         log_action('login')
 
         return jsonify({
@@ -180,7 +155,7 @@ def api_login():
             }
         })
 
-    _record_login_failure(ip)
+    record_login_failure(ip)
     log_action('login_failed', details={'attempted_username': username})
     return jsonify({'error': 'Incorrect username or password'}), 401
 

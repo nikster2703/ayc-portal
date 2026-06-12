@@ -408,6 +408,16 @@ def ensure_tables():
             created_at   TEXT    DEFAULT (datetime('now')),
             updated_at   TEXT
         );
+        -- v11.29: DB-backed rate limiting (shared across gunicorn workers).
+        -- Replaces the per-process in-memory limiters for login, public
+        -- registration and QR sign-in so limits stay accurate with >1 worker.
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            bucket_key   TEXT    PRIMARY KEY,   -- e.g. 'login:1.2.3.4', 'register:1.2.3.4', 'qr:qr_search:1.2.3.4'
+            window_start REAL    NOT NULL,      -- unix epoch when the current window began
+            count        INTEGER NOT NULL DEFAULT 0,
+            locked_until REAL    NOT NULL DEFAULT 0,  -- unix epoch; > now means locked out
+            updated_at   TEXT
+        );
     ''')
 
     # FTS5 must be created separately — not all SQLite builds support it.

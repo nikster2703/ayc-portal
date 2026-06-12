@@ -64,9 +64,6 @@ def api_members():
         conditions.append(f'm.session IN ({placeholders})')
         params.extend(scoped)
 
-    if session.get('role') == 'leader':
-        conditions.append("mt.registration_style != 'staff'")
-
     # Paid filter — uses the paid_sub LEFT JOIN below
     if paid_filter == '1':
         conditions.append('paid_sub.member_id IS NOT NULL')
