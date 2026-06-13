@@ -3,31 +3,30 @@
 
 {% block content %}
 <div class="page-header">
-  <div style="display:flex;align-items:center;gap:12px">
-    <h1 style="margin:0">📁 Document Repository</h1>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <h1><i data-lucide="folder-open"></i><span class="ico-emoji">📁</span> Document Repository</h1>
     <select id="cat-select"
             onchange="switchCat(this.value)"
-            style="padding:6px 10px;border:2px solid var(--border);
-                   border-radius:8px;font-family:'Nunito',sans-serif;font-size:13px;
-                   font-weight:700;color:var(--navy);background:white;cursor:pointer;
-                   outline:none;transition:border-color .15s"
+            class="session-select"
             onfocus="this.style.borderColor='var(--accent)'"
             onblur="this.style.borderColor='var(--border)'">
       <option value="all">All Categories</option>
     </select>
   </div>
   {% if 'documents.upload' in user_permissions %}
-  <button class="btn btn-primary" onclick="openUploadModal()">⬆️ Upload Document</button>
+  <button class="btn btn-primary" onclick="openUploadModal()">
+    <i data-lucide="upload"></i><span class="ico-emoji">⬆️ </span>Upload Document
+  </button>
   {% endif %}
 </div>
 
 {% if 'documents.upload' not in user_permissions %}
-<div style="background:#f0f9ff;border:2px solid #bae6fd;border-radius:12px;
-            padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
-  <span style="font-size:22px;flex-shrink:0">📢</span>
+<div class="info-note" style="margin-bottom:20px">
+  <span class="ico-emoji" style="font-size:20px;flex-shrink:0">📢</span>
+  <i data-lucide="megaphone" style="flex-shrink:0"></i>
   <div>
-    <div style="font-weight:800;font-size:14px;color:#0369a1">Shared Documents</div>
-    <div style="font-size:13px;color:#0284c7;margin-top:2px">
+    <div style="font-weight:800;font-size:14px">Shared Documents</div>
+    <div style="font-size:13px;margin-top:2px;opacity:.85">
       Documents shared with you are shown below. Contact an editor or admin if you need access to additional materials.
     </div>
   </div>
@@ -36,8 +35,7 @@
 
 <!-- ── Retention banner (editors/admins only) ──────────────── -->
 {% if 'documents.upload' in user_permissions %}
-<div id="retention-banner" style="display:none;background:#fff7ed;border:2px solid #fed7aa;
-     border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#9a3412">
+<div id="retention-banner" style="display:none" class="retention-banner">
   ⚠️ <strong id="retention-count"></strong> document(s) have passed their retention date.
   <a href="#" onclick="addCondition('retain_until','before',new Date().toISOString().slice(0,10));if(!filtersVisible)toggleFilters();runSearch();return false"
      style="color:#9a3412;text-decoration:underline;margin-left:6px">View them →</a>
@@ -46,26 +44,26 @@
 
 <!-- ── Toolbar ─────────────────────────────────────────────── -->
 <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-  <div style="display:flex;flex:1;min-width:220px;max-width:380px;
-              border:2px solid var(--border);border-radius:8px;overflow:hidden;background:white">
-    <input type="text" id="search-q" placeholder="🔍 Search documents…"
-           style="flex:1;border:none;padding:8px 12px;font-size:14px;outline:none"
+  <div class="doc-search-wrap">
+    <input type="text" id="search-q" placeholder="Search documents…"
+           class="doc-search-input"
            onkeydown="if(event.key==='Enter')runSearch()">
-    <button onclick="runSearch()" style="background:var(--accent);color:white;border:none;
-            padding:0 14px;cursor:pointer;font-size:13px;font-weight:700">Search</button>
+    <button onclick="runSearch()" class="doc-search-btn">Search</button>
   </div>
   <button class="btn btn-ghost btn-sm" onclick="toggleFilters()" id="filter-toggle-btn">
-    ⚙️ Filters <span id="filter-count-badge" style="display:none;background:var(--accent);
+    <i data-lucide="filter"></i><span class="ico-emoji">⚙️ </span>Filters
+    <span id="filter-count-badge" style="display:none;background:var(--accent);
     color:white;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px"></span>
   </button>
   <button class="btn btn-ghost btn-sm" id="clear-filters-btn" style="display:none"
           onclick="clearAllFilters()">✕ Clear filters</button>
-  <button class="btn btn-ghost btn-sm" id="compact-toggle-btn" onclick="toggleCompact()" title="Toggle compact view">⊟ Compact</button>
+  <button class="btn btn-ghost btn-sm" id="compact-toggle-btn" onclick="toggleCompact()" title="Toggle compact view">
+    <i data-lucide="layout-list"></i><span class="ico-emoji">⊟ </span>Compact
+  </button>
 </div>
 
 <!-- ── Condition query builder ──────────────────────────────── -->
-<div id="filter-panel" style="display:none;background:white;border:2px solid var(--border);
-     border-radius:12px;padding:16px 20px;margin-bottom:16px">
+<div id="filter-panel" style="display:none" class="doc-filter-panel">
   <div id="condition-rows" style="display:flex;flex-direction:column;gap:8px"></div>
   <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <button class="btn btn-ghost btn-sm" onclick="addCondition()">+ Add condition</button>
@@ -90,7 +88,7 @@
              accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.xlsx,.xls"
              onchange="onFileSelected(this)"
              style="border:2px dashed var(--border);border-radius:8px;padding:10px;
-                    width:100%;cursor:pointer;background:var(--cream)">
+                    width:100%;cursor:pointer;background:var(--surface-2)">
     </div>
     <div class="form-group">
       <label>Title <span style="color:var(--red)">*</span></label>
@@ -126,7 +124,7 @@
       <div id="upload-roles-list"
            style="border:2px solid var(--border);border-radius:8px;padding:10px;
                   max-height:130px;overflow-y:auto;overflow-x:hidden;
-                  background:var(--cream);width:100%;box-sizing:border-box">
+                  background:var(--surface-2);width:100%;box-sizing:border-box">
         <div style="color:var(--muted);font-size:13px">Loading roles…</div>
       </div>
     </div>
@@ -175,7 +173,7 @@
       <div id="edit-roles-list"
            style="border:2px solid var(--border);border-radius:8px;padding:10px;
                   max-height:130px;overflow-y:auto;overflow-x:hidden;
-                  background:var(--cream);width:100%;box-sizing:border-box">
+                  background:var(--surface-2);width:100%;box-sizing:border-box">
       </div>
     </div>
     <div class="modal-footer">
@@ -487,60 +485,76 @@
           ? `<div class="doc-compact-list">${docs.map(docCompactRow).join('')}</div>`
           : `<div class="doc-grid">${docs.map(docCard).join('')}</div>`;
         return `<div style="margin-bottom:28px">
-          <div class="dash-section-title">${catObj.icon||'📄'} ${esc(cat)}</div>
+          <div class="cat-header">
+            <span class="cat-icon">${catObj.icon||'📄'}</span>
+            ${esc(cat)}
+            <span class="cat-count">${docs.length} doc${docs.length!==1?'s':''}</span>
+          </div>
           ${inner}
         </div>`;
       }).join('');
   }
 
+  // SVG paths for action buttons
+  const _SVG_VIEW     = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const _SVG_DOWNLOAD = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+  const _SVG_EDIT     = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+  const _SVG_DELETE   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+  const _SVG_LOCK     = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;display:inline;vertical-align:middle;margin-left:3px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+
+  const FTYPE_MAP = {
+    pdf: 'ftype-pdf', docx: 'ftype-word', doc: 'ftype-word',
+    xlsx: 'ftype-excel', xls: 'ftype-excel',
+    jpg: 'ftype-image', jpeg: 'ftype-image', png: 'ftype-image',
+  };
+
   function docCard(d) {
-    const ext      = (d.filename||'').split('.').pop().toLowerCase();
-    const extLabel = EXT_LABELS[ext] || ext.toUpperCase() || 'File';
-    const upDate   = d.created_at
+    const ext        = (d.filename||'').split('.').pop().toLowerCase();
+    const extLabel   = EXT_LABELS[ext] || ext.toUpperCase() || 'FILE';
+    const ftypeClass = FTYPE_MAP[ext] || 'ftype-file';
+    const upDate     = d.created_at
       ? new Date(d.created_at+'Z').toLocaleDateString('en-GB') : '—';
-    const today    = new Date().toISOString().slice(0,10);
-    const expired  = d.retain_until && d.retain_until <= today;
-    const expiring = d.retain_until && !expired &&
+    const today      = new Date().toISOString().slice(0,10);
+    const expired    = d.retain_until && d.retain_until <= today;
+    const expiring   = d.retain_until && !expired &&
       d.retain_until <= new Date(Date.now()+30*864e5).toISOString().slice(0,10);
-    const locked   = d.allowed_role_ids && String(d.allowed_role_ids).trim();
+    const locked     = d.allowed_role_ids && String(d.allowed_role_ids).trim();
 
     const retBadge = expired
-      ? `<span class="badge" style="background:#fef2f2;color:#991b1b;font-size:11px">⚠️ Expired</span>`
+      ? `<span class="doc-meta-chip chip-expired">⚠️ Retention expired</span>`
       : expiring
-      ? `<span class="badge" style="background:#fff7ed;color:#c2410c;font-size:11px">⏳ ${fmtDate(d.retain_until)}</span>`
+      ? `<span class="doc-meta-chip chip-expiring">⏳ ${fmtDate(d.retain_until)}</span>`
       : '';
 
-    const metaHtml = (d.metadata||[]).slice(0,3).map(m =>
-      `<span style="font-size:11px;color:var(--muted)">${esc(m.label)}: <strong>${esc(m.display||m.value)}</strong></span>`
-    ).join(' · ');
-
     return `
-      <div class="doc-card">
-        <div class="doc-body">
-          <div class="doc-title">
-            <span class="doc-ext-badge">${esc(extLabel)}</span>
-            ${esc(d.title)}${locked ? ' <span title="Restricted" style="font-size:12px">🔒</span>' : ''}
+      <div class="doc-card ${ftypeClass}">
+        <div class="doc-card-inner">
+          <div class="doc-top">
+            <div class="doc-type-icon">${esc(extLabel)}</div>
+            <div class="doc-title-wrap">
+              <div class="doc-title">${esc(d.title)}${locked ? _SVG_LOCK : ''}</div>
+              ${d.description ? `<div class="doc-desc">${esc(d.description)}</div>` : ''}
+            </div>
           </div>
-          ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4">${esc(d.description)}</div>` : ''}
           <div class="doc-meta">
             ${d.category_name
-              ? `<span class="badge badge-ro" style="font-size:11px;background:${d.category_color||'#e2e8f0'};color:#1e293b">${d.category_icon||'📄'} ${esc(d.category_name)}</span>`
+              ? `<span class="doc-meta-chip chip-cat">${d.category_icon||'📄'} ${esc(d.category_name)}</span>`
               : ''}
-            <span style="color:var(--muted);font-size:12px">${upDate}</span>
-            <span style="color:var(--muted);font-size:12px">${esc(d.uploaded_by_name||'—')}</span>
+            <span class="chip-date">${upDate}</span>
+            <span class="chip-user">${esc(d.uploaded_by_name||'—')}</span>
             ${retBadge}
           </div>
-          ${metaHtml ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">${metaHtml}</div>` : ''}
         </div>
         <div class="doc-actions">
           <a href="/api/documents/${d.id}/view"
-             class="btn btn-ghost btn-sm" target="_blank" rel="noopener" title="View">👁</a>
+             class="doc-action-btn" target="_blank" rel="noopener" title="View">${_SVG_VIEW}</a>
           <a href="/api/documents/${d.id}/download"
-             class="btn btn-ghost btn-sm" download title="Download">⬇️</a>
-          ${CAN_UPLOAD ? `<button class="btn btn-ghost btn-sm" title="Edit"
-            onclick='openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
-          ${CAN_DELETE ? `<button class="btn btn-danger btn-sm" title="Delete"
-            onclick='deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
+             class="doc-action-btn" download title="Download">${_SVG_DOWNLOAD}</a>
+          ${CAN_UPLOAD ? `<button class="doc-action-btn" title="Edit"
+            onclick='openEditModal(${JSON.stringify(d)})'>${_SVG_EDIT}</button>` : ''}
+          <div class="doc-action-spacer"></div>
+          ${CAN_DELETE ? `<button class="doc-action-btn danger" title="Delete"
+            onclick='deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>${_SVG_DELETE}</button>` : ''}
         </div>
       </div>`;
   }
@@ -556,32 +570,39 @@
     renderDocs(allDocs);
   }
 
+  const FTYPE_COLORS = {
+    'ftype-pdf':   { bg: '#fef2f2', color: '#dc2626' },
+    'ftype-word':  { bg: '#eff6ff', color: '#2563eb' },
+    'ftype-excel': { bg: '#f0fdf4', color: '#16a34a' },
+    'ftype-image': { bg: '#faf5ff', color: '#7c3aed' },
+    'ftype-file':  { bg: 'var(--accent-soft)', color: 'var(--accent)' },
+  };
+
   function docCompactRow(d) {
-    const ext      = (d.filename||'').split('.').pop().toLowerCase();
-    const extLabel = EXT_LABELS[ext] || ext.toUpperCase() || 'File';
-    const upDate   = d.created_at
+    const ext        = (d.filename||'').split('.').pop().toLowerCase();
+    const extLabel   = EXT_LABELS[ext] || ext.toUpperCase() || 'FILE';
+    const ftypeClass = FTYPE_MAP[ext] || 'ftype-file';
+    const ftypeCol   = FTYPE_COLORS[ftypeClass] || FTYPE_COLORS['ftype-file'];
+    const upDate     = d.created_at
       ? new Date(d.created_at+'Z').toLocaleDateString('en-GB') : '—';
-    const today    = new Date().toISOString().slice(0,10);
-    const expired  = d.retain_until && d.retain_until <= today;
-    const expiring = d.retain_until && !expired &&
+    const today      = new Date().toISOString().slice(0,10);
+    const expired    = d.retain_until && d.retain_until <= today;
+    const expiring   = d.retain_until && !expired &&
       d.retain_until <= new Date(Date.now()+30*864e5).toISOString().slice(0,10);
-    const locked   = d.allowed_role_ids && String(d.allowed_role_ids).trim();
-    const retBadge = expired
-      ? `<span class="badge" style="background:#fef2f2;color:#991b1b;font-size:10px">⚠️ Expired</span>`
+    const locked     = d.allowed_role_ids && String(d.allowed_role_ids).trim();
+    const retBadge   = expired
+      ? `<span class="doc-meta-chip chip-expired" style="font-size:10px">⚠️ Expired</span>`
       : expiring
-      ? `<span class="badge" style="background:#fff7ed;color:#c2410c;font-size:10px">⏳ ${fmtDate(d.retain_until)}</span>`
+      ? `<span class="doc-meta-chip chip-expiring" style="font-size:10px">⏳ ${fmtDate(d.retain_until)}</span>`
       : '';
-    const metaHtml = (d.metadata||[]).slice(0,3).map(m =>
-      `<span style="font-size:11px;color:var(--muted)">${esc(m.label)}: <strong>${esc(m.display||m.value)}</strong></span>`
-    ).join(' · ');
 
     return `
       <div class="doc-compact-row" id="compact-row-${d.id}" onclick="toggleCompactRow(${d.id})">
         <div class="doc-compact-summary">
-          <span class="doc-ext-badge">${esc(extLabel)}</span>
+          <div class="doc-compact-type" style="background:${ftypeCol.bg};color:${ftypeCol.color}">${esc(extLabel)}</div>
           <span class="doc-compact-title">${esc(d.title)}${locked ? ' 🔒' : ''}</span>
           <span class="doc-compact-meta">
-            ${d.category_name ? `<span class="badge badge-ro" style="font-size:10px;background:${d.category_color||'#e2e8f0'};color:#1e293b">${d.category_icon||'📄'} ${esc(d.category_name)}</span>` : ''}
+            ${d.category_name ? `<span class="doc-meta-chip chip-cat" style="font-size:10px">${d.category_icon||'📄'} ${esc(d.category_name)}</span>` : ''}
             <span style="color:var(--muted);font-size:11px">${upDate}</span>
             <span style="color:var(--muted);font-size:11px">${esc(d.uploaded_by_name||'—')}</span>
             ${retBadge}
@@ -590,16 +611,16 @@
         </div>
         <div class="doc-compact-detail" style="display:none">
           ${d.description ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${esc(d.description)}</div>` : ''}
-          ${metaHtml ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${metaHtml}</div>` : ''}
-          <div class="doc-actions" style="border-top:none;margin-top:0;padding-top:0">
+          <div class="doc-actions" style="border-top:none;margin-top:0;padding:0;background:none">
             <a href="/api/documents/${d.id}/view"
-               class="btn btn-ghost btn-sm" target="_blank" rel="noopener" title="View">👁</a>
+               class="doc-action-btn" target="_blank" rel="noopener" title="View">${_SVG_VIEW}</a>
             <a href="/api/documents/${d.id}/download"
-               class="btn btn-ghost btn-sm" download title="Download">⬇️</a>
-            ${CAN_UPLOAD ? `<button class="btn btn-ghost btn-sm" title="Edit"
-              onclick='event.stopPropagation();openEditModal(${JSON.stringify(d)})'>✏️</button>` : ''}
-            ${CAN_DELETE ? `<button class="btn btn-danger btn-sm" title="Delete"
-              onclick='event.stopPropagation();deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>🗑</button>` : ''}
+               class="doc-action-btn" download title="Download">${_SVG_DOWNLOAD}</a>
+            ${CAN_UPLOAD ? `<button class="doc-action-btn" title="Edit"
+              onclick='event.stopPropagation();openEditModal(${JSON.stringify(d)})'>${_SVG_EDIT}</button>` : ''}
+            <div class="doc-action-spacer"></div>
+            ${CAN_DELETE ? `<button class="doc-action-btn danger" title="Delete"
+              onclick='event.stopPropagation();deleteDoc(${d.id}, ${JSON.stringify(d.title)})'>${_SVG_DELETE}</button>` : ''}
           </div>
         </div>
       </div>`;
@@ -897,66 +918,196 @@
 <datalist id="member-datalist"></datalist>
 
 <style>
+  /* ── Search toolbar ─────────────────────────────────── */
+  .doc-search-wrap {
+    display: flex; flex: 1; min-width: 220px; max-width: 380px;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    overflow: hidden; background: var(--surface);
+  }
+  .doc-search-input {
+    flex: 1; border: none; padding: 8px 12px; font-size: 14px;
+    background: transparent; color: var(--text); font-family: inherit; outline: none;
+  }
+  .doc-search-input::placeholder { color: var(--muted); }
+  .doc-search-btn {
+    background: var(--accent); color: white; border: none;
+    padding: 0 14px; cursor: pointer; font-size: 13px; font-weight: 700;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-search-wrap { border-width: 2px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-search-btn  { background: var(--navy); }
+
+  /* ── Filter panel ───────────────────────────────────── */
+  .doc-filter-panel {
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-filter-panel { border-width: 2px; border-radius: 14px; }
+
+  /* ── Retention banner ───────────────────────────────── */
+  .retention-banner {
+    background: #fff7ed; border: 1.5px solid #fed7aa; border-radius: 10px;
+    padding: 11px 16px; margin-bottom: 14px; font-size: 13px; color: #9a3412;
+    display: flex; align-items: center; gap: 8px;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .retention-banner { border-width: 2px; }
+
+  /* ── Info note ──────────────────────────────────────── */
+  .info-note {
+    background: var(--accent-soft); border: 1.5px solid var(--accent);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; align-items: flex-start; gap: 12px;
+    font-size: 13px; color: var(--accent-strong, var(--accent));
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .info-note { border-width: 2px; border-radius: 12px; }
+
+  /* ── Category headers ───────────────────────────────── */
+  .cat-header {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 900; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--muted);
+    margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1.5px solid var(--border);
+  }
+  .cat-icon  { font-size: 15px; line-height: 1; }
+  .cat-count { margin-left: auto; font-weight: 600; opacity: .65; font-size: 10px; }
+
+  /* ── Document grid ──────────────────────────────────── */
   .doc-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 12px;
   }
+
+  /* ── Fixed-height doc card ──────────────────────────── */
   .doc-card {
-    background: white;
-    border: 2px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 14px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    transition: border-color .18s;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    height: 168px;
+    transition: border-color .18s, box-shadow .18s;
+    box-shadow: var(--shadow-sm);
+    position: relative;
   }
-  .doc-card:hover { border-color: var(--accent); }
-  .doc-body    { flex:1; min-width:0; }
-  .doc-title   { font-size:13px; font-weight:800; color:var(--navy);
-                 display:flex; align-items:center; gap:6px; flex-wrap:wrap;
-                 line-height:1.35; margin-bottom:3px; }
-  .doc-ext-badge { font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px;
-                   background:#e2e8f0; color:#475569; letter-spacing:.03em;
-                   flex-shrink:0; text-transform:uppercase; }
-  .doc-meta    { display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap; }
-  .doc-actions { display:flex; flex-direction:row; gap:4px; margin-top:8px;
-                 padding-top:8px; border-top:1px solid var(--border); }
+  .doc-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
 
-  /* Compact list mode */
-  .doc-compact-list { display:flex; flex-direction:column; gap:2px; }
-  .doc-compact-row  { border:1.5px solid var(--border); border-radius:8px;
-                      padding:8px 12px; cursor:pointer; transition:border-color .15s, background .15s; }
-  .doc-compact-row:hover { border-color:var(--accent); }
-  .doc-compact-summary { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .doc-compact-title   { font-size:13px; font-weight:800; color:var(--navy); flex:1; min-width:0; }
-  .doc-compact-meta    { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
-  .doc-compact-chevron { font-size:11px; color:var(--muted); flex-shrink:0; transition:transform .15s; }
-  .doc-compact-detail  { padding-top:10px; margin-top:8px; border-top:1px solid var(--border); }
+  /* Color strip keyed to file type */
+  .doc-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  }
+  .doc-card.ftype-pdf::before   { background: #dc2626; }
+  .doc-card.ftype-word::before  { background: #2563eb; }
+  .doc-card.ftype-excel::before { background: #16a34a; }
+  .doc-card.ftype-image::before { background: #7c3aed; }
+  .doc-card.ftype-file::before  { background: var(--accent); }
 
-  /* Reset global .form-group input/label rules inside the roles lists */
+  .doc-card-inner {
+    padding: 11px 13px 9px 18px;
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .doc-top {
+    display: flex; align-items: flex-start; gap: 10px;
+    flex: 1; min-height: 0; overflow: hidden;
+  }
+  .doc-type-icon {
+    width: 34px; height: 34px; border-radius: 7px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 900; letter-spacing: -.03em;
+  }
+  .ftype-pdf   .doc-type-icon { background: #fef2f2; color: #dc2626; }
+  .ftype-word  .doc-type-icon { background: #eff6ff; color: #2563eb; }
+  .ftype-excel .doc-type-icon { background: #f0fdf4; color: #16a34a; }
+  .ftype-image .doc-type-icon { background: #faf5ff; color: #7c3aed; }
+  .ftype-file  .doc-type-icon { background: var(--accent-soft); color: var(--accent); }
+
+  .doc-title-wrap { flex: 1; min-width: 0; overflow: hidden; }
+  .doc-title {
+    font-size: 13px; font-weight: 800; color: var(--text); line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .doc-desc {
+    font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* Meta row — pinned to bottom of inner area */
+  .doc-meta {
+    display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+    margin-top: auto; padding-top: 7px; flex-shrink: 0;
+  }
+  .doc-meta-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700;
+  }
+  .chip-cat      { background: var(--surface-2); color: var(--muted); }
+  .chip-date     { color: var(--muted); font-size: 10.5px; }
+  .chip-user     { color: var(--muted); font-size: 10.5px; }
+  .chip-expired  { background: #fef2f2; color: #991b1b; }
+  .chip-expiring { background: #fff7ed; color: #c2410c; }
+
+  /* Action bar at bottom of card */
+  .doc-actions {
+    display: flex; align-items: center; gap: 4px;
+    padding: 7px 12px 7px 17px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
+  .doc-action-btn {
+    width: 28px; height: 28px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: .15s; color: var(--muted);
+    flex-shrink: 0; text-decoration: none;
+  }
+  .doc-action-btn:hover       { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .doc-action-btn.danger:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+  .doc-action-btn svg {
+    width: 13px; height: 13px; display: block; pointer-events: none;
+  }
+  .doc-action-spacer { flex: 1; }
+
+  /* Casual skin overrides */
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-card { border-width: 2px; border-radius: 14px; background: white; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-card::before { width: 5px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-type-icon { border-radius: 10px; }
+
+  /* ── Compact list mode ──────────────────────────────── */
+  .doc-compact-list { display: flex; flex-direction: column; gap: 3px; }
+  .doc-compact-row {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px; padding: 8px 12px;
+    cursor: pointer; transition: border-color .15s;
+  }
+  .doc-compact-row:hover { border-color: var(--accent); }
+  .doc-compact-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .doc-compact-type {
+    width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9.5px; font-weight: 900;
+  }
+  .doc-compact-title   { font-size: 13px; font-weight: 800; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-compact-meta    { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .doc-compact-chevron { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  .doc-compact-detail  { padding-top: 10px; margin-top: 8px; border-top: 1px solid var(--border); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .doc-compact-row { border-width: 2px; border-radius: 10px; background: white; }
+
+  /* ── Role checkbox lists in modals ─────────────────── */
   #upload-roles-list label,
   #edit-roles-list label {
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    padding: 3px 0 !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    color: var(--text) !important;
-    text-transform: none !important;
-    letter-spacing: 0 !important;
-    margin-bottom: 0 !important;
-    cursor: pointer !important;
+    display: flex !important; align-items: center !important; gap: 8px !important;
+    padding: 3px 0 !important; font-size: 13px !important; font-weight: 600 !important;
+    color: var(--text) !important; text-transform: none !important;
+    letter-spacing: 0 !important; margin-bottom: 0 !important; cursor: pointer !important;
   }
   #upload-roles-list input[type="checkbox"],
   #edit-roles-list input[type="checkbox"] {
-    width: auto !important;
-    padding: 0 !important;
-    border: 2px solid var(--border) !important;
-    border-radius: 3px !important;
-    flex-shrink: 0 !important;
+    width: auto !important; padding: 0 !important;
+    border: 2px solid var(--border) !important; border-radius: 3px !important; flex-shrink: 0 !important;
   }
 </style>
 {% endblock %}

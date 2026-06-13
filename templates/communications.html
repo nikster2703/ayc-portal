@@ -3,14 +3,14 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>✉️ Communications</h1>
+  <h1><i data-lucide="mail"></i><span class="ico-emoji">✉️</span> Communications</h1>
 </div>
 
 <!-- Tab bar -->
 <div style="display:flex;gap:6px;margin-bottom:24px">
-  <button class="tab-btn active" data-tab="send"      onclick="switchTab('send')">📤 Send Mailshot</button>
-  <button class="tab-btn"        data-tab="templates" onclick="switchTab('templates')">📝 Templates</button>
-  <button class="tab-btn"        data-tab="history"   onclick="switchTab('history')">📬 Sent History</button>
+  <button class="tab-btn active" data-tab="send"      onclick="switchTab('send')"><i data-lucide="send"></i><span class="ico-emoji">📤 </span>Send Mailshot</button>
+  <button class="tab-btn"        data-tab="templates" onclick="switchTab('templates')"><i data-lucide="file-text"></i><span class="ico-emoji">📝 </span>Templates</button>
+  <button class="tab-btn"        data-tab="history"   onclick="switchTab('history')"><i data-lucide="clock"></i><span class="ico-emoji">📬 </span>Sent History</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════
@@ -21,14 +21,16 @@
 
     <!-- ── Compose panel ─────────────────────────────── -->
     <div class="comms-panel comms-panel-compose">
-      <div class="comms-panel-title">Compose</div>
-
-      <div class="form-group">
-        <label>Load a template <span style="color:var(--muted);font-weight:600">(optional)</span></label>
-        <select id="s-template" onchange="loadTemplate()">
-          <option value="">— start from scratch —</option>
-        </select>
+      <div class="comms-panel-header">
+        <span class="comms-panel-title"><i data-lucide="edit-3"></i><span class="ico-emoji">✏️ </span>Compose</span>
+        <div class="form-group" style="margin:0;flex-direction:row;align-items:center;gap:8px">
+          <label style="white-space:nowrap;font-size:12px;font-weight:700;color:var(--muted)">Load template:</label>
+          <select id="s-template" onchange="loadTemplate()" style="height:32px;font-size:12px;padding:0 10px;border:1.5px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-family:inherit;cursor:pointer;min-width:0;flex:1">
+            <option value="">— start from scratch —</option>
+          </select>
+        </div>
       </div>
+      <div class="comms-panel-body">
 
       <div id="s-sender-group" class="form-group" style="display:none">
         <label>Send from</label>
@@ -143,7 +145,7 @@
 
       <!-- Inline save-as-template form (hidden until button clicked) -->
       <div id="save-tmpl-bar" style="display:none;margin-top:10px;
-           background:var(--accent-light);border:1.5px solid var(--accent);
+           background:var(--accent-soft);border:1.5px solid var(--accent);
            border-radius:10px;padding:12px 14px">
         <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px">
           Save as Template
@@ -155,11 +157,16 @@
           <button class="btn btn-ghost btn-sm"   onclick="closeSaveAsTemplate()">Cancel</button>
         </div>
       </div>
-    </div>
+
+      </div><!-- /comms-panel-body -->
+    </div><!-- /compose panel -->
 
     <!-- ── Recipients panel ───────────────────────────── -->
     <div class="comms-panel comms-panel-recipients">
-      <div class="comms-panel-title">Recipients</div>
+      <div class="comms-panel-header">
+        <span class="comms-panel-title"><i data-lucide="users"></i><span class="ico-emoji">👥 </span>Recipients</span>
+      </div>
+      <div class="comms-panel-body">
 
       <div class="form-group">
         <label>Member type</label>
@@ -180,9 +187,10 @@
         </select>
         {% else %}
         <input type="hidden" id="s-session" value="{{ current_session }}">
-        <div style="padding:8px 12px;background:#f0f9ff;border:2px solid #bae6fd;
-                    border-radius:8px;font-size:14px;font-weight:700;color:#0369a1">
-          📍 {{ current_session }} session only
+        <div class="info-note" style="padding:9px 12px">
+          <i data-lucide="map-pin" style="flex-shrink:0"></i>
+          <span class="ico-emoji">📍 </span>
+          <span style="font-size:13px;font-weight:700">{{ current_session }} session only</span>
         </div>
         {% endif %}
       </div>
@@ -196,9 +204,7 @@
 
       <div class="form-group">
         <label>Alert flags <span style="color:var(--muted);font-weight:600">(optional)</span></label>
-        <div id="s-flags-list"
-             style="border:1.5px solid var(--border);border-radius:8px;
-                    background:white;max-height:140px;overflow-y:auto;font-size:13px">
+        <div id="s-flags-list" class="comms-scroll-list">
           <div style="padding:10px;color:var(--muted)">Loading flags…</div>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">
@@ -206,23 +212,26 @@
         </div>
       </div>
 
-      <div id="recipient-preview"
-           style="background:var(--accent-light);border:1.5px solid var(--accent);
-                  border-radius:10px;padding:14px 16px;margin-top:4px">
-        <div id="recipient-count"
-             style="font-size:22px;font-weight:900;color:var(--accent)">—</div>
-        <div style="font-size:13px;color:var(--muted);font-weight:700">selected recipients</div>
+      <!-- Recipient count box -->
+      <div class="recip-count-box">
+        <div>
+          <div id="recipient-count" class="recip-count-num">—</div>
+          <div class="recip-count-label">selected recipients</div>
+        </div>
+        <div style="margin-left:auto;display:flex;flex-direction:column;gap:5px">
+          <button class="btn btn-ghost btn-sm" onclick="selectAll()">
+            <i data-lucide="check-square"></i><span class="ico-emoji">✅ </span>Select All
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="deselectAll()">
+            <i data-lucide="square"></i><span class="ico-emoji">☐ </span>Deselect All
+          </button>
+        </div>
       </div>
 
-      <div style="display:flex;gap:6px;margin-top:10px">
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="selectAll()">✅ Select All</button>
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="deselectAll()">☐ Deselect All</button>
-      </div>
+      <div id="recipient-list" class="comms-scroll-list" style="flex:1;min-height:80px"></div>
 
-      <div id="recipient-list"
-           style="margin-top:8px;font-size:13px;border:1.5px solid var(--border);
-                  border-radius:8px;background:white"></div>
-    </div>
+      </div><!-- /comms-panel-body -->
+    </div><!-- /recipients panel -->
 
   </div>
 </div>
@@ -1020,55 +1029,82 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
   .comms-grid {
     display: grid;
     grid-template-columns: 1fr 340px;
-    gap: 24px;
-    align-items: stretch;
+    gap: 20px;
+    align-items: start;
   }
   .comms-panel {
-    background: white;
-    border: 2px solid var(--border);
-    border-radius: 14px;
-    padding: 20px;
-    max-height: calc(100vh - 380px);
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column;
+    max-height: calc(100vh - 200px);
     min-height: 460px;
     overflow: hidden;
+    box-shadow: var(--shadow-sm);
   }
-  .comms-panel-compose {
-    display: flex;
-    flex-direction: column;
+  html[data-skin="casual"]:not([data-theme="dark"]) .comms-panel {
+    border-width: 2px; border-radius: 16px; background: white;
   }
-  .comms-panel-compose .form-group-message {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .comms-panel-compose .form-group-message .rte-wrap {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .comms-panel-compose .form-group-message .rte-editor {
-    flex: 1;
-    min-height: 100px;
-  }
-  .comms-panel-recipients {
-    display: flex;
-    flex-direction: column;
-  }
-  #recipient-list {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
+
+  /* Panel header strip */
+  .comms-panel-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    background: var(--surface-2); flex-shrink: 0; flex-wrap: wrap;
   }
   .comms-panel-title {
-    font-size: 12px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: .07em;
-    color: var(--muted);
-    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 900;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
   }
+  .comms-panel-title .lucide { width: 14px; height: 14px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .comms-panel-title {
+    font-size: 14px; text-transform: none; letter-spacing: 0;
+    font-weight: 800; color: var(--navy);
+  }
+
+  /* Panel scrollable body */
+  .comms-panel-body {
+    padding: 18px; display: flex; flex-direction: column; gap: 14px;
+    flex: 1; min-height: 0; overflow-y: auto;
+  }
+  .comms-panel-compose .comms-panel-body { overflow: hidden; }
+  .comms-panel-compose .form-group-message {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+  }
+  .comms-panel-compose .form-group-message .rte-wrap {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+  }
+  .comms-panel-compose .form-group-message .rte-editor { flex: 1; min-height: 100px; }
+
+  /* Scroll list (flags + recipients) */
+  .comms-scroll-list {
+    border: 1.5px solid var(--border); border-radius: 8px;
+    background: var(--surface); overflow-y: auto; font-size: 13px;
+    max-height: 150px;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .comms-scroll-list { border-width: 2px; background: white; }
+
+  /* Recipient count box */
+  .recip-count-box {
+    background: var(--accent-soft); border: 1.5px solid var(--accent);
+    border-radius: 10px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .recip-count-num   { font-size: 26px; font-weight: 900; color: var(--accent); line-height: 1; }
+  .recip-count-label { font-size: 11px; font-weight: 700; color: var(--accent); opacity: .8; margin-top: 2px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .recip-count-box   { border-color: var(--navy); background: #e8edf5; border-width: 2px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .recip-count-num   { color: var(--navy); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .recip-count-label { color: var(--navy); }
+
+  /* Info note (session locked pill) */
+  .info-note {
+    background: var(--accent-soft); border: 1.5px solid var(--accent);
+    border-radius: 8px; padding: 9px 12px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--accent);
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .info-note { border-color: var(--navy); background: #e8edf5; color: var(--navy); border-width: 2px; }
 
   /* ── Rich text editor ──────────────────────────────── */
   .rte-wrap {
@@ -1084,7 +1120,7 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     align-items: center;
     gap: 2px;
     padding: 6px 8px;
-    background: #f8f9fb;
+    background: var(--surface-2);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
@@ -1106,7 +1142,7 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     position: relative;
     overflow: hidden;
   }
-  .rte-btn:hover { background: #e4e8ee; }
+  .rte-btn:hover { background: var(--border); }
   .rte-btn b { font-size:14px;font-weight:900; }
   .rte-btn i { font-size:14px;font-style:italic; }
   .rte-btn u { font-size:14px;text-decoration:underline; }
@@ -1137,7 +1173,8 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     border: 1.5px solid var(--border);
     border-radius: 5px;
     font-size: 12px;
-    background: white;
+    background: var(--surface);
+    color: var(--text);
     cursor: pointer;
     max-width: 90px;
   }
@@ -1182,15 +1219,15 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     line-height: 1.6;
     outline: none;
     overflow-y: auto;
-    color: #1a1a1a;
-    background: white;
+    color: var(--text);
+    background: var(--surface);
   }
   .rte-editor:empty::before {
     content: attr(data-placeholder);
     color: var(--muted);
     pointer-events: none;
   }
-  .rte-editor[contenteditable="false"] { background: #fafbfc; cursor: default; }
+  .rte-editor[contenteditable="false"] { background: var(--surface-2); cursor: default; }
   .rte-editor img { max-width:100%;height:auto; }
   .rte-editor a   { color: var(--accent); }
 
@@ -1282,6 +1319,7 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
 
   @media (max-width:768px) {
     .comms-grid { grid-template-columns: 1fr !important; }
+    .comms-panel-header { flex-direction: column; align-items: flex-start; }
   }
 </style>
 {% endblock %}
