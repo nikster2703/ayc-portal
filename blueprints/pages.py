@@ -356,8 +356,11 @@ def display_page():
 
 @bp.route('/quick-session')
 def quick_session_page():
+    brand = get_brand_settings()
     return render_template('quick_session.html',
-                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
+                           club_name=brand.get('brand_club_name') or CLUB_NAME,
+                           club_short_name=brand.get('brand_short_name') or CLUB_SHORT_NAME,
+                           brand=brand)
 
 
 # ── Branding — public logo endpoint ──────────────────────────────────────────

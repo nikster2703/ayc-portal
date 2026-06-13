@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.16'  # v12.15: display.html — drop Google Fonts CDN→vendor/fonts.css (CSP fix); add ?mode=light support via html.light-mode CSS override block (body bg #f1f5f9, navy text, white cards). v12.14: batch 7 — remaining admin sub-pages. attendance_settings: tokenize casual amber overrides (#fef3c7→var(--amber-bg), #fcd34d→color-mix, #78350f→var(--amber)), white→var(--cream) for qr-toggle-card, dual-render ⚠️ in safeguarding note. member_types: rgba box-shadow→color-mix(accent). smtp_profiles: #dc2626→var(--red). system_logs: outer border #1e293b→var(--border), dual-render ⚠️/🔴 level-btn icons. session_types/payments/staff_roles: clean.
+APP_VERSION = 'v12.17'  # v12.15: display.html — drop Google Fonts CDN→vendor/fonts.css (CSP fix); add ?mode=light support via html.light-mode CSS override block (body bg #f1f5f9, navy text, white cards). v12.14: batch 7 — remaining admin sub-pages. attendance_settings: tokenize casual amber overrides (#fef3c7→var(--amber-bg), #fcd34d→color-mix, #78350f→var(--amber)), white→var(--cream) for qr-toggle-card, dual-render ⚠️ in safeguarding note. member_types: rgba box-shadow→color-mix(accent). smtp_profiles: #dc2626→var(--red). system_logs: outer border #1e293b→var(--border), dual-render ⚠️/🔴 level-btn icons. session_types/payments/staff_roles: clean.
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

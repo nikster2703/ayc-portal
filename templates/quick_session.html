@@ -4,23 +4,30 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>{{ club_name }} — Quick Sign-In</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/vendor/fonts.css">
+  {% if brand %}
+  <style>
+    :root {
+      --accent:      {{ brand._palette.accent }};
+      --accent-dark: {{ brand._palette.accent_dark }};
+    }
+  </style>
+  {% endif %}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --navy:    #1b2d4f;
-      --teal:    #0096b4;
-      --green:   #16a34a;
-      --red:     #dc2626;
-      --amber:   #d97706;
-      --gold:    #f5c842;
-      --bg:      #f0f4f8;
-      --white:   #ffffff;
-      --muted:   #64748b;
-      --border:  #cbd5e1;
-      --radius:  16px;
+      --navy:        #1b2d4f;
+      --accent:      #0096b4;
+      --accent-dark: #007a96;
+      --green:       #16a34a;
+      --red:         #dc2626;
+      --amber:       #d97706;
+      --bg:          #f0f4f8;
+      --white:       #ffffff;
+      --muted:       #64748b;
+      --border:      #cbd5e1;
+      --radius:      16px;
     }
 
     html, body {
@@ -86,7 +93,7 @@
       width: 100%; text-align: left;
     }
     .mode-btn:active { transform: scale(.97); }
-    .mode-btn.signin  { background: #e0f2fe; border-color: #0096b4; color: #0c4a6e; }
+    .mode-btn.signin  { background: color-mix(in srgb, var(--accent) 12%, white); border-color: var(--accent); color: var(--navy); }
     .mode-btn.signout { background: #fef3c7; border-color: #d97706; color: #78350f; }
     .mode-btn .mode-icon { font-size: 32px; }
 
@@ -117,7 +124,7 @@
       cursor: pointer; font-family: inherit; width: 100%;
       text-align: left; transition: border-color .1s, background .1s;
     }
-    .result-item:active { background: #e0f2fe; border-color: var(--accent); }
+    .result-item:active { background: color-mix(in srgb, var(--accent) 12%, white); border-color: var(--accent); }
     .result-item.taken  { opacity: .45; cursor: not-allowed; }
     .result-avatar {
       width: 48px; height: 48px; border-radius: 50%;
@@ -182,7 +189,12 @@
 
   <!-- Header -->
   <div class="top-bar">
+    {% if brand and brand._logo_url %}
+    <img src="{{ brand._logo_url }}" alt="{{ club_name }}"
+         style="height:40px;width:auto;object-fit:contain;border-radius:6px;flex-shrink:0">
+    {% else %}
     <div class="club-emoji">🏅</div>
+    {% endif %}
     <div>
       <div class="club-name">{{ club_name }}</div>
       <div class="club-sub">Quick Sign-In</div>
