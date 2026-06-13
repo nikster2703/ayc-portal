@@ -8,24 +8,26 @@
   </a>
 </div>
 <div class="page-header" style="margin-bottom:24px">
-  <h1>Field Builder — {{ mtype.icon }} {{ mtype.name }}</h1>
+  <h1><i data-lucide="layout-list"></i><span class="ico-emoji">🔧</span> Field Builder — {{ mtype.icon }} {{ mtype.name }}</h1>
 </div>
 
 <style>
-  .fb-section { background:white;border:2px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:20px; }
+  .fb-section { background:var(--surface);border:2px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:20px; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .fb-section { background: white; }
   .fb-section h2 { font-size:15px;font-weight:900;color:var(--navy);margin:0 0 16px; }
   .fields-table { width:100%;border-collapse:collapse; }
   .fields-table th { font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
                      color:var(--muted);text-align:left;padding:6px 8px;border-bottom:2px solid var(--border); }
   .fields-table td { padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:middle; }
   .fields-table tr:last-child td { border-bottom:none; }
-  .fields-table tr:hover td { background:var(--cream); }
+  .fields-table tr:hover td { background:var(--surface-2); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .fields-table tr:hover td { background: var(--cream); }
   .type-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;
-                background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;white-space:nowrap; }
-  .type-badge.decl { background:#fef3c7;color:#92400e;border-color:#fde68a; }
+                background:var(--accent-soft);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);white-space:nowrap; }
+  .type-badge.decl { background:var(--amber-bg);color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent); }
   .system-lock { font-size:11px;margin-left:4px;opacity:.7;cursor:default; }
   .toggle-pill { font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;
-                 border:1.5px solid var(--border);background:white;color:var(--muted);
+                 border:1.5px solid var(--border);background:var(--surface);color:var(--muted);
                  cursor:pointer;transition:background .12s,color .12s,border-color .12s;white-space:nowrap;
                  position:relative; }
   .toggle-pill.on { background:var(--accent);color:white;border-color:var(--accent); }
@@ -45,20 +47,21 @@
   }
   .order-btns { display:flex;flex-direction:column;gap:2px; }
   .order-btn { font-size:12px;width:22px;height:20px;border:1px solid var(--border);border-radius:4px;
-               background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s; }
-  .order-btn:hover { background:var(--cream); }
+               background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s; }
+  .order-btn:hover { background:var(--surface-2); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .order-btn:hover { background: var(--cream); }
   .required-chk { width:16px;height:16px;cursor:pointer;accent-color:var(--accent); }
   .fb-empty { color:var(--muted);font-size:13px;padding:12px 0; }
-  .field-edit-panel { margin-top:14px;padding:16px 18px;background:#f8fafc;
+  .field-edit-panel { margin-top:14px;padding:16px 18px;background:var(--surface-2);
                       border:1.5px solid var(--border);border-radius:10px; }
 </style>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- Edit Field Modal                                                        -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="field-edit-modal">
+<div class="modal-overlay" id="field-edit-modal" onclick="if(event.target===this)closeFieldEdit()">
   <div class="modal" style="max-width:540px">
-    <h2>✏️ Edit Field</h2>
+    <h2><i data-lucide="pen-line"></i><span class="ico-emoji">✏️</span> Edit Field</h2>
     <input id="fe-id" type="hidden">
 
     <div class="form-group" style="margin-bottom:14px">
@@ -82,7 +85,7 @@
     </div>
 
     <div id="fe-type-locked" style="display:none;margin-bottom:14px;padding:8px 12px;
-         background:#f1f5f9;border-radius:8px;font-size:13px;color:var(--muted)">
+         background:var(--surface-2);border-radius:8px;font-size:13px;color:var(--muted)">
       🔒 System field — type cannot be changed
     </div>
 
@@ -144,7 +147,7 @@
       <span id="cp-type-badge" class="type-badge" style="font-size:11px"></span>
       <button id="cp-delete-btn" class="btn btn-ghost btn-sm"
               style="color:var(--red);display:none" onclick="deleteCatalogueField()">
-        🗑 Delete from catalogue
+        <i data-lucide="trash-2"></i><span class="ico-emoji">🗑</span> Delete from catalogue
       </button>
     </div>
 
@@ -169,7 +172,7 @@
       </div>
       <div id="cp-type-locked-wrap" style="display:none">
         <label class="form-label" style="font-size:11px">Type</label>
-        <div style="padding:8px 10px;background:#f1f5f9;border-radius:6px;font-size:12px;color:var(--muted)">
+        <div style="padding:8px 10px;background:var(--surface-2);border-radius:6px;font-size:12px;color:var(--muted)">
           🔒 System field — type fixed
         </div>
       </div>
@@ -196,7 +199,7 @@
 
     <!-- Address-lookup toggle — only shown for postcode fields -->
     <div id="cp-lookup-wrap" style="display:none;margin-bottom:12px;padding:10px 12px;
-         background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px">
+         background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:8px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-size:13px;font-weight:600">
         <input type="checkbox" id="cp-use-lookup" style="width:16px;height:16px;accent-color:var(--accent)">
         Enable address lookup on registration form
@@ -249,7 +252,7 @@
   </div>
 
   <div id="declaration-hint" style="display:none;margin-bottom:12px;padding:10px 14px;
-       background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1e40af">
+       background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:8px;font-size:13px;color:var(--accent)">
     💡 The <strong>Label</strong> field above is the full question text shown on the registration form.
     Use <code>{club}</code> anywhere and it will be replaced with the club name automatically.
   </div>
@@ -288,6 +291,7 @@
   document.addEventListener('DOMContentLoaded', async () => {
     await Promise.all([loadAssigned(), loadAllFields()]);
     refreshCatalogue();
+    refreshIcons();
   });
 
   /* ── Load assigned fields ──────────────────────────────────────────── */
@@ -402,6 +406,7 @@
     _updateFeVisibility(f.field_type);
     document.getElementById('field-edit-modal').classList.add('open');
     document.getElementById('fe-label').focus();
+    refreshIcons();
   }
 
   function _updateFeVisibility(type) {

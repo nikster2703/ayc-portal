@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.10'  # v12.10: settings batch 4 — branding, export, maintenance. Dual-render h1s, refreshIcons() at boot, CSS var tokens throughout, modal-overlay pattern for clear-members+restore modals, hex colors replaced with CSS vars. v12.9: batch 3
+APP_VERSION = 'v12.11'  # v12.11: settings batch 5 — alerts, import_history, field_builder, import. Dual-render h1s+icons, modal-backdrop→modal-overlay×3 in alerts, classList open/close, CSS var tokens throughout, hex colors→CSS vars in results cards/info boxes/type badges. v12.10: batch 4
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

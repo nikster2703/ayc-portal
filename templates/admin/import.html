@@ -5,7 +5,7 @@
 <div class="page-header">
   <a href="/admin/settings/maintenance" class="btn btn-ghost btn-sm"
      style="text-decoration:none">← Maintenance</a>
-  <h1 style="margin-top:10px">📥 Import Members</h1>
+  <h1 style="margin-top:10px"><i data-lucide="upload"></i><span class="ico-emoji">📥</span> Import Members</h1>
   <p style="color:var(--muted);font-size:14px;margin-top:4px">
     Import members from a spreadsheet (.xlsx or .csv) by mapping columns to portal fields.
     Existing data is never overwritten — only new records are created.
@@ -18,7 +18,7 @@
   {% for label in ['1. Upload', '2. Map Columns', '3. Preview', '4. Results'] %}
   <div class="step-tab" id="tab-{{ loop.index }}"
        style="flex:1;padding:10px 6px;text-align:center;font-size:13px;font-weight:600;
-              background:{% if loop.first %}var(--navy){% else %}#f8fafc{% endif %};
+              background:{% if loop.first %}var(--navy){% else %}var(--surface-2){% endif %};
               color:{% if loop.first %}#fff{% else %}var(--muted){% endif %};
               border-right:{% if not loop.last %}1.5px solid var(--border){% else %}none{% endif %}">
     {{ label }}
@@ -47,7 +47,7 @@
     <div style="margin-bottom:18px">
       <label class="form-label">Spreadsheet File</label>
       <div style="border:2px dashed var(--border);border-radius:10px;padding:24px;
-                  text-align:center;cursor:pointer;background:#f8fafc"
+                  text-align:center;cursor:pointer;background:var(--surface-2)"
            id="drop-zone" onclick="document.getElementById('file-input').click()"
            ondragover="event.preventDefault();this.style.borderColor='var(--navy)'"
            ondragleave="this.style.borderColor='var(--border)'"
@@ -110,7 +110,7 @@
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px" id="ayc-sheet-list"></div>
 
     <!-- Additive warning -->
-    <div style="font-size:12px;color:#1e40af;background:#eff6ff;border:1.5px solid #bfdbfe;
+    <div style="font-size:12px;color:var(--accent);background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);
                 border-radius:8px;padding:10px 12px;margin-bottom:18px">
       ℹ️ <strong>Additive import</strong> — existing records are never overwritten.
       Members with a matching Member ID, attendance records that already exist, and
@@ -146,7 +146,7 @@
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
-          <tr style="background:#f1f5f9">
+          <tr style="background:var(--surface-2)">
             <th style="padding:10px 12px;text-align:left;font-weight:700;color:var(--navy);
                        border-bottom:2px solid var(--border);width:220px">Spreadsheet Column</th>
             <th style="padding:10px 12px;text-align:left;font-weight:700;color:var(--navy);
@@ -186,7 +186,7 @@
     </div>
 
     <!-- Options -->
-    <div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;
+    <div style="background:var(--surface-2);border:1.5px solid var(--border);border-radius:10px;
                 padding:14px 16px;margin-bottom:18px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <input type="checkbox" id="chk-skip-dupes" checked style="width:16px;height:16px">
@@ -222,27 +222,27 @@
 
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
       <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;
-                  background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px">
+                  background:var(--green-bg);border:1.5px solid color-mix(in srgb,var(--green) 30%,transparent);border-radius:10px">
         <span style="font-size:24px">✅</span>
         <div>
-          <div style="font-weight:700;font-size:20px;color:#15803d" id="res-imported">0</div>
-          <div style="font-size:13px;color:#166534">Members imported</div>
+          <div style="font-weight:700;font-size:20px;color:var(--green)" id="res-imported">0</div>
+          <div style="font-size:13px;color:var(--green)">Members imported</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;
-                  background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px">
+                  background:var(--amber-bg);border:1.5px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:10px">
         <span style="font-size:24px">⏭</span>
         <div>
-          <div style="font-weight:700;font-size:20px;color:#92400e" id="res-skipped">0</div>
-          <div style="font-size:13px;color:#92400e">Rows skipped (blank or duplicate)</div>
+          <div style="font-weight:700;font-size:20px;color:var(--amber)" id="res-skipped">0</div>
+          <div style="font-size:13px;color:var(--amber)">Rows skipped (blank or duplicate)</div>
         </div>
       </div>
       <div id="res-errors-card" style="display:flex;align-items:center;gap:14px;padding:14px 16px;
-                  background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px">
+                  background:var(--red-bg);border:1.5px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:10px">
         <span style="font-size:24px">❌</span>
         <div>
-          <div style="font-weight:700;font-size:20px;color:#b91c1c" id="res-errors">0</div>
-          <div style="font-size:13px;color:#b91c1c">Errors</div>
+          <div style="font-weight:700;font-size:20px;color:var(--red)" id="res-errors">0</div>
+          <div style="font-size:13px;color:var(--red)">Errors</div>
         </div>
       </div>
     </div>
@@ -252,18 +252,18 @@
       <div style="font-weight:600;font-size:13px;color:var(--navy);margin-bottom:8px">
         Error details:
       </div>
-      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;
+      <div style="background:var(--red-bg);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:8px;
                   padding:10px 12px;font-size:12px;font-family:monospace;
                   max-height:200px;overflow-y:auto" id="error-list"></div>
     </div>
 
     <!-- Download report (shown when some rows were not imported) -->
     <div id="report-card" style="display:none;margin-bottom:20px;padding:14px 16px;
-                background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px">
-      <div style="font-weight:600;font-size:14px;color:#1e40af;margin-bottom:6px">
+                background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px">
+      <div style="font-weight:600;font-size:14px;color:var(--accent);margin-bottom:6px">
         📄 Not-imported rows report
       </div>
-      <div style="font-size:13px;color:#1e3a8a;margin-bottom:10px">
+      <div style="font-size:13px;color:var(--accent);margin-bottom:10px">
         Some rows were skipped or could not be imported. Download the report to see
         each record and the reason it wasn't added.
       </div>
@@ -328,7 +328,7 @@ async function init() {
     showToast('Could not load member types: ' + e.message, 'error');
   }
 }
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => { init(); refreshIcons(); });
 
 async function onTypeChange() {
   state.typeId = document.getElementById('sel-type').value || null;
@@ -584,7 +584,7 @@ function buildPreviewTable() {
   const thead = document.getElementById('preview-thead');
   const tbody = document.getElementById('preview-tbody');
 
-  thead.innerHTML = `<tr style="background:#f1f5f9">` +
+  thead.innerHTML = `<tr style="background:var(--surface-2)">` +
     mappedCols.map(c =>
       `<th style="padding:8px 12px;text-align:left;font-size:12px;font-weight:700;
                   color:var(--navy);border-bottom:2px solid var(--border)">
@@ -619,10 +619,10 @@ function buildPreviewTable() {
 
 function stat(color, text) {
   const colours = {
-    'navy':      ['#1b2d4f','#e8eef8'],
-    'green-700': ['#15803d','#f0fdf4'],
-    'amber-600': ['#d97706','#fffbeb'],
-    'blue-700':  ['#1d4ed8','#eff6ff'],
+    'navy':      ['var(--navy)',  'var(--accent-soft)'],
+    'green-700': ['var(--green)', 'var(--green-bg)'],
+    'amber-600': ['var(--amber)', 'var(--amber-bg)'],
+    'blue-700':  ['var(--accent)','var(--accent-soft)'],
   };
   const [fg, bg] = colours[color] || colours['navy'];
   return `<span style="background:${bg};color:${fg};border-radius:20px;
@@ -694,8 +694,8 @@ function buildAycSheetList() {
     const present = !!state.aycSheets[s.key];
     return `
       <label style="display:flex;align-items:center;gap:10px;cursor:${present ? 'pointer' : 'not-allowed'};
-                    padding:10px 12px;border:1.5px solid ${present ? 'var(--border)' : '#e2e8f0'};
-                    border-radius:8px;background:${present ? '#f8fafc' : '#f1f5f9'};opacity:${present ? 1 : 0.5}">
+                    padding:10px 12px;border:1.5px solid ${present ? 'var(--border)' : 'var(--border)'};
+                    border-radius:8px;background:${present ? 'var(--surface-2)' : 'var(--surface)'};opacity:${present ? 1 : 0.5}">
         <input type="checkbox" id="${s.id}" ${present ? 'checked' : 'disabled'}
                style="width:16px;height:16px">
         <div>
@@ -746,7 +746,7 @@ async function doAycImport() {
       <div style="display:flex;justify-content:space-between;align-items:center;
                   padding:8px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;font-size:13px">
         <span style="font-weight:600;color:var(--navy)">${sheetLabels[key] || key}</span>
-        <span style="color:var(--muted)">
+        <span style="font-size:13px;color:var(--muted)">
           ${r.imported || 0} imported · ${r.skipped || 0} skipped
           ${r.error ? `· <span style="color:#b91c1c">${esc(r.error)}</span>` : ''}
         </span>
@@ -772,7 +772,7 @@ function goStep(n) {
   const tabN = n === '2b' ? 2 : parseInt(n);
   [1,2,3,4].forEach(i => {
     const tab = document.getElementById(`tab-${i}`);
-    tab.style.background = i === tabN ? 'var(--navy)' : (i < tabN ? '#e8eef8' : '#f8fafc');
+    tab.style.background = i === tabN ? 'var(--navy)' : (i < tabN ? 'var(--accent-soft)' : 'var(--surface-2)');
     tab.style.color      = i === tabN ? '#fff'        : (i < tabN ? 'var(--navy)' : 'var(--muted)');
   });
 }

@@ -5,17 +5,17 @@
 <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
   <div>
     <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none;margin-bottom:6px">← Settings</a>
-    <h1 style="margin-top:4px">🚨 Member Alerts</h1>
+    <h1 style="margin-top:4px"><i data-lucide="bell"></i><span class="ico-emoji">🚨</span> Member Alerts</h1>
   </div>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span id="last-run-label" style="font-size:12px;color:var(--muted)">
       Last check: <span id="last-run-val">{{ alerts_last_run or 'Never' }}</span>
     </span>
     {% if 'alerts.run' in user_permissions %}
-    <button class="btn btn-primary btn-sm" onclick="runChecks()" id="run-btn">▶ Run Checks Now</button>
+    <button class="btn btn-primary btn-sm" onclick="runChecks()" id="run-btn"><i data-lucide="play"></i><span class="ico-emoji">▶</span> Run Checks Now</button>
     {% endif %}
     {% if 'alerts.manage' in user_permissions %}
-    <button class="btn btn-secondary btn-sm" onclick="openRuleModal()">+ New Rule</button>
+    <button class="btn btn-secondary btn-sm" onclick="openRuleModal()"><i data-lucide="plus"></i><span class="ico-emoji">+</span> New Rule</button>
     {% endif %}
   </div>
 </div>
@@ -30,7 +30,7 @@
 <div id="rules-container"></div>
 
 <!-- ── Rule modal ─────────────────────────────────────────────────────────── -->
-<div id="rule-modal" class="modal-backdrop" style="display:none">
+<div id="rule-modal" class="modal-overlay" onclick="if(event.target===this)closeRuleModal()">
   <div class="modal" style="max-width:540px;width:100%">
     <div class="modal-header">
       <h2 id="modal-title" style="font-size:16px;font-weight:800">New Alert Rule</h2>
@@ -208,7 +208,7 @@
 </div>
 
 <!-- ── Dismiss modal ───────────────────────────────────────────────────────── -->
-<div id="dismiss-modal" class="modal-backdrop" style="display:none">
+<div id="dismiss-modal" class="modal-overlay" onclick="if(event.target===this)closeDismissModal()">
   <div class="modal" style="max-width:400px">
     <div class="modal-header">
       <h2 style="font-size:15px;font-weight:800">Deactivate Rule</h2>
@@ -226,16 +226,16 @@
 </div>
 
 <!-- ── Permanent delete modal ──────────────────────────────────────────────── -->
-<div id="perm-delete-modal" class="modal-backdrop" style="display:none">
+<div id="perm-delete-modal" class="modal-overlay" onclick="if(event.target===this)closeDeleteModal()">
   <div class="modal" style="max-width:420px">
     <div class="modal-header">
-      <h2 style="font-size:15px;font-weight:800;color:#dc2626">⚠️ Permanently Delete Rule</h2>
+      <h2 style="font-size:15px;font-weight:800;color:var(--red)">⚠️ Permanently Delete Rule</h2>
       <button class="btn btn-ghost btn-sm" onclick="closeDeleteModal()">✕</button>
     </div>
     <div class="modal-body" style="padding:20px;font-size:13px;line-height:1.6">
       <p style="margin:0 0 10px">You are about to permanently delete:</p>
       <p id="perm-delete-rule-name" style="font-weight:800;color:var(--navy);font-size:14px;margin:0 0 14px"></p>
-      <div id="perm-delete-flag-warning" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#991b1b;font-size:12.5px">
+      <div id="perm-delete-flag-warning" style="display:none;background:var(--red-bg);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:8px;padding:10px 14px;margin-bottom:14px;color:var(--red);font-size:12.5px">
         ⚠️ This rule has <strong id="perm-delete-flag-count"></strong> active flag(s) on member records.
         Deleting it will remove all of these flags permanently.
       </div>
@@ -264,7 +264,7 @@
     user-select: none;
   }
   .type-opt input[type="radio"] { display: none; }
-  .type-opt.selected { border-color: var(--accent); background: #f0fafb; }
+  .type-opt.selected { border-color: var(--accent); background: var(--accent-soft); }
   .type-opt .type-desc { font-size: 11px; font-weight: 400; color: var(--muted); }
   .colour-swatch {
     width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent;
@@ -276,7 +276,7 @@
     font-size: 11px; font-weight: 700; color: white; letter-spacing: .3px;
   }
   .rule-card {
-    background: white; border: 2px solid var(--border); border-radius: 14px;
+    background: var(--surface); border: 2px solid var(--border); border-radius: 14px;
     padding: 16px 20px; margin-bottom: 12px;
     display: flex; align-items: flex-start; gap: 14px;
     transition: border-color .15s;
@@ -341,6 +341,7 @@
       }
     }
     document.getElementById('rules-container').innerHTML = html;
+    refreshIcons();
   }
 
   function ruleCard(r) {
@@ -360,8 +361,8 @@
 
     const actions = CAN_MANAGE ? `
       <button class="btn btn-ghost btn-sm" onclick='openRuleModal(${JSON.stringify(r)})'>Edit</button>
-      <button class="btn btn-ghost btn-sm" style="color:#dc2626" onclick="openDismissModal(${r.id})">${r.is_active ? 'Deactivate' : 'Re-activate'}</button>
-      <button class="btn btn-ghost btn-sm" style="color:#6b7280" title="Permanently delete this rule and all its flag history" onclick='openDeleteModal(${r.id}, ${JSON.stringify(r.name)}, ${r.active_flag_count || 0})'>🗑</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="openDismissModal(${r.id})">${r.is_active ? 'Deactivate' : 'Re-activate'}</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--muted)" title="Permanently delete this rule and all its flag history" onclick='openDeleteModal(${r.id}, ${JSON.stringify(r.name)}, ${r.active_flag_count || 0})'><i data-lucide="trash-2"></i><span class="ico-emoji">🗑</span></button>
     ` : '';
 
     return `<div class="rule-card ${r.is_active ? '' : 'inactive'}">
@@ -421,20 +422,21 @@
       }
     }
 
-    document.getElementById('rule-modal').style.display = 'flex';
+    document.getElementById('rule-modal').classList.add('open');
+    refreshIcons();
   }
 
   function closeRuleModal() {
-    document.getElementById('rule-modal').style.display = 'none';
+    document.getElementById('rule-modal').classList.remove('open');
     editingRuleId = null;
   }
 
   function openDismissModal(id) {
     deactivatingId = id;
-    document.getElementById('dismiss-modal').style.display = 'flex';
+    document.getElementById('dismiss-modal').classList.add('open');
   }
   function closeDismissModal() {
-    document.getElementById('dismiss-modal').style.display = 'none';
+    document.getElementById('dismiss-modal').classList.remove('open');
     deactivatingId = null;
   }
 
@@ -448,10 +450,10 @@
     } else {
       warn.style.display = 'none';
     }
-    document.getElementById('perm-delete-modal').style.display = 'flex';
+    document.getElementById('perm-delete-modal').classList.add('open');
   }
   function closeDeleteModal() {
-    document.getElementById('perm-delete-modal').style.display = 'none';
+    document.getElementById('perm-delete-modal').classList.remove('open');
     deletingId = null;
   }
   async function confirmPermanentDelete() {
@@ -600,7 +602,7 @@
   async function runChecks() {
     const btn = document.getElementById('run-btn');
     btn.disabled = true;
-    btn.textContent = '⏳ Running…';
+    btn.innerHTML = '⏳ Running…';
     try {
       const r = await apiFetch('/api/alert-rules/run', { method: 'POST' });
       showToast(`Check complete — ${r.raised} flag${r.raised !== 1 ? 's' : ''} raised, ${r.resolved} resolved.`);
@@ -616,21 +618,12 @@
       showToast('Run failed: ' + e.message, true);
     } finally {
       btn.disabled = false;
-      btn.textContent = '▶ Run Checks Now';
+      btn.innerHTML = '<i data-lucide="play"></i><span class="ico-emoji">▶</span> Run Checks Now';
+      refreshIcons();
     }
   }
 
-  // Close modals on backdrop click
-  document.getElementById('rule-modal').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeRuleModal();
-  });
-  document.getElementById('dismiss-modal').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeDismissModal();
-  });
-  document.getElementById('perm-delete-modal').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeDeleteModal();
-  });
-
   loadRules();
+  refreshIcons();
 </script>
 {% endblock %}

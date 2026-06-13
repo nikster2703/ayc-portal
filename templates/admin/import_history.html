@@ -8,7 +8,7 @@
   </a>
 </div>
 <div class="page-header" style="margin-bottom:24px">
-  <h1>📜 Import History</h1>
+  <h1><i data-lucide="clock"></i><span class="ico-emoji">📜</span> Import History</h1>
   <p style="color:var(--muted);font-size:14px;margin-top:4px">
     Import existing attendance or payment records from a club spreadsheet.
     All imports are additive — existing records are never overwritten.
@@ -21,7 +21,7 @@
   {% for label in ['1. Upload', '2. Configure', '3. Preview', '4. Results'] %}
   <div class="step-tab" id="htab-{{ loop.index }}"
        style="flex:1;padding:10px 6px;text-align:center;font-size:13px;font-weight:600;
-              background:{% if loop.first %}var(--navy){% else %}#f8fafc{% endif %};
+              background:{% if loop.first %}var(--navy){% else %}var(--surface-2){% endif %};
               color:{% if loop.first %}#fff{% else %}var(--muted){% endif %};
               border-right:{% if not loop.last %}1.5px solid var(--border){% else %}none{% endif %}">
     {{ label }}
@@ -41,7 +41,7 @@
         <div class="itype-card on" data-type="attendance" onclick="selectImportType(this)">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
             <div style="display:flex;gap:8px;align-items:flex-start">
-              <span style="font-size:18px;flex-shrink:0">📅</span>
+              <span style="flex-shrink:0"><i data-lucide="calendar" style="width:18px;height:18px"></i><span class="ico-emoji">📅</span></span>
               <div>
                 <div style="font-size:13px;font-weight:800;color:var(--navy)">Attendance History</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:2px">Session dates and attendance records</div>
@@ -53,7 +53,7 @@
         <div class="itype-card off" data-type="payments" onclick="selectImportType(this)">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
             <div style="display:flex;gap:8px;align-items:flex-start">
-              <span style="font-size:18px;flex-shrink:0">💳</span>
+              <span style="flex-shrink:0"><i data-lucide="credit-card" style="width:18px;height:18px"></i><span class="ico-emoji">💳</span></span>
               <div>
                 <div style="font-size:13px;font-weight:800;color:var(--navy)">Payment History</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:2px">Payment ledger records per member</div>
@@ -68,7 +68,7 @@
     <div style="margin-bottom:18px">
       <label class="form-label">Spreadsheet File</label>
       <div style="border:2px dashed var(--border);border-radius:10px;padding:24px;
-                  text-align:center;cursor:pointer;background:#f8fafc"
+                  text-align:center;cursor:pointer;background:var(--surface-2)"
            id="h-drop-zone" onclick="document.getElementById('h-file-input').click()"
            ondragover="event.preventDefault();this.style.borderColor='var(--navy)'"
            ondragleave="this.style.borderColor='var(--border)'"
@@ -116,7 +116,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
           <div class="fmt-card on" data-fmt="long" onclick="selectAttFmt(this)">
             <div style="display:flex;gap:8px;align-items:flex-start">
-              <span style="font-size:16px;flex-shrink:0">📋</span>
+              <span style="flex-shrink:0"><i data-lucide="list" style="width:16px;height:16px"></i><span class="ico-emoji">📋</span></span>
               <div>
                 <div style="font-size:12px;font-weight:800;color:var(--navy)">Long format</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">
@@ -128,7 +128,7 @@
           </div>
           <div class="fmt-card off" data-fmt="wide" onclick="selectAttFmt(this)">
             <div style="display:flex;gap:8px;align-items:flex-start">
-              <span style="font-size:16px;flex-shrink:0">📊</span>
+              <span style="flex-shrink:0"><i data-lucide="table-2" style="width:16px;height:16px"></i><span class="ico-emoji">📊</span></span>
               <div>
                 <div style="font-size:12px;font-weight:800;color:var(--navy)">Wide format</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">
@@ -139,8 +139,8 @@
             </div>
           </div>
         </div>
-        <div id="h-fmt-hint" style="font-size:12px;color:#1e40af;background:#eff6ff;
-             border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px;margin-top:8px"></div>
+        <div id="h-fmt-hint" style="font-size:12px;color:var(--accent);background:var(--accent-soft);
+             border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:6px;padding:6px 10px;margin-top:8px"></div>
       </div>
 
       <!-- Long format column mapping -->
@@ -155,7 +155,7 @@
         <div id="h-long-table-wrap" style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px" id="h-long-table">
             <thead>
-              <tr style="background:#f1f5f9">
+              <tr style="background:var(--surface-2)">
                 <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
                            border-bottom:2px solid var(--border);width:200px">Column</th>
                 <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
@@ -218,7 +218,7 @@
       <div style="overflow-x:auto;margin-bottom:16px">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
-            <tr style="background:#f1f5f9">
+            <tr style="background:var(--surface-2)">
               <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
                          border-bottom:2px solid var(--border);width:200px">Column</th>
               <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--navy);
@@ -267,7 +267,7 @@
 
     <div id="h-preview-summary" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px"></div>
 
-    <div style="font-size:12px;color:#1e40af;background:#eff6ff;border:1.5px solid #bfdbfe;
+    <div style="font-size:12px;color:var(--accent);background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);
                 border-radius:8px;padding:10px 12px;margin-bottom:18px">
       ℹ️ Import is additive — duplicate records will be skipped automatically.
     </div>
@@ -287,25 +287,25 @@
     <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:18px">Import Complete</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
       <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;
-                  background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px">
+                  background:var(--green-bg);border:1.5px solid color-mix(in srgb,var(--green) 30%,transparent);border-radius:10px">
         <span style="font-size:24px">✅</span>
         <div>
-          <div style="font-weight:700;font-size:20px;color:#15803d" id="h-res-imported">0</div>
-          <div style="font-size:13px;color:#166534" id="h-res-label">Records imported</div>
+          <div style="font-weight:700;font-size:20px;color:var(--green)" id="h-res-imported">0</div>
+          <div style="font-size:13px;color:var(--green)" id="h-res-label">Records imported</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;
-                  background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px">
+                  background:var(--amber-bg);border:1.5px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:10px">
         <span style="font-size:24px">⏭</span>
         <div>
-          <div style="font-weight:700;font-size:20px;color:#92400e" id="h-res-skipped">0</div>
-          <div style="font-size:13px;color:#92400e">Records skipped (duplicate or unmatched member)</div>
+          <div style="font-weight:700;font-size:20px;color:var(--amber)" id="h-res-skipped">0</div>
+          <div style="font-size:13px;color:var(--amber)">Records skipped (duplicate or unmatched member)</div>
         </div>
       </div>
     </div>
     <div id="h-error-detail" style="display:none;margin-bottom:20px">
       <div style="font-weight:600;font-size:13px;color:var(--navy);margin-bottom:8px">Errors:</div>
-      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;
+      <div style="background:var(--red-bg);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:8px;padding:10px 12px;
                   font-size:12px;font-family:monospace;max-height:200px;overflow-y:auto"
            id="h-error-list"></div>
     </div>
@@ -319,11 +319,11 @@
 <style>
   .itype-card, .fmt-card {
     padding:10px 12px;border-radius:8px;cursor:pointer;
-    border:1.5px solid var(--border);background:#f8fafc;
+    border:1.5px solid var(--border);background:var(--surface-2);
     transition:border-color .15s, background .15s, opacity .15s;
     user-select:none;
   }
-  .itype-card.on, .fmt-card.on  { border-color:var(--accent);background:#f0fdf4; }
+  .itype-card.on, .fmt-card.on  { border-color:var(--accent);background:var(--accent-soft); }
   .itype-card.off, .fmt-card.off { opacity:.55; }
   .itype-card.off .itype-tick, .fmt-card.off .fmt-tick { visibility:hidden; }
 </style>
@@ -424,6 +424,8 @@ async function hDoAnalyse() {
   }
 }
 
+refreshIcons();
+
 async function hReAnalyse() {
   hs.sheetName = document.getElementById('h-sel-sheet').value;
   const file = document.getElementById('h-file-input')._file ||
@@ -522,7 +524,7 @@ function buildWideConfig() {
     // Pre-tick if looks like a date
     const looksLikeDate = /\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]?\d{0,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(col);
     return `<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;
-                          background:#f1f5f9;border-radius:6px;font-size:13px;cursor:pointer">
+                          background:var(--surface-2);border-radius:6px;font-size:13px;cursor:pointer">
       <input type="checkbox" data-col-i="${i}" ${looksLikeDate ? 'checked' : ''}
              onchange="updateWideDateCols()" style="width:14px;height:14px">
       ${esc(col)}
@@ -692,7 +694,7 @@ function hGoStep(n) {
   [1,2,3,4].forEach(i => {
     document.getElementById(`hstep-${i}`).style.display = i === n ? '' : 'none';
     const tab = document.getElementById(`htab-${i}`);
-    tab.style.background = i === n ? 'var(--navy)' : (i < n ? '#e8eef8' : '#f8fafc');
+    tab.style.background = i === n ? 'var(--navy)' : (i < n ? 'var(--accent-soft)' : 'var(--surface-2)');
     tab.style.color      = i === n ? '#fff'        : (i < n ? 'var(--navy)' : 'var(--muted)');
   });
 }
