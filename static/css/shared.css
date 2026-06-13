@@ -167,6 +167,8 @@ html[data-skin="casual"] .btn { border-radius: 12px; }
 html[data-skin="casual"] .ico-emoji { display: inline; }
 html[data-skin="casual"] .brand-mark { display: none; }
 html[data-skin="casual"] :is(.nav-icon, .stat-icon, .activity-icon, .callout-icon) .lucide { display: none; }
+/* Any dual-render container (element that has a direct .ico-emoji child) hides its Lucide SVG in casual */
+html[data-skin="casual"] :has(> .ico-emoji) .lucide { display: none; }
 
 html { color-scheme: light; }
 html[data-theme="dark"] { color-scheme: dark; }
