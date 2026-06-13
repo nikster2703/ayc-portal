@@ -462,7 +462,12 @@
         pill = document.createElement('div');
         pill.id = 'nav-pill';
         nav.insertBefore(pill, nav.firstChild);
+        /* Position immediately (best guess) then correct once fonts are ready.
+           Web fonts (Inter/Nunito) load async and shift nav-link widths — without
+           this, the pill measures with fallback-font metrics and stays misaligned. */
         applyPill(activeLink, false);
+        (document.fonts ? document.fonts.ready : Promise.resolve())
+          .then(function () { applyPill(activeLink, false); });
       }
 
       /* ── Reposition + reshape when skin/theme toggles ── */
