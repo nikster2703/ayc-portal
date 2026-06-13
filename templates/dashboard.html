@@ -11,6 +11,19 @@
     <h1>Welcome back, {{ current_user }}</h1>
     <div class="sub" id="dash-date-sub"></div>
   </div>
+  <div class="dash-header-controls">
+    <button id="trends-btn" class="btn btn-ghost btn-sm" onclick="toggleTrends()">
+      <i data-lucide="trending-up"></i><span class="ico-emoji">📈</span>
+      <span id="trends-btn-label">Hide trends</span>
+    </button>
+    <button id="reset-btn" class="btn btn-ghost btn-sm" onclick="resetLayout()" style="display:none">
+      <i data-lucide="rotate-ccw"></i><span class="ico-emoji">↩️</span> Reset
+    </button>
+    <button id="edit-btn" class="btn btn-ghost btn-sm" onclick="toggleEditMode()">
+      <i data-lucide="layout-grid"></i><span class="ico-emoji">🔧</span>
+      <span id="edit-btn-label">Customise</span>
+    </button>
+  </div>
 </div>
 
 <!-- ── Stat cards ─────────────────────────────────────────────── -->
@@ -19,6 +32,18 @@
   <div class="stat-card skeleton"></div>
   <div class="stat-card skeleton"></div>
   <div class="stat-card skeleton"></div>
+</div>
+
+<!-- ── Hidden card tray (edit mode) ──────────────────────────── -->
+<div id="hidden-card-tray" style="display:none;margin-bottom:8px">
+  <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Hidden cards</div>
+  <div id="hidden-card-chips" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+</div>
+
+<!-- ── Section visibility panel (edit mode) ──────────────────── -->
+<div id="section-panel" style="display:none;margin-bottom:16px">
+  <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Dashboard sections</div>
+  <div id="section-toggles" style="display:flex;gap:8px;flex-wrap:wrap"></div>
 </div>
 
 <!-- ── Pending approvals callout ─────────────────────────────── -->
@@ -71,7 +96,7 @@
 </div>
 
 <!-- ── Registration links ─────────────────────────────────────── -->
-<div style="margin-bottom:24px">
+<div id="reg-links-section" style="margin-bottom:24px">
   <div class="dash-section-title" style="margin-bottom:12px"><i data-lucide="link"></i>Registration links</div>
   <div class="reg-grid">
 
@@ -114,7 +139,7 @@
 </div>
 
 <!-- ── Recent activity ───────────────────────────────────────── -->
-<div style="margin-bottom:24px">
+<div id="activity-section" style="margin-bottom:24px">
   <div class="dash-section-title"><i data-lucide="history"></i>Recent Activity</div>
   <div class="activity-feed card" id="activity-feed">
     <div class="loading-state" style="padding:20px"><div class="spinner"></div></div>
@@ -293,6 +318,7 @@
   /* ── Stat cards ─────────────────────────────────────── */
   const SESSION_TYPES = {{ session_types | tojson }};
   let _statCards = [];   // cached for theme/skin re-skins
+  let _lastD = null, _lastT = null;  // cached fetch results for re-renders
 
   function deltaChip(n, unit) {
     if (!n) return { label: 'no change', dir: 'flat' };
@@ -300,34 +326,39 @@
   }
 
   function renderStats(d, t) {
+    _lastD = d; _lastT = t;
     const m  = d.members;
-    const sc = d.session_counts || {};  // {session_name: {members, staff}}
+    const sc = d.session_counts || {};
 
-    // Staff count: global for admin, global for multi-session users, per-session for single-session
     const staffCount = (!IS_SCOPED || SESSION_NAMES.length > 1)
       ? (m.staff_active ?? 0)
       : (sc[USER_SESSION]?.staff ?? 0);
 
-    const stats = [];
+    const allStats = [];
 
-    // Active Members tile — membership growth sparkline + new-this-month chip
-    stats.push({
+    // Active Members — always present (hidden if 0)
+    allStats.push({
+      id: 'active-members',
       icon: 'users', emoji: '👥', value: m.active ?? 0, label: 'Active Members', href: '/members', tone: '',
       spark: t.members?.series, delta: deltaChip(t.members?.new_30d, 'this month'),
     });
 
-    // Session tiles — generated from SESSION_TYPES, scoped where applicable
+    // Session tiles — one per session type, hidden if 0 members
     for (const st of SESSION_TYPES) {
       if (!IS_SCOPED || SESSION_NAMES.includes(st.name)) {
         const val = sc[st.name]?.members ?? 0;
-        stats.push({ icon: 'calendar-days', emoji: '📅', value: val, label: st.name + ' Session', href: '/register', tone: 'green',
-                     spark: t.sessions?.[st.name]?.series });
+        allStats.push({
+          id: slugify(st.name + ' Session'),
+          icon: 'calendar-days', emoji: '📅', value: val, label: st.name + ' Session', href: '/register', tone: 'green',
+          spark: t.sessions?.[st.name]?.series,
+        });
       }
     }
 
-    // Attendance tile — only once registers have been completed
+    // Attendance % — keepIfZero: true (0% is a valid reading; card only appears once registers exist)
     if (t.attendance?.last_pct != null) {
-      stats.push({
+      allStats.push({
+        id: 'attendance-last-session', keepIfZero: true,
         icon: 'clipboard-check', emoji: '✅', value: t.attendance.last_pct, suffix: '%',
         label: 'Attendance last session', href: '/register', tone: 'green',
         spark: t.attendance.series,
@@ -335,45 +366,76 @@
       });
     }
 
-    // Pending approvals tile — submissions-per-week sparkline
+    // Pending approvals — already guarded by > 0
     if ((d.pending_approvals ?? 0) > 0 && USER_PERMS.has('approvals.view')) {
-      stats.push({
+      allStats.push({
+        id: 'pending-approvals',
         icon: 'inbox', emoji: '📋', value: d.pending_approvals, label: 'Pending approvals', href: '/approvals', tone: 'amber',
         spark: t.approvals?.series,
         delta: t.approvals?.new_7d ? { label: `${t.approvals.new_7d} new`, dir: 'up' } : null,
       });
     }
 
-    // Staff tile — hidden when count is 0
+    // Staff — already guarded by > 0
     if (staffCount > 0) {
-      stats.push({
+      allStats.push({
+        id: 'staff-volunteers',
         icon: 'shield-check', emoji: '🧑‍🤝‍🧑', value: staffCount, label: 'Staff & Volunteers', href: '/members?view=staff', tone: 'violet',
         spark: t.staff?.series, delta: deltaChip(t.staff?.new_30d, 'this month'),
       });
     }
 
-    // Inactive tile — hidden from readonly users
+    // Inactive — already guarded by > 0
     if (USER_ROLE !== 'readonly' && (m.inactive ?? 0) > 0) {
-      stats.push({ icon: 'circle-pause', emoji: '⏸️', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', tone: 'amber',
-                   spark: t.inactive?.series });
+      allStats.push({
+        id: 'inactive-members',
+        icon: 'circle-pause', emoji: '⏸️', value: m.inactive ?? 0, label: 'Inactive Members', href: '/members', tone: 'amber',
+        spark: t.inactive?.series,
+      });
     }
 
-    // Leavers tile — hidden from readonly users and when count is 0
+    // Leavers — already guarded by > 0
     if (USER_ROLE !== 'readonly' && (m.leavers ?? 0) > 0) {
-      stats.push({ icon: 'user-minus', emoji: '👤', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', tone: 'grey',
-                   spark: t.leavers?.series });
+      allStats.push({
+        id: 'leavers-on-record',
+        icon: 'user-minus', emoji: '👤', value: m.leavers ?? 0, label: 'Leavers on record', href: '/members', tone: 'grey',
+        spark: t.leavers?.series,
+      });
     }
 
-    // A sparkline needs ≥2 points to draw — flat lines are kept so every
-    // card stays visually consistent
-    for (const s of stats) {
+    // Sparklines need ≥ 2 points
+    for (const s of allStats) {
       if (s.spark && s.spark.length < 2) s.spark = null;
+    }
+
+    // ── Hide zero-count cards (Active Members + session tiles) ────────────
+    const nonZero = allStats.filter(s => s.keepIfZero || s.value !== 0);
+
+    // ── Apply per-user layout prefs ───────────────────────────────────────
+    const prefs      = loadPrefs();
+    const hiddenCards = prefs.hiddenCards || [];
+    const cardOrder   = prefs.cardOrder   || [];
+
+    let stats = nonZero.filter(s => !hiddenCards.includes(s.id));
+
+    if (cardOrder.length) {
+      const ordered = [];
+      cardOrder.forEach(id => { const s = stats.find(c => c.id === id); if (s) ordered.push(s); });
+      stats.forEach(s => { if (!cardOrder.includes(s.id)) ordered.push(s); });
+      stats = ordered;
     }
 
     _statCards = stats;
     _sparkSpecs = [];
+    const em = _editMode;
+
     document.getElementById('stat-cards').innerHTML = stats.map((s, i) => `
-      <a href="${s.href}" class="stat-card t-${s.tone || 'accent'}">
+      <a href="${s.href}" class="stat-card t-${s.tone || 'accent'}" data-card-id="${s.id}"
+         ${em ? 'draggable="true" onclick="return false"' : ''}>
+        ${em ? `<div class="card-edit-row">
+          <span class="card-drag-handle"><i data-lucide="grip-vertical"></i></span>
+          <button class="card-hide-btn" onclick="event.stopPropagation();hideCard('${s.id}')" title="Hide card"><i data-lucide="x"></i></button>
+        </div>` : ''}
         <div class="stat-top">
           <span class="stat-icon ${s.tone}"><i data-lucide="${s.icon}"></i><span class="ico-emoji">${s.emoji || ''}</span></span>
           ${s.delta ? `<span class="delta ${s.delta.dir}">${s.delta.dir === 'up' ? '<i data-lucide="trending-up"></i>' : ''}${esc(s.delta.label)}</span>` : ''}
@@ -383,10 +445,24 @@
         ${s.spark ? `<div class="spark-wrap"><canvas id="spark-${i}"></canvas></div>` : ''}
       </a>
     `).join('');
+
+    // Attach drag-and-drop handlers in edit mode
+    if (em) {
+      document.querySelectorAll('#stat-cards [data-card-id]').forEach(el => {
+        el.addEventListener('dragstart', onDragStart);
+        el.addEventListener('dragover',  onDragOver);
+        el.addEventListener('dragleave', onDragLeave);
+        el.addEventListener('dragend',   onDragEnd);
+        el.addEventListener('drop',      onDrop);
+      });
+      document.getElementById('stat-cards').classList.add('edit-mode');
+    }
+
     stats.forEach((s, i) => { if (s.spark) _sparkSpecs.push({ id: 'spark-' + i, series: s.spark, tone: s.tone }); });
     refreshIcons();
     animateCounters(document.getElementById('stat-cards'));
     buildSparks();
+    updateHeaderBtns(prefs);
   }
 
   /* ── Sparklines (fixed-height wrappers — avoids Chart.js resize loop) ── */
@@ -589,6 +665,182 @@
 
   // Re-skin the chart when the theme toggles (base.html dispatches 'themechange')
   document.addEventListener('themechange', buildTrendChart);
+
+  /* ── Dashboard layout preferences ───────────────────────────────────────────
+     Persisted per user in localStorage so each staff member gets their own view.
+     Key: ayc-dash-{username}
+     Schema: { cardOrder: [...ids], hiddenCards: [...ids], hiddenSections: [...keys], showTrends: bool }
+  ─────────────────────────────────────────────────────────────────────────── */
+  const DASH_PREFS_KEY = 'ayc-dash-' + {{ current_user | tojson }};
+  let _editMode = false;
+  let _dragSrc  = null;
+
+  const DASH_SECTIONS = [
+    { id: 'dash-cols',         label: 'Upcoming sessions', key: 'upcoming'   },
+    { id: 'reg-links-section', label: 'Registration links', key: 'reg-links' },
+    { id: 'activity-section',  label: 'Recent activity',   key: 'activity'   },
+  ];
+
+  function loadPrefs() {
+    try { return JSON.parse(localStorage.getItem(DASH_PREFS_KEY)) || {}; } catch { return {}; }
+  }
+  function savePrefs(patch) {
+    const p = Object.assign(loadPrefs(), patch);
+    localStorage.setItem(DASH_PREFS_KEY, JSON.stringify(p));
+  }
+  function slugify(s) {
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  function updateHeaderBtns(p) {
+    const hasCustom = p.cardOrder?.length || p.hiddenCards?.length || p.hiddenSections?.length;
+    const resetBtn = document.getElementById('reset-btn');
+    if (resetBtn) resetBtn.style.display = (_editMode && hasCustom) ? '' : 'none';
+    const showTrends = p.showTrends !== false;
+    const lbl = document.getElementById('trends-btn-label');
+    if (lbl) lbl.textContent = showTrends ? 'Hide trends' : 'Show trends';
+    document.documentElement.classList.toggle('no-trends', !showTrends);
+  }
+
+  function applySectionPrefs(p) {
+    const hidden = p.hiddenSections || [];
+    DASH_SECTIONS.forEach(s => {
+      const el = document.getElementById(s.id);
+      if (el) el.style.display = hidden.includes(s.key) ? 'none' : '';
+    });
+  }
+
+  /* ── Trends global toggle ─────────────────────────── */
+  function toggleTrends() {
+    const p = loadPrefs();
+    const newShow = p.showTrends === false;  // was off → now on; was on/unset → now off
+    savePrefs({ showTrends: newShow });
+    updateHeaderBtns(loadPrefs());
+  }
+
+  /* ── Reset layout ─────────────────────────────────── */
+  function resetLayout() {
+    localStorage.removeItem(DASH_PREFS_KEY);
+    updateHeaderBtns({});
+    applySectionPrefs({});
+    if (_lastD && _lastT) renderStats(_lastD, _lastT);
+  }
+
+  /* ── Edit mode ────────────────────────────────────── */
+  function toggleEditMode() {
+    _editMode = !_editMode;
+    const lbl = document.getElementById('edit-btn-label');
+    if (lbl) lbl.textContent = _editMode ? 'Done' : 'Customise';
+    document.getElementById('hidden-card-tray').style.display = _editMode ? '' : 'none';
+    document.getElementById('section-panel').style.display     = _editMode ? '' : 'none';
+    if (_lastD && _lastT) renderStats(_lastD, _lastT);   // re-render with/without drag handles
+    if (_editMode) {
+      renderHiddenTray();
+      renderSectionPanel();
+    } else {
+      applySectionPrefs(loadPrefs());  // re-apply hidden sections when exiting edit mode
+    }
+  }
+
+  /* ── Hidden card tray ─────────────────────────────── */
+  function renderHiddenTray() {
+    const p      = loadPrefs();
+    const hidden = p.hiddenCards || [];
+    const chips  = document.getElementById('hidden-card-chips');
+    if (!chips) return;
+    if (!hidden.length) {
+      chips.innerHTML = '<span style="color:var(--muted);font-size:12.5px">No hidden cards — use the ✕ on a card to hide it</span>';
+    } else {
+      chips.innerHTML = hidden.map(id => `
+        <button class="hidden-chip" onclick="restoreCard('${id}')">
+          <i data-lucide="plus-circle"></i>${id.replace(/-/g, ' ')}
+        </button>
+      `).join('');
+      refreshIcons();
+    }
+  }
+
+  function hideCard(id) {
+    const p = loadPrefs();
+    const hidden = [...new Set([...(p.hiddenCards || []), id])];
+    savePrefs({ hiddenCards: hidden });
+    if (_lastD && _lastT) renderStats(_lastD, _lastT);
+    renderHiddenTray();
+  }
+
+  function restoreCard(id) {
+    const p = loadPrefs();
+    const hidden = (p.hiddenCards || []).filter(h => h !== id);
+    savePrefs({ hiddenCards: hidden });
+    if (_lastD && _lastT) renderStats(_lastD, _lastT);
+    renderHiddenTray();
+  }
+
+  /* ── Section panel ────────────────────────────────── */
+  function renderSectionPanel() {
+    const p      = loadPrefs();
+    const hidden = p.hiddenSections || [];
+    const wrap   = document.getElementById('section-toggles');
+    if (!wrap) return;
+    wrap.innerHTML = DASH_SECTIONS.map(s => {
+      const off = hidden.includes(s.key);
+      return `<button class="section-chip${off ? ' off' : ''}" onclick="toggleSection('${s.key}')">
+        <i data-lucide="${off ? 'eye-off' : 'eye'}"></i>${esc(s.label)}
+      </button>`;
+    }).join('');
+    refreshIcons();
+  }
+
+  function toggleSection(key) {
+    const p    = loadPrefs();
+    let hidden = p.hiddenSections || [];
+    hidden = hidden.includes(key) ? hidden.filter(h => h !== key) : [...hidden, key];
+    savePrefs({ hiddenSections: hidden });
+    applySectionPrefs(loadPrefs());
+    renderSectionPanel();
+    updateHeaderBtns(loadPrefs());
+  }
+
+  /* ── Drag and drop ────────────────────────────────── */
+  function onDragStart(e) {
+    _dragSrc = e.currentTarget.dataset.cardId;
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _dragSrc);
+  }
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+  }
+  function onDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+  function onDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    document.querySelectorAll('#stat-cards .drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
+  function onDrop(e) {
+    e.preventDefault();
+    const targetId = e.currentTarget.dataset.cardId;
+    e.currentTarget.classList.remove('drag-over');
+    if (!_dragSrc || _dragSrc === targetId) return;
+    const cards = [...document.querySelectorAll('#stat-cards [data-card-id]')];
+    let order = cards.map(c => c.dataset.cardId);
+    const from = order.indexOf(_dragSrc);
+    const to   = order.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    order.splice(from, 1);
+    order.splice(to, 0, _dragSrc);
+    _dragSrc = null;
+    savePrefs({ cardOrder: order });
+    if (_lastD && _lastT) renderStats(_lastD, _lastT);
+    renderHiddenTray();
+  }
+
+  // Initialise from saved prefs on page load
+  updateHeaderBtns(loadPrefs());
+  applySectionPrefs(loadPrefs());
 
   /* ── Recent activity ────────────────────────────────── */
   function renderActivity(items) {
@@ -830,6 +1082,68 @@
   html[data-skin="casual"]:not([data-theme="dark"]) .t-amber  .stat-value { color: #f59e0b; }
   html[data-skin="casual"]:not([data-theme="dark"]) .t-violet .stat-value { color: #7c3aed; }
   html[data-skin="casual"]:not([data-theme="dark"]) .t-grey   .stat-value { color: var(--muted); }
+
+  /* ── Header controls ──────────────────────────────── */
+  .dash-header-controls {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+
+  /* ── Trends global toggle ──────────────────────────── */
+  html.no-trends .spark-wrap { display: none !important; }
+
+  /* ── Edit mode — stat grid ─────────────────────────── */
+  #stat-cards.edit-mode .stat-card {
+    cursor: grab; position: relative;
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+  #stat-cards.edit-mode .stat-card.dragging  { opacity: .35; cursor: grabbing; }
+  #stat-cards.edit-mode .stat-card.drag-over {
+    border-style: solid; border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .card-edit-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .card-drag-handle {
+    color: var(--muted); cursor: grab; line-height: 1;
+    user-select: none; padding: 2px;
+  }
+  .card-drag-handle .lucide { width: 15px; height: 15px; }
+  .card-hide-btn {
+    width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent;
+    color: var(--muted); cursor: pointer; display: grid; place-items: center;
+    padding: 0; font-family: inherit; transition: background .15s, color .15s;
+  }
+  .card-hide-btn:hover { background: var(--red-bg); color: var(--red); }
+  .card-hide-btn .lucide { width: 13px; height: 13px; }
+
+  /* ── Hidden card chips ─────────────────────────────── */
+  .hidden-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12.5px; font-weight: 600; font-family: inherit;
+    padding: 5px 12px; border-radius: 99px; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .hidden-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .hidden-chip .lucide { width: 13px; height: 13px; }
+
+  /* ── Section toggle chips ──────────────────────────── */
+  .section-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12.5px; font-weight: 600; font-family: inherit;
+    padding: 5px 14px; border-radius: 99px; cursor: pointer;
+    background: var(--green-bg); border: 1px solid transparent; color: var(--green);
+    transition: opacity .15s;
+  }
+  .section-chip.off {
+    background: var(--surface-2); border-color: var(--border); color: var(--muted);
+    text-decoration: line-through;
+  }
+  .section-chip:hover { opacity: .8; }
+  .section-chip .lucide { width: 13px; height: 13px; }
 
   /* ── Dashboard responsive ──────────────────────────── */
 
