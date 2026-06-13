@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_short_name }} Session Register — {{ session_type }} {{ display_date }}</title>
   <style>
+    :root {
+      --accent:      #1b2d4f;
+      --accent-dark: #111e36;
+    }
+    {% if brand %}
+    :root {
+      --accent:      {{ brand._palette.accent }};
+      --accent-dark: {{ brand._palette.accent_dark }};
+    }
+    {% endif %}
+
     /* ── Base ─────────────────────────────────────────── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -30,7 +41,7 @@
 
       .btn-print {
         padding: 10px 22px;
-        background: #1e3a5f;
+        background: var(--accent);
         color: #fff;
         border: none;
         border-radius: 8px;
@@ -39,7 +50,7 @@
         cursor: pointer;
         font-family: Arial, sans-serif;
       }
-      .btn-print:hover { background: #162d4a; }
+      .btn-print:hover { background: var(--accent-dark); }
 
       .btn-back {
         padding: 10px 18px;
@@ -98,7 +109,7 @@
     .page-header h1 {
       font-size: 15pt;
       font-weight: 700;
-      color: #1e3a5f;
+      color: var(--accent);
       margin-bottom: 2px;
     }
 
@@ -116,13 +127,13 @@
     }
 
     thead th {
-      background: #1e3a5f;
+      background: var(--accent);
       color: #fff;
       font-size: 9pt;
       font-weight: 700;
       padding: 6px 7px;
       text-align: left;
-      border: 1px solid #1e3a5f;
+      border: 1px solid var(--accent);
       word-wrap: break-word;
     }
 
@@ -163,9 +174,9 @@
     .notes-section h2 {
       font-size: 12pt;
       font-weight: 700;
-      color: #1e3a5f;
+      color: var(--accent);
       margin-bottom: 8px;
-      border-bottom: 2px solid #1e3a5f;
+      border-bottom: 2px solid var(--accent);
       padding-bottom: 4px;
     }
 
@@ -255,7 +266,11 @@
 
 <!-- ── Register table ───────────────────────────────── -->
 <div class="page-header">
+  {% if brand and brand._logo_url %}
+  <img class="logo" src="{{ brand._logo_url }}" alt="{{ club_short_name }}">
+  {% else %}
   <img class="logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="{{ club_short_name }}">
+  {% endif %}
   <div>
     <h1>Session Register — {{ session_type }}{% if mtype and mtype.name %} &nbsp;·&nbsp; {{ mtype.name }}s{% endif %}</h1>
     <div class="subtitle">{{ display_date }} &nbsp;·&nbsp; {{ members | length }} {{ mtype.name | lower if mtype and mtype.name else 'member' }}{{ 's' if members | length != 1 else '' }}</div>

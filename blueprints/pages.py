@@ -136,6 +136,7 @@ def print_register_page():
     except ValueError:
         display_date = date
 
+    brand = get_brand_settings()
     return render_template(
         'print_register.html',
         session_type   = session_type,
@@ -145,8 +146,9 @@ def print_register_page():
         notes          = [dict(r) for r in notes],
         dynamic_fields = dynamic_fields,
         mtype          = mtype_dict,
-        club_name      = CLUB_NAME,
-        club_short_name= CLUB_SHORT_NAME,
+        club_name      = brand.get('brand_club_name') or CLUB_NAME,
+        club_short_name= brand.get('brand_short_name') or CLUB_SHORT_NAME,
+        brand          = brand,
     )
 
 
@@ -270,6 +272,7 @@ def export_register_page():
     attended    = sum(1 for m in members if m['signed_in_at'])
     not_arrived = sum(1 for m in members if not m['signed_in_at'])
 
+    brand = get_brand_settings()
     return render_template(
         'register_export.html',
         session_type    = session_type,
@@ -282,8 +285,9 @@ def export_register_page():
         export_fields   = export_fields,
         attended        = attended,
         not_arrived     = not_arrived,
-        club_name       = CLUB_NAME,
-        club_short_name = CLUB_SHORT_NAME,
+        club_name       = brand.get('brand_club_name') or CLUB_NAME,
+        club_short_name = brand.get('brand_short_name') or CLUB_SHORT_NAME,
+        brand           = brand,
         app_version     = APP_VERSION,
     )
 
