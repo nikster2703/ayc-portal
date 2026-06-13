@@ -1030,15 +1030,14 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     display: grid;
     grid-template-columns: 1fr 340px;
     gap: 20px;
-    align-items: start;
+    align-items: stretch;   /* both panels same height */
   }
   .comms-panel {
     background: var(--surface);
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
     display: flex; flex-direction: column;
-    max-height: calc(100vh - 200px);
-    min-height: 460px;
+    min-height: 600px;
     overflow: hidden;
     box-shadow: var(--shadow-sm);
   }
@@ -1068,7 +1067,14 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
     padding: 18px; display: flex; flex-direction: column; gap: 14px;
     flex: 1; min-height: 0; overflow-y: auto;
   }
-  .comms-panel-compose .comms-panel-body { overflow: hidden; }
+  .comms-panel-compose .comms-panel-body    { overflow: hidden; }
+  .comms-panel-recipients .comms-panel-body { overflow: hidden; } /* only list scrolls, not the body */
+
+  /* Recipient list: ~15 entries visible before own scrollbar — overrides .comms-scroll-list's 150px cap */
+  #recipient-list {
+    max-height: 520px;
+    min-height: 200px;
+  }
   .comms-panel-compose .form-group-message {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
   }
