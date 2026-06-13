@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_name }} — Session Display</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/vendor/fonts.css">
   <style>
     /* ── Reset & base ─────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -354,7 +353,32 @@
       animation: blink 2s infinite;
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ── Light mode (?mode=light) ─────────────────────── */
+    html.light-mode body {
+      background: #f1f5f9;
+      color: var(--navy);
+    }
+    html.light-mode .brand-text p   { color: #64748b; }
+    html.light-mode .leaders-label  { color: #94a3b8; }
+    html.light-mode .leader-pill    { background: #fff; border-color: #e2e8f0; color: var(--navy); }
+    html.light-mode .clock          { color: var(--navy); }
+    html.light-mode .date-line      { color: #64748b; }
+    html.light-mode .session-bar    { background: #fff; border-color: #e2e8f0; }
+    html.light-mode .session-name   { color: var(--accent); }
+    html.light-mode .name-card      { background: #fff; border-color: #e2e8f0; }
+    html.light-mode .first-name     { color: var(--navy); }
+    html.light-mode .surname        { color: #64748b; }
+    html.light-mode .qr-label       { color: #94a3b8; }
+    html.light-mode .footer         { color: #94a3b8; }
+    html.light-mode .empty-display  { color: var(--navy); }
   </style>
+  <!-- Apply light mode before first paint to avoid flash of dark -->
+  <script>
+    if (new URLSearchParams(window.location.search).get('mode') === 'light') {
+      document.documentElement.classList.add('light-mode');
+    }
+  </script>
 </head>
 <body>
 <div class="screen">
