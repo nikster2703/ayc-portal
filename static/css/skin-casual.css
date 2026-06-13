@@ -221,7 +221,8 @@ html[data-skin="casual"]:not([data-theme="dark"]) .search-icon{
 }
 html[data-skin="casual"]:not([data-theme="dark"]) .search-input{
   width: 100%;
-  padding: 12px 16px 12px 42px;
+  height: 44px;
+  padding: 0 16px 0 42px;
   border: 2px solid var(--border);
   border-radius: 10px;
   font-family: 'Nunito', sans-serif;
@@ -233,7 +234,8 @@ html[data-skin="casual"]:not([data-theme="dark"]) .search-input{
 html[data-skin="casual"]:not([data-theme="dark"]) .search-input:focus{ border-color: var(--accent); }
 
 html[data-skin="casual"]:not([data-theme="dark"]) .session-select{
-  padding: 11px 14px;
+  height: 44px;
+  padding: 0 14px;
   border: 2px solid var(--border);
   border-radius: 10px;
   font-family: 'Nunito', sans-serif;
