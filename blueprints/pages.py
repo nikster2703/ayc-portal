@@ -291,17 +291,21 @@ def export_register_page():
 @bp.route('/registration')
 def registration_page():
     db    = get_db()
+    brand = get_brand_settings()
     types = db.execute(
         'SELECT * FROM member_types WHERE public_registration = 1 AND active = 1 ORDER BY sort_order'
     ).fetchall()
     return render_template('registration_landing.html',
                            reg_types=[dict(t) for t in types],
-                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
+                           club_name=brand.get('brand_club_name') or CLUB_NAME,
+                           club_short_name=brand.get('brand_short_name') or CLUB_SHORT_NAME,
+                           brand=brand)
 
 
 @bp.route('/registration/<slug>')
 def registration_slug_page(slug):
     db    = get_db()
+    brand = get_brand_settings()
     mtype = db.execute(
         'SELECT * FROM member_types WHERE slug = ? AND active = 1', (slug,)
     ).fetchone()
@@ -311,7 +315,9 @@ def registration_slug_page(slug):
                            type_slug=slug,
                            type_info=dict(mtype),
                            version=APP_VERSION,
-                           club_name=CLUB_NAME, club_short_name=CLUB_SHORT_NAME)
+                           club_name=brand.get('brand_club_name') or CLUB_NAME,
+                           club_short_name=brand.get('brand_short_name') or CLUB_SHORT_NAME,
+                           brand=brand)
 
 
 @bp.route('/documents')

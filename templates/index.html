@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_short_name }} Portal — Sign In</title>
+  <link rel="stylesheet" href="/static/vendor/fonts.css">
   <link rel="stylesheet" href="/static/css/shared.css">
   {% if brand %}
   <style>
@@ -26,7 +27,7 @@
       padding: 20px;
     }
     .login-card {
-      background: white;
+      background: var(--surface);
       border-radius: 22px;
       padding: 48px 40px 40px;
       width: 100%;
@@ -103,7 +104,7 @@
       display: none;
       margin-top: 14px;
       background: var(--red-bg);
-      border: 1.5px solid #fca5a5;
+      border: 1.5px solid color-mix(in srgb,var(--red) 30%,transparent);
       color: var(--red);
       border-radius: 9px;
       padding: 10px 14px;

@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.12'  # v12.12: dual-render fixes — alerts type picker (calendar/calendar-days/search/hash), field_builder editBtn/removeBtn/addFromCatalogue (pen-line/x/plus) + refreshIcons in renderAssigned, maintenance h2/modal headings (database/upload/download/trash-2/skull/triangle-alert) + MAINTENANCE_ITEMS labels (clipboard-list/calendar/mail/file-text) + refreshIcons after container.innerHTML. v12.11: batch 5
+APP_VERSION = 'v12.13'  # v12.13: batch 6 — login/registration restyle. index.html: vendor/fonts.css + surface/token fixes. registration_landing/dynamic: drop Google Fonts→fonts.css+shared.css, brand injection+logo, CSS var tokens, violet aliases. registration.html/registration_staff.html: same font+token fix. pages.py: brand passed to registration routes. v12.12: dual-render fixes
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
