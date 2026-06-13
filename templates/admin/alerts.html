@@ -47,19 +47,19 @@
         <label class="form-label">Rule Type</label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="type-picker">
           <label class="type-opt" data-type="attendance">
-            <input type="radio" name="rule_type" value="attendance"> 📅 Attendance
+            <input type="radio" name="rule_type" value="attendance"> <i data-lucide="calendar"></i><span class="ico-emoji">📅</span> Attendance
             <span class="type-desc">Consecutive missed sessions</span>
           </label>
           <label class="type-opt" data-type="date_field">
-            <input type="radio" name="rule_type" value="date_field"> 🗓 Date Field
+            <input type="radio" name="rule_type" value="date_field"> <i data-lucide="calendar-days"></i><span class="ico-emoji">🗓</span> Date Field
             <span class="type-desc">Date older than / before today</span>
           </label>
           <label class="type-opt" data-type="empty_field">
-            <input type="radio" name="rule_type" value="empty_field"> 🔍 Field Value
+            <input type="radio" name="rule_type" value="empty_field"> <i data-lucide="search"></i><span class="ico-emoji">🔍</span> Field Value
             <span class="type-desc">Flag if a field is empty or filled</span>
           </label>
           <label class="type-opt" data-type="numeric">
-            <input type="radio" name="rule_type" value="numeric"> 🔢 Numeric
+            <input type="radio" name="rule_type" value="numeric"> <i data-lucide="hash"></i><span class="ico-emoji">🔢</span> Numeric
             <span class="type-desc">Value above or below threshold</span>
           </label>
         </div>

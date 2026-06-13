@@ -11,7 +11,7 @@
 <!-- ── Backup & Restore ──────────────────────────────────────────── -->
 <div class="form-card" style="max-width:520px;margin-bottom:20px">
   <h2 style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
-    🗄️ Database Backup &amp; Restore
+    <i data-lucide="database"></i><span class="ico-emoji">🗄️</span> Database Backup &amp; Restore
   </h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">
     The backup is a fully encrypted copy of the database. The same
@@ -64,7 +64,7 @@
 <!-- ── Import Members ─────────────────────────────────────────────── -->
 <div class="form-card" style="max-width:520px;margin-bottom:20px">
   <h2 style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
-    📥 Import Members
+    <i data-lucide="upload"></i><span class="ico-emoji">📥</span> Import Members
   </h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">
     Import members from an Excel (.xlsx) or CSV file. The wizard lets you map
@@ -89,7 +89,7 @@
 <!-- ── Export Members ────────────────────────────────────────────── -->
 <div class="form-card" style="max-width:520px;margin-bottom:20px">
   <h2 style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
-    📤 Export Members
+    <i data-lucide="download"></i><span class="ico-emoji">📤</span> Export Members
   </h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">
     Export all member data to a CSV file — including core fields, contacts,
@@ -114,7 +114,7 @@
 <!-- ── Clear data ────────────────────────────────────────────────── -->
 <div class="form-card" style="max-width:520px;border-color:#fecaca;margin-bottom:20px">
   <h2 style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px">
-    🗑️ Clear Historical Records
+    <i data-lucide="trash-2"></i><span class="ico-emoji">🗑️</span> Clear Historical Records
   </h2>
   <p style="font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.6">
     Permanently delete historical records to give the portal a clean slate.
@@ -135,7 +135,7 @@
 <!-- ── Danger zone: clear all members ────────────────────────────── -->
 <div class="form-card" style="max-width:520px;border-color:color-mix(in srgb,var(--red) 40%,var(--border));background:var(--red-bg);margin-bottom:20px">
   <h2 style="font-size:16px;font-weight:700;color:var(--red);margin-bottom:4px">
-    ☠️ Danger Zone
+    <i data-lucide="skull"></i><span class="ico-emoji">☠️</span> Danger Zone
   </h2>
   <p style="font-size:13px;color:var(--red);margin-bottom:16px;line-height:1.6">
     These actions are <strong>catastrophic and irreversible</strong>. They should only ever
@@ -165,7 +165,7 @@
 <div id="clear-members-modal" class="modal-overlay" onclick="if(event.target===this)closeClearMembersModal()">
   <div class="modal" style="max-width:440px;border:3px solid color-mix(in srgb,var(--red) 50%,var(--border))">
     <div style="font-size:22px;font-weight:800;color:var(--red);margin-bottom:10px">
-      ☠️ Clear All Members?
+      <i data-lucide="skull"></i><span class="ico-emoji">☠️</span> Clear All Members?
     </div>
     <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">
       This will <strong style="color:var(--red)">permanently delete</strong> every member record in the database, along with all associated contacts, alert flags, attendance history, and DofE data.
@@ -196,7 +196,7 @@
 <div id="restore-modal" class="modal-overlay" onclick="if(event.target===this)closeRestoreModal()">
   <div class="modal" style="max-width:420px">
     <div style="font-size:20px;font-weight:800;color:var(--red);margin-bottom:8px">
-      ⚠️ Restore Database?
+      <i data-lucide="triangle-alert"></i><span class="ico-emoji">⚠️</span> Restore Database?
     </div>
     <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">
       This will <strong>replace the live database</strong> with the uploaded backup.
@@ -243,28 +243,28 @@
   const MAINTENANCE_ITEMS = [
     {
       key:     'audit_log',
-      label:   '📋 Audit Log',
+      label:   '<i data-lucide="clipboard-list"></i><span class="ico-emoji">📋</span> Audit Log',
       desc:    'All recorded system activity',
       url:     '/api/admin/maintenance/audit-log',
       confirm: 'Clear the entire audit log?',
     },
     {
       key:     'attendance',
-      label:   '📅 Attendance Records',
+      label:   '<i data-lucide="calendar"></i><span class="ico-emoji">📅</span> Attendance Records',
       desc:    'All session sign-in / sign-out data',
       url:     '/api/admin/maintenance/attendance',
       confirm: 'Clear all attendance records?',
     },
     {
       key:     'mailshot_log',
-      label:   '✉️ Mailshot History',
+      label:   '<i data-lucide="mail"></i><span class="ico-emoji">✉️</span> Mailshot History',
       desc:    'Log of all sent mailshots',
       url:     '/api/admin/maintenance/mailshot-log',
       confirm: 'Clear the mailshot history?',
     },
     {
       key:     'registrations',
-      label:   '📝 Registration Submissions',
+      label:   '<i data-lucide="file-text"></i><span class="ico-emoji">📝</span> Registration Submissions',
       desc:    'All pending, approved and rejected registration forms',
       url:     '/api/admin/maintenance/registrations',
       confirm: 'Clear all registration submissions?',
@@ -311,6 +311,7 @@
             Clear
           </button>
         </div>`).join('');
+      refreshIcons();
 
       // Update the danger-zone member count label
       const n = counts.members || 0;

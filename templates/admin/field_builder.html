@@ -211,7 +211,7 @@
 
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-primary btn-sm" onclick="addFromCatalogue()">
-        ➕ Save changes &amp; Add to type
+        <i data-lucide="plus"></i><span class="ico-emoji">➕</span> Save changes &amp; Add to type
       </button>
       <button class="btn btn-secondary btn-sm" id="cp-add-only-btn"
               onclick="addFromCatalogueOnly()" title="Add without saving edits">
@@ -317,10 +317,10 @@
       const isProtected = (f.key === 'first_name' || f.key === 'surname');
       const lockBadge   = f.system_field ? `<span class="system-lock" title="System field">🔒</span>` : '';
       const editBtn     = `<button class="btn btn-ghost btn-sm"
-                                   onclick="openFieldEdit(${f.field_id})" title="Edit field definition">✏️</button>`;
+                                   onclick="openFieldEdit(${f.field_id})" title="Edit field definition"><i data-lucide="pen-line"></i><span class="ico-emoji">✏️</span></button>`;
       const removeBtn   = isProtected ? ''
         : `<button class="btn btn-ghost btn-sm" style="color:var(--red)"
-                   onclick="removeField(${f.field_id})" title="Remove from type">✕</button>`;
+                   onclick="removeField(${f.field_id})" title="Remove from type"><i data-lucide="x"></i><span class="ico-emoji">✕</span></button>`;
 
       function pill(key, label, val, tip) {
         return `<button class="toggle-pill ${val ? 'on' : ''}"
@@ -383,6 +383,7 @@
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
+    refreshIcons();
   }
 
   /* ── Edit field modal ─────────────────────────────────────────────── */

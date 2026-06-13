@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.11'  # v12.11: settings batch 5 — alerts, import_history, field_builder, import. Dual-render h1s+icons, modal-backdrop→modal-overlay×3 in alerts, classList open/close, CSS var tokens throughout, hex colors→CSS vars in results cards/info boxes/type badges. v12.10: batch 4
+APP_VERSION = 'v12.12'  # v12.12: dual-render fixes — alerts type picker (calendar/calendar-days/search/hash), field_builder editBtn/removeBtn/addFromCatalogue (pen-line/x/plus) + refreshIcons in renderAssigned, maintenance h2/modal headings (database/upload/download/trash-2/skull/triangle-alert) + MAINTENANCE_ITEMS labels (clipboard-list/calendar/mail/file-text) + refreshIcons after container.innerHTML. v12.11: batch 5
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
