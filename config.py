@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.2'  # v12.2: Members page dual-skin — Formal gets mockup layout (badge rows, segmented section tabs, attendance dot strip with d/m dates, full-row card expansion, tile detail fields); Casual light pixel-identical to v11; casual/formal dark via tokens. v12.1: casual v11 revival
+APP_VERSION = 'v12.3'  # v12.3: approvals/register/calendar dual-skin pass (tokens + casual-light-exact overrides, .ico-emoji switching); self-hosted qrcode.js (CSP fix). v12.2: members dual-skin
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

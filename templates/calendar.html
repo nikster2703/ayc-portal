@@ -3,11 +3,11 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>📅 Term Calendar</h1>
+  <h1><span class="ico-emoji">📅 </span>Term Calendar</h1>
   {% if 'calendar.create' in user_permissions %}
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <button class="btn btn-ghost" onclick="openAddModal()">+ Add Session</button>
-    <button class="btn btn-primary" onclick="openBulkModal()">⚡ Generate Term</button>
+    <button class="btn btn-primary" onclick="openBulkModal()"><span class="ico-emoji">⚡ </span>Generate Term</button>
   </div>
   {% endif %}
 </div>
@@ -65,7 +65,7 @@
 <!-- ── Add single session modal ─────────────────────────────────────── -->
 <div class="modal-overlay" id="add-modal">
   <div class="modal" style="max-width:440px">
-    <h2>➕ Add Session</h2>
+    <h2><span class="ico-emoji">➕ </span>Add Session</h2>
     <div class="form-group">
       <label>Date</label>
       <input id="add-date" type="date">
@@ -105,7 +105,7 @@
 <!-- ── Bulk generate modal ───────────────────────────────────────────── -->
 <div class="modal-overlay" id="bulk-modal">
   <div class="modal" style="max-width:500px">
-    <h2>⚡ Generate Term Sessions</h2>
+    <h2><span class="ico-emoji">⚡ </span>Generate Term Sessions</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:18px">
       Automatically create sessions within a date range. Any sessions that already exist will be skipped.
     </p>
@@ -151,7 +151,7 @@
 
     <!-- Preview -->
     <div id="bulk-preview" style="display:none;background:var(--accent-light);border:1px solid var(--accent);
-         border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:14px;font-weight:700;color:var(--navy)">
+         border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:14px;font-weight:700;color:var(--text)">
     </div>
 
     <div class="modal-footer">
@@ -186,7 +186,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger btn-sm" onclick="deleteSession()" style="margin-right:auto">
-        🗑 Delete
+        <span class="ico-emoji">🗑 </span>Delete
       </button>
       <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
       <button class="btn btn-primary" id="edit-save-btn" onclick="updateSession()">Save</button>
@@ -213,7 +213,7 @@
     min-height: 72px;
     max-height: 72px;
     overflow: hidden;
-    background: white;
+    background: var(--surface);
     border: 1.5px solid var(--border);
     border-radius: 10px;
     padding: 6px 8px;
@@ -221,9 +221,9 @@
     transition: border-color .15s;
   }
   .cal-day.other-month { background: var(--cream); opacity: .45; }
-  .cal-day.today { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,150,180,.15); }
+  .cal-day.today { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
   .cal-day.has-session { cursor: pointer; }
-  .cal-day.has-session:hover { border-color: var(--navy); }
+  .cal-day.has-session:hover { border-color: var(--accent); }
   .cal-day-num {
     font-size: 13px;
     font-weight: 800;
@@ -246,9 +246,9 @@
     text-overflow: ellipsis;
     cursor: pointer;
   }
-  .cal-pill.planned  { background: #dcfce7; color: #166534; }
-  .cal-pill.special  { background: #fef9c3; color: #854d0e; }
-  .cal-pill.cancelled{ background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+  .cal-pill.planned  { background: var(--green-bg); color: var(--green); }
+  .cal-pill.special  { background: var(--amber-bg); color: var(--amber); }
+  .cal-pill.cancelled{ background: var(--red-bg); color: var(--red); text-decoration: line-through; }
 
   /* Session list in sidebar */
   .sess-item {
@@ -258,12 +258,12 @@
     padding: 10px 12px;
     border-radius: 10px;
     border: 1.5px solid var(--border);
-    background: white;
+    background: var(--surface);
     margin-bottom: 8px;
     cursor: pointer;
     transition: border-color .15s;
   }
-  .sess-item:hover { border-color: var(--navy); }
+  .sess-item:hover { border-color: var(--accent); }
   .sess-item .dot {
     width: 10px; height: 10px;
     border-radius: 50%;
@@ -279,9 +279,9 @@
   .sess-item .si-cancelled { text-decoration: line-through; opacity: .6; }
 
   .cal-legend { font-size: 12px; font-weight: 700; color: var(--muted); }
-  .cal-legend.planned  { color: #166534; }
-  .cal-legend.special  { color: #854d0e; }
-  .cal-legend.cancelled{ color: #991b1b; }
+  .cal-legend.planned  { color: var(--green); }
+  .cal-legend.special  { color: var(--amber); }
+  .cal-legend.cancelled{ color: var(--red); }
   .cal-legend.tuesday  { color: var(--accent); }
   .cal-legend.thursday { color: #6d3fa0; }
 
@@ -290,7 +290,7 @@
     align-items: center;
     gap: 6px;
     background: var(--red-bg);
-    border: 1px solid #fca5a5;
+    border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
     color: var(--red);
     border-radius: 8px;
     padding: 3px 10px;
@@ -305,6 +305,20 @@
   @media (max-width: 900px) {
     .cal-grid-wrap { grid-template-columns: 1fr !important; }
   }
+
+  /* ════════ Casual light — v11-exact values ════════ */
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-day { background: white; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-day.today { box-shadow: 0 0 0 2px rgba(0,150,180,.15); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-day.has-session:hover { border-color: var(--navy); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-pill.planned  { background: #dcfce7; color: #166534; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-pill.special  { background: #fef9c3; color: #854d0e; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-pill.cancelled{ background: #fee2e2; color: #991b1b; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .sess-item { background: white; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .sess-item:hover { border-color: var(--navy); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-legend.planned  { color: #166534; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-legend.special  { color: #854d0e; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .cal-legend.cancelled{ color: #991b1b; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .excl-tag { border-color: #fca5a5; }
 </style>
 {% endblock %}
 
@@ -463,7 +477,7 @@
     el.innerHTML = sessions.map(s => {
       const d        = new Date(s.session_date + 'T00:00:00');
       const dateLabel = d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' });
-      const notes    = s.notes ? `<div class="si-notes">📝 ${esc(s.notes)}</div>` : '';
+      const notes    = s.notes ? `<div class="si-notes"><span class="ico-emoji">📝 </span>${esc(s.notes)}</div>` : '';
       const term     = s.term_name ? `<span style="font-size:11px;color:var(--muted)">${esc(s.term_name)}</span>` : '';
       const cancelCls = s.status === 'cancelled' ? ' si-cancelled' : '';
       return `
@@ -664,7 +678,7 @@
     }
     const preview = document.getElementById('bulk-preview');
     preview.style.display = 'block';
-    preview.innerHTML = `📅 This will generate <strong>${count} session${count !== 1 ? 's' : ''}</strong>
+    preview.innerHTML = `<span class="ico-emoji">📅 </span>This will generate <strong>${count} session${count !== 1 ? 's' : ''}</strong>
       from ${esc(new Date(payload.start_date+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}))}
       to ${esc(new Date(payload.end_date+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}))}
       (${esc(payload.days.join(' & '))}${payload.exclude_dates.length ? `, ${payload.exclude_dates.length} dates excluded` : ''}).`;
