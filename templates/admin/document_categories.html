@@ -17,7 +17,8 @@
     border-top: 1px solid var(--border);
   }
   .cat-row:first-child { border-top: none; }
-  .cat-row-icon { font-size: 22px; flex-shrink: 0; }
+  .cat-row-icon { font-size: 22px; flex-shrink: 0; display:flex; align-items:center; }
+  .cat-row-icon .lucide { width: 20px; height: 20px; color: var(--muted); }
   .cat-row-info { flex: 1; min-width: 0; }
   .cat-row-name { font-weight: 700; color: var(--navy); font-size: 14px; }
   .cat-row-desc { font-size: 12px; color: var(--muted); }
@@ -127,7 +128,7 @@
       <div class="cat-list">
         ${categories.map(c => `
           <div class="cat-row">
-            <span class="cat-row-icon">${c.icon || '📄'}</span>
+            <span class="cat-row-icon"><i data-lucide="tag"></i><span class="ico-emoji">${c.icon || '📄'}</span></span>
             <div class="cat-row-info">
               <div class="cat-row-name">
                 ${esc(c.name)}
