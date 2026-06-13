@@ -2016,9 +2016,11 @@
   /* Leaver cards are slightly muted */
   .leaver-card { opacity: .72; }
   .leaver-card .card-head { background: var(--cream); }
-  /* Inactive cards are subtly indicated */
+  /* Inactive cards are subtly indicated — the status badge does the work;
+     head tint only in light mode (looked odd in dark) */
   .inactive-card { opacity: .82; }
   .inactive-card .card-head { background: var(--amber-bg); }
+  html[data-theme="dark"] .inactive-card .card-head { background: transparent; }
   /* v11-exact tint preserved for casual light */
   html[data-skin="casual"]:not([data-theme="dark"]) .inactive-card .card-head { background: #fefce8; }
 
@@ -2075,6 +2077,9 @@
   }
   .members-grid-f .member-card.expanded { grid-column: 1 / -1; cursor: default; }
   .members-grid-f .member-card.expanded:hover { transform: none; }
+  /* Uniform collapsed-card height — reserves room for the extra line that
+     alert-flag badges occupy, so flagged and unflagged cards match */
+  .members-grid-f .member-card:not(.expanded) { min-height: 132px; }
 
   .members-grid-f .card-head { padding: 16px 16px 14px; gap: 13px; }
   .card-name-f {
