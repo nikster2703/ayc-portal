@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.13'  # v12.13: batch 6 — login/registration restyle. index.html: vendor/fonts.css + surface/token fixes. registration_landing/dynamic: drop Google Fonts→fonts.css+shared.css, brand injection+logo, CSS var tokens, violet aliases. registration.html/registration_staff.html: same font+token fix. pages.py: brand passed to registration routes. v12.12: dual-render fixes
+APP_VERSION = 'v12.14'  # v12.14: batch 7 — remaining admin sub-pages. attendance_settings: tokenize casual amber overrides (#fef3c7→var(--amber-bg), #fcd34d→color-mix, #78350f→var(--amber)), white→var(--cream) for qr-toggle-card, dual-render ⚠️ in safeguarding note. member_types: rgba box-shadow→color-mix(accent). smtp_profiles: #dc2626→var(--red). system_logs: outer border #1e293b→var(--border), dual-render ⚠️/🔴 level-btn icons. session_types/payments/staff_roles: clean.
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

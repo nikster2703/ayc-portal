@@ -101,7 +101,7 @@
       _profiles = Array.isArray(res) ? res : [];
     } catch (e) {
       document.getElementById('profiles-list').innerHTML =
-        `<p style="color:#dc2626;font-size:14px">Could not load profiles: ${esc(e.message)}</p>`;
+        `<p style="color:var(--red);font-size:14px">Could not load profiles: ${esc(e.message)}</p>`;
       return;
     }
     renderProfiles();

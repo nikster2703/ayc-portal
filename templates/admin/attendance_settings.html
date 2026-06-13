@@ -50,12 +50,12 @@
     line-height: 1.6;
   }
   html[data-skin="casual"]:not([data-theme="dark"]) .safeguarding-note {
-    background: #fef3c7;
-    border-color: #fcd34d;
-    color: #78350f;
+    background: var(--amber-bg);
+    border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+    color: var(--amber);
   }
   html[data-skin="casual"]:not([data-theme="dark"]) .qr-toggle-card {
-    background: white;
+    background: var(--cream);
   }
 </style>
 
@@ -107,7 +107,7 @@
 
   <!-- Safeguarding warning -->
   <div id="signout-warning" class="safeguarding-note">
-    ⚠️ <strong>Safeguarding note:</strong> Only enable QR sign-out if your organisation
+    <i data-lucide="triangle-alert"></i><span class="ico-emoji">⚠️</span> <strong>Safeguarding note:</strong> Only enable QR sign-out if your organisation
     does <em>not</em> require a guardian to be physically present at sign-out. For youth clubs
     where a parent or carer must collect the child, leave this <strong>off</strong> — sign-out
     should be confirmed by a leader at the iPad.

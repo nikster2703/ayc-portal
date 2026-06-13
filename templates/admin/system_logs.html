@@ -19,8 +19,8 @@
   <!-- Level filter -->
   <div style="display:flex;gap:0;border:2px solid var(--border);border-radius:8px;overflow:hidden">
     <button id="lvl-all"   class="level-btn active" onclick="setLevel('all')">All</button>
-    <button id="lvl-warn"  class="level-btn"        onclick="setLevel('warn')">⚠️ Warnings+</button>
-    <button id="lvl-error" class="level-btn"        onclick="setLevel('error')">🔴 Errors</button>
+    <button id="lvl-warn"  class="level-btn"        onclick="setLevel('warn')"><i data-lucide="triangle-alert"></i><span class="ico-emoji">⚠️</span> Warnings+</button>
+    <button id="lvl-error" class="level-btn"        onclick="setLevel('error')"><i data-lucide="circle-alert"></i><span class="ico-emoji">🔴</span> Errors</button>
   </div>
 
   <!-- Line count -->
@@ -42,7 +42,7 @@
 </div>
 
 <!-- ── Log viewer ──────────────────────────────────────────────────── -->
-<div id="log-outer" style="border:2px solid #1e293b;border-radius:12px;overflow:hidden">
+<div id="log-outer" style="border:2px solid var(--border);border-radius:12px;overflow:hidden">
   <div id="truncation-banner" style="display:none;background:#1e293b;color:#94a3b8;
        padding:6px 14px;font-size:12px;font-family:monospace;border-bottom:1px solid #334155">
   </div>
