@@ -83,7 +83,7 @@
   {% if 'register.export' in user_permissions %}
   <button id="export-register-btn"
           onclick="openExportRegister()"
-          style="display:none;background:#1e3a5f;color:#fff;border:none;
+          style="display:none;background:var(--navy);color:#fff;border:none;
                  border-radius:8px;padding:8px 14px;font-size:13px;
                  font-weight:700;cursor:pointer;white-space:nowrap">
     <span class="ico-emoji">📄 </span>Export Complete Register
@@ -609,12 +609,12 @@
   html[data-skin="casual"]:not([data-theme="dark"]) .btn-confirm-no:hover { background: #f1f5f9; }
   html[data-skin="casual"]:not([data-theme="dark"]) .reg-tab-btn { background: white; font-family: 'Nunito', sans-serif; }
   html[data-skin="casual"]:not([data-theme="dark"]) .reg-tab-btn.active { background: var(--navy); border-color: var(--navy); color: white; }
-  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.staff-card.state-in { background: #f5f3ff; border-color: #c4b5fd; }
-  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.staff-card .reg-card__role { color: #7c3aed; }
-  html[data-skin="casual"]:not([data-theme="dark"]) .qr-panel { background: #f0f9ff; border-color: #bae6fd; }
-  html[data-skin="casual"]:not([data-theme="dark"]) .qr-title { color: #0c4a6e; }
-  html[data-skin="casual"]:not([data-theme="dark"]) .qr-stats { color: #0369a1; }
-  html[data-skin="casual"]:not([data-theme="dark"]) .qr-regen-btn { background: #fff; border-color: #0096b4; color: #0096b4; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.staff-card.state-in { background: var(--violet-bg); border-color: color-mix(in srgb, var(--violet) 30%, transparent); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.staff-card .reg-card__role { color: var(--violet); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-panel { background: color-mix(in srgb, var(--accent) 8%, white); border-color: color-mix(in srgb, var(--accent) 25%, white); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-title { color: var(--navy); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-stats { color: var(--accent); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-regen-btn { background: #fff; border-color: var(--accent); color: var(--accent); }
   html[data-skin="casual"]:not([data-theme="dark"]) .locked-banner { background: #f0fdf4; border-color: #86efac; }
   html[data-skin="casual"]:not([data-theme="dark"]) .locked-text { color: #166534; }
   html[data-skin="casual"]:not([data-theme="dark"]) .session-log { border-color: #ccfbf1; background: #f0fdfa; }

@@ -1202,7 +1202,7 @@
                          letter-spacing:.06em;color:var(--muted)">Current period: ${esc(period)}</span>
             <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;
                          background:${isPaid ? '#22c55e20' : '#ef444420'};
-                         color:${isPaid ? '#16a34a' : '#dc2626'};
+                         color:${isPaid ? 'var(--green)' : 'var(--red)'};
                          border:1px solid ${isPaid ? '#22c55e40' : '#ef444440'}">
               ${isPaid ? '✓ Paid' : '✗ Unpaid'}
             </span>
@@ -1243,7 +1243,7 @@
               const amtStr = p.amount != null ? `£${parseFloat(p.amount).toFixed(2)}` : '—';
               const voidBadge = voided
                 ? `<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;
-                              background:#ef444420;color:#dc2626;border:1px solid #ef444440;
+                              background:#ef444420;color:var(--red);border:1px solid #ef444440;
                               margin-left:4px">VOID</span>` : '';
               const cellBorder = hasActions ? 'border-bottom:none' : 'border-bottom:1px solid var(--border)';
               const actionRow = hasActions
