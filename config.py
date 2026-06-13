@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.5'  # v12.5: documents + comms dual-skin restyle — color-coded file type cards (fixed height, pinned meta row, icon action buttons), comms panel headers + recipient count box, token-based colors. v12.4: casual padding fix
+APP_VERSION = 'v12.6'  # v12.6: audit log dual-skin restyle — styled toolbar, dual-render action icons (Lucide SVG formal / emoji casual) for all 80+ action types, refreshIcons() after render. v12.5: documents + comms
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
