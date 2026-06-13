@@ -3,15 +3,15 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>📋 Registration Approvals</h1>
+  <h1><span class="ico-emoji">📋 </span>Registration Approvals</h1>
   <div class="count-pill" id="pending-count" style="cursor:default">—</div>
 </div>
 
 <!-- Tab bar -->
 <div style="display:flex;gap:6px;margin-bottom:20px">
-  <button class="tab-btn active" data-tab="pending"  onclick="switchTab('pending')">⏳ Pending</button>
-  <button class="tab-btn"        data-tab="approved" onclick="switchTab('approved')">✅ Approved</button>
-  <button class="tab-btn"        data-tab="rejected" onclick="switchTab('rejected')">❌ Rejected</button>
+  <button class="tab-btn active" data-tab="pending"  onclick="switchTab('pending')"><span class="ico-emoji">⏳ </span>Pending</button>
+  <button class="tab-btn"        data-tab="approved" onclick="switchTab('approved')"><span class="ico-emoji">✅ </span>Approved</button>
+  <button class="tab-btn"        data-tab="rejected" onclick="switchTab('rejected')"><span class="ico-emoji">❌ </span>Rejected</button>
 </div>
 
 <div id="approvals-container">
@@ -81,9 +81,9 @@
               <option value="">Loading roles…</option>
             </select>
           </div>
-          <div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;
-                      padding:10px 12px;font-size:12px;color:#0369a1;margin-top:2px">
-            <strong>📍 Session:</strong>
+          <div class="info-note" style="border-radius:8px;
+                      padding:10px 12px;font-size:12px;margin-top:2px">
+            <strong><span class="ico-emoji">📍 </span>Session:</strong>
             <span id="portal-session-label" style="margin-left:4px">—</span>
             <span style="color:var(--muted);margin-left:6px">(inherited from the session assigned above)</span>
           </div>
@@ -96,7 +96,7 @@
 
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeApprovalModals()">Cancel</button>
-      <button class="btn btn-primary" id="approve-save-btn" onclick="confirmApprove()">✅ Approve</button>
+      <button class="btn btn-primary" id="approve-save-btn" onclick="confirmApprove()"><span class="ico-emoji">✅ </span>Approve</button>
     </div>
   </div>
 </div>
@@ -116,7 +116,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeApprovalModals()">Cancel</button>
-      <button class="btn btn-danger" id="reject-save-btn" onclick="confirmReject()">❌ Reject</button>
+      <button class="btn btn-danger" id="reject-save-btn" onclick="confirmReject()"><span class="ico-emoji">❌ </span>Reject</button>
     </div>
   </div>
 </div>
@@ -128,9 +128,9 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background: #ede9fe;
-    color: #7c3aed;
-    border: 1.5px solid #c4b5fd;
+    background: var(--violet-bg);
+    color: var(--violet);
+    border: 1px solid color-mix(in srgb, var(--violet) 30%, transparent);
     border-radius: 6px;
     padding: 2px 9px;
     font-size: 11px;
@@ -141,6 +141,19 @@
   }
   #login-fields { display: none; }
   #login-fields.visible { display: flex; }
+
+  /* Portal-session info note — tokens by default, v11-exact in casual light */
+  .info-note {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-ring);
+    color: var(--accent);
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .info-note {
+    background: #f0f9ff; border: 1.5px solid #bae6fd; color: #0369a1;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .badge-staff {
+    background: #ede9fe; color: #7c3aed; border: 1.5px solid #c4b5fd;
+  }
 </style>
 <script>
   const USER_ROLE    = "{{ current_role }}";  // kept for display
@@ -249,7 +262,7 @@
           : `<span class="badge badge-ro">Pending</span>`;
 
       const staffBadge = isStaff
-        ? `<span class="badge-staff">🧑‍🤝‍🧑 Staff${r.applicant_role ? ' — ' + esc(r.applicant_role) : ''}</span>`
+        ? `<span class="badge-staff"><span class="ico-emoji">🧑‍🤝‍🧑 </span>Staff${r.applicant_role ? ' — ' + esc(r.applicant_role) : ''}</span>`
         : '';
 
       const reviewedLine = (r.reviewed_by_name && r.reviewed_at)
@@ -292,10 +305,10 @@
                data-type="${esc(r.registration_type || 'member')}"
                data-role="${esc(r.applicant_role || '')}"
                data-session="${esc(r.assigned_session || '')}"
-               onclick="openApproveModal(this.dataset.id, this.dataset.name, this.dataset.type, this.dataset.role, this.dataset.session)">✅ Approve</button>
+               onclick="openApproveModal(this.dataset.id, this.dataset.name, this.dataset.type, this.dataset.role, this.dataset.session)"><span class="ico-emoji">✅ </span>Approve</button>
              <button class="btn btn-danger btn-sm"
                data-id="${r.id}" data-name="${name}"
-               onclick="openRejectModal(this.dataset.id, this.dataset.name)">❌ Reject</button>
+               onclick="openRejectModal(this.dataset.id, this.dataset.name)"><span class="ico-emoji">❌ </span>Reject</button>
            </div>`
         : '';
 
@@ -336,8 +349,8 @@
     document.getElementById('approve-staff-section').style.display  = isStaff ? ''     : 'none';
     document.getElementById('approve-modal-title').textContent =
       isStaff ? 'Approve Staff Registration' : 'Approve Registration';
-    document.getElementById('approve-save-btn').textContent =
-      isStaff ? '✅ Approve & Add Staff Member' : '✅ Approve & Create Member';
+    document.getElementById('approve-save-btn').innerHTML =
+      isStaff ? '<span class="ico-emoji">✅ </span>Approve & Add Staff Member' : '<span class="ico-emoji">✅ </span>Approve & Create Member';
 
     // For scoped roles (non-admin), pre-fill and lock the session to their own
     const memberSessSel = document.getElementById('approve-session');
@@ -478,7 +491,7 @@
     if (value === null || value === undefined || value === '') return '—';
     switch (fieldType) {
       case 'boolean':
-      case 'declaration': return value ? '✅ Yes' : '❌ No';
+      case 'declaration': return value ? '<span class="ico-emoji">✅ </span>Yes' : '<span class="ico-emoji">❌ </span>No';
       case 'date':        return fmtDate(String(value));
       default:            return esc(String(value));
     }
