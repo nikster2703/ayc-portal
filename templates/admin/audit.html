@@ -199,6 +199,12 @@
       </optgroup>
     </select>
     <div class="count-pill" id="entry-count" style="cursor:default">—</div>
+    <select class="session-select" id="per-page-select" onchange="onPerPageChange()" title="Rows per page">
+      <option value="25">25 / page</option>
+      <option value="50">50 / page</option>
+      <option value="75">75 / page</option>
+      <option value="100">100 / page</option>
+    </select>
     <button class="btn btn-ghost btn-sm" onclick="downloadCSV()" title="Download as CSV">
       <i data-lucide="download"></i><span class="ico-emoji">⬇️</span> CSV
     </button>
@@ -212,8 +218,10 @@
 
 {% block scripts %}
 <script>
-  let allEntries  = [];
+  let allEntries   = [];
   let _usersLoaded = false;
+  let _currentPage = 1;
+  let _perPage     = 25;
 
   // Each entry: icon (emoji, shown in casual), lucide (icon name, shown in formal), label, colour
   const ACTION_LABELS = {
@@ -327,7 +335,7 @@
   };
 
   function _buildParams() {
-    const p = new URLSearchParams({ limit: 1000 });
+    const p = new URLSearchParams({ limit: 2000 });
     const action    = document.getElementById('action-filter').value;
     const userId    = document.getElementById('user-filter').value;
     const dateFrom  = document.getElementById('f-date-from').value;
@@ -357,10 +365,11 @@
         }).catch(() => {});
       }
 
-      allEntries = await apiFetch(`/api/admin/audit?${_buildParams()}`);
+      allEntries   = await apiFetch(`/api/admin/audit?${_buildParams()}`);
+      _currentPage = 1;
       document.getElementById('entry-count').textContent =
         `${allEntries.length.toLocaleString()} entries`;
-      renderLog(allEntries);
+      renderLog();
     } catch (e) {
       document.getElementById('audit-container').innerHTML = `
         <div class="alert-box err"><strong>⚠️ Could not load audit log</strong> — ${esc(e.message)}</div>`;
@@ -374,14 +383,35 @@
     window.location.href = `/api/admin/audit/export.csv?${p}`;
   }
 
-  function renderLog(entries) {
+  function onPerPageChange() {
+    _perPage     = parseInt(document.getElementById('per-page-select').value, 10);
+    _currentPage = 1;
+    renderLog();
+  }
+
+  function setPage(n) {
+    const total = allEntries.length;
+    const pages = Math.max(1, Math.ceil(total / _perPage));
+    _currentPage = Math.max(1, Math.min(n, pages));
+    renderLog();
+    document.getElementById('audit-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderLog() {
     const container = document.getElementById('audit-container');
-    if (!entries.length) {
+    if (!allEntries.length) {
       container.innerHTML = `<div class="empty-state">No audit entries found.</div>`;
       return;
     }
 
-    const rows = entries.map(e => {
+    const total  = allEntries.length;
+    const pages  = Math.max(1, Math.ceil(total / _perPage));
+    _currentPage = Math.max(1, Math.min(_currentPage, pages));
+    const start  = (_currentPage - 1) * _perPage;
+    const end    = Math.min(start + _perPage, total);
+    const slice  = allEntries.slice(start, end);
+
+    const rows = slice.map(e => {
       const info    = ACTION_LABELS[e.action] || ACTION_LABELS.default;
       const details = parseDetails(e.details);
       const ts      = e.timestamp
@@ -404,6 +434,21 @@
         </tr>`;
     }).join('');
 
+    // Build page number buttons (show up to 7 around current page)
+    let pageNums = '';
+    if (pages > 1) {
+      const lo = Math.max(1, _currentPage - 3);
+      const hi = Math.min(pages, _currentPage + 3);
+      if (lo > 1) pageNums += `<button class="audit-pager-btn" onclick="setPage(1)">1</button>`;
+      if (lo > 2) pageNums += `<span style="color:var(--muted);padding:0 2px">…</span>`;
+      for (let i = lo; i <= hi; i++) {
+        pageNums += `<button class="audit-pager-btn" onclick="setPage(${i})"
+          style="${i === _currentPage ? 'background:var(--accent);color:white;border-color:var(--accent)' : ''}">${i}</button>`;
+      }
+      if (hi < pages - 1) pageNums += `<span style="color:var(--muted);padding:0 2px">…</span>`;
+      if (hi < pages)     pageNums += `<button class="audit-pager-btn" onclick="setPage(${pages})">${pages}</button>`;
+    }
+
     container.innerHTML = `
       <table class="data-table">
         <thead>
@@ -416,7 +461,24 @@
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      ${pages > 1 ? `
+      <div class="audit-pager">
+        <span class="audit-pager-info">
+          Showing ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()} entries
+        </span>
+        <div class="audit-pager-btns">
+          <button class="audit-pager-btn" onclick="setPage(${_currentPage - 1})"
+                  ${_currentPage <= 1 ? 'disabled' : ''}>
+            <i data-lucide="chevron-left"></i> Prev
+          </button>
+          ${pageNums}
+          <button class="audit-pager-btn" onclick="setPage(${_currentPage + 1})"
+                  ${_currentPage >= pages ? 'disabled' : ''}>
+            Next <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+      </div>` : ''}`;
 
     // Activate Lucide icons injected into the newly rendered rows
     refreshIcons();

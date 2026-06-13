@@ -719,3 +719,42 @@ body {
   border-top: 1px solid var(--border); background: var(--surface);
 }
 .footer-version { font-weight: 700; letter-spacing: .04em; color: var(--accent); opacity: .7; }
+
+/* ── Page-transition slide (nav clicks) ─────────────────────────────── */
+@keyframes _page-in {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes _page-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(-28px); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .page-content {
+    animation: _page-in .22s cubic-bezier(.25,.46,.45,.94) both;
+  }
+  .page-content.page-exit {
+    animation: _page-out .17s cubic-bezier(.55,0,1,.45) both;
+    pointer-events: none;
+  }
+}
+
+/* ── Audit pagination controls ───────────────────────────────────────── */
+.audit-pager {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  padding: 14px 0 4px;
+  font-size: 13px; color: var(--muted);
+}
+.audit-pager-btns { display: flex; align-items: center; gap: 6px; }
+.audit-pager-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  cursor: pointer; transition: background .14s, border-color .14s;
+}
+.audit-pager-btn:hover:not(:disabled) {
+  background: var(--surface-2); border-color: var(--accent);
+}
+.audit-pager-btn:disabled { opacity: .38; cursor: default; }
+.audit-pager-info { font-weight: 500; }
