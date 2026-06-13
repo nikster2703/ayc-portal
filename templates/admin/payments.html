@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>💳 Payment Settings</h1>
+  <h1><i data-lucide="credit-card"></i><span class="ico-emoji">💳</span> Payment Settings</h1>
 </div>
 
 <!-- ── Current Membership Period ──────────────────────────────────────── -->
@@ -164,15 +164,12 @@
           </tr>
         </thead>
         <tbody>
-          ${_types.map(t => `
+          ${_types.map(t => /* payment type row */ `
             <tr>
               <td style="padding:7px 8px 7px 0;border-bottom:1px solid var(--border);font-weight:600">${esc(t.name)}</td>
               <td style="padding:7px 8px;border-bottom:1px solid var(--border);color:var(--muted)">${esc(t.description || '—')}</td>
               <td style="padding:7px 8px;border-bottom:1px solid var(--border)">
-                <span style="font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;
-                             background:${t.active ? '#22c55e20' : '#64748b20'};
-                             color:${t.active ? '#16a34a' : '#64748b'};
-                             border:1px solid ${t.active ? '#22c55e40' : '#64748b40'}">
+                <span class="badge ${t.active ? 'badge-active' : 'badge-inactive'}">
                   ${t.active ? 'Active' : 'Inactive'}
                 </span>
               </td>
@@ -186,6 +183,7 @@
             </tr>`).join('')}
         </tbody>
       </table>`;
+    refreshIcons();
   }
 
   function renderMethods() {
@@ -208,10 +206,7 @@
             <tr>
               <td style="padding:7px 8px 7px 0;border-bottom:1px solid var(--border);font-weight:600">${esc(m.name)}</td>
               <td style="padding:7px 8px;border-bottom:1px solid var(--border)">
-                <span style="font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;
-                             background:${m.active ? '#22c55e20' : '#64748b20'};
-                             color:${m.active ? '#16a34a' : '#64748b'};
-                             border:1px solid ${m.active ? '#22c55e40' : '#64748b40'}">
+                <span class="badge ${m.active ? 'badge-active' : 'badge-inactive'}">
                   ${m.active ? 'Active' : 'Inactive'}
                 </span>
               </td>
@@ -225,6 +220,7 @@
             </tr>`).join('')}
         </tbody>
       </table>`;
+    refreshIcons();
   }
 
   // ── Current period ─────────────────────────────────────────────────────────
@@ -246,7 +242,7 @@
         body: JSON.stringify({ period, period_start: periodStart || null, period_end: periodEnd || null }),
       });
       msgEl.textContent = `✓ Current period set to "${period}"`;
-      msgEl.style.color = '#16a34a';
+      msgEl.style.color = 'var(--green)';
       msgEl.style.display = '';
     } catch(e) {
       msgEl.textContent = e.message || 'Could not save period.';

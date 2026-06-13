@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
   <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none">← Settings</a>
-  <h1 style="margin-top:10px">🖥️ System Logs</h1>
+  <h1 style="margin-top:10px"><i data-lucide="monitor"></i><span class="ico-emoji">🖥️</span> System Logs</h1>
 </div>
 
 <!-- ── Toolbar ──────────────────────────────────────────────────────── -->
@@ -28,10 +28,16 @@
 
   <!-- Right-side actions -->
   <div style="margin-left:auto;display:flex;gap:8px">
-    <button class="btn btn-ghost btn-sm" onclick="loadLog()" title="Refresh">🔄 Refresh</button>
-    <button class="btn btn-ghost btn-sm" onclick="downloadLog()" title="Download current file">⬇️ Download</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadLog()" title="Refresh">
+      <i data-lucide="refresh-cw"></i><span class="ico-emoji">🔄</span> Refresh
+    </button>
+    <button class="btn btn-ghost btn-sm" onclick="downloadLog()" title="Download current file">
+      <i data-lucide="download"></i><span class="ico-emoji">⬇️</span> Download
+    </button>
     <button class="btn btn-ghost btn-sm" onclick="clearLog()" title="Clear current log file"
-            style="color:var(--red)">🗑 Clear Log</button>
+            style="color:var(--red)">
+      <i data-lucide="trash-2"></i><span class="ico-emoji">🗑</span> Clear Log
+    </button>
   </div>
 </div>
 
@@ -54,7 +60,7 @@
 {% block scripts %}
 <style>
   .level-btn {
-    background: white;
+    background: var(--surface);
     border: none;
     padding: 5px 12px;
     font-size: 12px;
@@ -65,7 +71,7 @@
   }
   .level-btn:not(:last-child) { border-right: 2px solid var(--border); }
   .level-btn.active { background: var(--navy); color: white; }
-  .level-btn:hover:not(.active) { background: var(--cream); }
+  .level-btn:hover:not(.active) { background: var(--accent-soft); }
 </style>
 <script>
   let allLines    = [];
@@ -253,5 +259,6 @@
 
   // ── Boot ───────────────────────────────────────────────────────────
   loadFileList();
+  refreshIcons(); // activate Lucide icons in static toolbar buttons
 </script>
 {% endblock %}

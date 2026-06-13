@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.8'  # v12.8: settings batch 2 — tags, member_statuses, roles, document_fields, users. Dual-render h1s, BEH_LABELS CSS vars, tokenised amber/red/green badges, .modal-overlay for roles modal, refreshIcons() on all JS-rendered lists. v12.7: batch 1
+APP_VERSION = 'v12.9'  # v12.9: settings batch 3 — smtp_profiles, member_types, payments, system_logs. Dual-render h1s, .modal-overlay for smtp modal, CSS var tokens throughout, badge hex replaced, .level-btn fixed, toolbar dual-render. v12.8: batch 2
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

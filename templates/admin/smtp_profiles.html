@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-  <h1>📧 Email Senders</h1>
+  <h1><i data-lucide="mail"></i><span class="ico-emoji">📧</span> Email Senders</h1>
   <button class="btn btn-primary" onclick="openModal()">+ Add Sender</button>
 </div>
 
@@ -21,18 +21,18 @@
 </div>
 
 <!-- ── Add / Edit Modal ─────────────────────────────────────────────────── -->
-<div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:480px;box-shadow:0 8px 40px rgba(0,0,0,.18)">
+<div id="smtp-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:480px">
     <h2 id="modal-title" style="font-size:17px;font-weight:900;color:var(--navy);margin-bottom:20px">Add Email Sender</h2>
 
     <div style="display:grid;gap:14px">
       <div>
-        <label class="form-label">Display Name <span style="color:#dc2626">*</span></label>
+        <label class="form-label">Display Name <span style="color:var(--red)">*</span></label>
         <input id="f-name" class="form-input" placeholder="e.g. Secretary, Club Chair">
       </div>
       <div style="display:grid;grid-template-columns:1fr 100px;gap:10px">
         <div>
-          <label class="form-label">SMTP Host <span style="color:#dc2626">*</span></label>
+          <label class="form-label">SMTP Host <span style="color:var(--red)">*</span></label>
           <input id="f-host" class="form-input" placeholder="smtp.gmail.com">
         </div>
         <div>
@@ -41,11 +41,11 @@
         </div>
       </div>
       <div>
-        <label class="form-label">Username / Email <span style="color:#dc2626">*</span></label>
+        <label class="form-label">Username / Email <span style="color:var(--red)">*</span></label>
         <input id="f-username" class="form-input" type="email" placeholder="sender@gmail.com">
       </div>
       <div>
-        <label class="form-label" id="f-password-label">App Password <span style="color:#dc2626">*</span></label>
+        <label class="form-label" id="f-password-label">App Password <span style="color:var(--red)">*</span></label>
         <input id="f-password" class="form-input" type="password" placeholder="16-character Gmail App Password" autocomplete="new-password">
         <p id="f-password-hint" style="font-size:12px;color:var(--muted);margin-top:4px;display:none">Leave blank to keep the existing password.</p>
       </div>
@@ -78,9 +78,9 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    background: #fff;
+    background: var(--surface);
   }
-  .profile-card.is-default { border-color: var(--accent); background: #f0fafc; }
+  .profile-card.is-default { border-color: var(--accent); background: var(--accent-soft); }
   .profile-meta { flex: 1; min-width: 0; }
   .profile-name { font-weight: 800; font-size: 15px; color: var(--navy); }
   .profile-detail { font-size: 13px; color: var(--muted); margin-top: 2px; }
@@ -113,9 +113,12 @@
       el.innerHTML = '<p style="color:var(--muted);font-size:14px">No sender profiles yet — add one above.</p>';
       return;
     }
-    el.innerHTML = _profiles.map(p => `
+    el.innerHTML = _profiles.map(p => /* smtp card */ `
       <div class="profile-card ${p.is_default ? 'is-default' : ''}">
-        <div style="font-size:28px">📧</div>
+        <div style="font-size:28px;display:flex;align-items:center">
+          <i data-lucide="mail" style="width:28px;height:28px;color:var(--accent)"></i>
+          <span class="ico-emoji">📧</span>
+        </div>
         <div class="profile-meta">
           <div class="profile-name">
             ${esc(p.name)}
@@ -128,10 +131,11 @@
           ${!p.is_default ? `<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="setDefault(${p.id})">Set default</button>` : ''}
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="testProfile(${p.id}, this)">Test</button>
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openModal(${p.id})">Edit</button>
-          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fecaca" onclick="deleteProfile(${p.id}, '${esc(p.name)}', ${p.is_default ? 'true' : 'false'}, ${_profiles.length})">Delete</button>
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,var(--border))" onclick="deleteProfile(${p.id}, '${esc(p.name)}', ${p.is_default ? 'true' : 'false'}, ${_profiles.length})">Delete</button>
         </div>
       </div>
     `).join('');
+    refreshIcons();
   }
 
   function openModal(id) {
@@ -150,18 +154,14 @@
     document.getElementById('f-password-hint').style.display = p ? 'block' : 'none';
     document.getElementById('f-password-label').innerHTML  = p
       ? 'App Password'
-      : 'App Password <span style="color:#dc2626">*</span>';
+      : 'App Password <span style="color:var(--red)">*</span>';
 
-    const overlay = document.getElementById('modal-overlay');
-    overlay.hidden = false;
-    overlay.style.display = 'flex';
+    document.getElementById('smtp-modal').classList.add('open');
     document.getElementById('f-name').focus();
   }
 
   function closeModal() {
-    const overlay = document.getElementById('modal-overlay');
-    overlay.hidden = true;
-    overlay.style.display = 'none';
+    document.getElementById('smtp-modal').classList.remove('open');
   }
 
   async function saveProfile() {
@@ -223,11 +223,6 @@
     showToast('Profile deleted.');
     loadProfiles();
   }
-
-  // Close on backdrop click
-  document.getElementById('modal-overlay').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-  });
 
   loadProfiles();
 </script>
