@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.3'  # v12.3: approvals/register/calendar dual-skin pass (tokens + casual-light-exact overrides, .ico-emoji switching); self-hosted qrcode.js (CSP fix). v12.2: members dual-skin
+APP_VERSION = 'v12.4'  # v12.4: fix casual light card padding — scoped universal reset in skin-casual.css had specificity 0,2,1 overriding template class rules (0,1,0). v12.3: approvals/register/calendar dual-skin pass
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
