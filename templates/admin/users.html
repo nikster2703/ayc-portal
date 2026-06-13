@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>⚙️ User Management</h1>
+  <h1><i data-lucide="users"></i><span class="ico-emoji">👥</span> User Management</h1>
   <button class="btn btn-primary" onclick="openAddModal()">+ Add User</button>
 </div>
 
@@ -18,7 +18,7 @@
     <!-- Step 1 -->
     <div id="udel-step1">
       <h2 style="color:var(--red)">⚠️ Permanently Delete User</h2>
-      <div style="background:var(--red-bg);border:1.5px solid #fca5a5;border-radius:10px;
+      <div style="background:var(--red-bg);border:1.5px solid color-mix(in srgb,var(--red) 30%,var(--border));border-radius:10px;
                   padding:14px 16px;margin:16px 0">
         <p style="font-weight:800;color:var(--red);margin-bottom:8px" id="udel-warning"></p>
         <p style="font-size:13px;color:var(--red)">
@@ -185,7 +185,7 @@
     if (!names || !names.length) return '<span style="color:var(--muted)">—</span>';
     return names.map(n =>
       `<span style="display:inline-block;font-size:11px;padding:2px 7px;border-radius:12px;
-                    background:var(--accent-light,#e0f2fe);color:var(--accent);
+                    background:var(--accent-soft);color:var(--accent);
                     font-weight:600;margin:1px 2px">${esc(n)}</span>`
     ).join('');
   }
@@ -218,7 +218,7 @@
             ${CAN_CREATE_ADMIN ? `<button class="btn btn-ghost btn-sm"
                     style="color:var(--red);opacity:.7;font-size:11px"
                     onclick="openPermDeleteUserModal(${u.id}, '${esc(u.username)}')">
-              🗑 Delete
+              <i data-lucide="trash-2"></i><span class="ico-emoji">🗑</span> Delete
             </button>` : ''}
           </div>
         </td>
@@ -235,6 +235,7 @@
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
+    refreshIcons();
   }
 
   /* ── Session checkbox helpers ──────────────────────── */

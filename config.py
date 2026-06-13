@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.7'  # v12.7: settings batch 1 — hub + session_types + staff_roles + attendance + doc_categories. Dual-render icons, .badge-inactive token, tokenised danger/amber colours. v12.6: audit log
+APP_VERSION = 'v12.8'  # v12.8: settings batch 2 — tags, member_statuses, roles, document_fields, users. Dual-render h1s, BEH_LABELS CSS vars, tokenised amber/red/green badges, .modal-overlay for roles modal, refreshIcons() on all JS-rendered lists. v12.7: batch 1
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

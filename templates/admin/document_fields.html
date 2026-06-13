@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>🗂 Document Field Definitions</h1>
+  <h1><i data-lucide="layout-grid"></i><span class="ico-emoji">🗂</span> Document Field Definitions</h1>
   <a href="/admin/document-categories" class="btn btn-ghost">← Back to Categories</a>
 </div>
 
@@ -154,7 +154,7 @@
           <div data-field-id="${f.id}" style="
                display:flex;align-items:flex-start;gap:12px;padding:12px 16px;
                ${i > 0 ? 'border-top:1px solid var(--border)' : ''}
-               ${inactive ? 'opacity:.5;background:#f8f8f8' : ''}">
+               ${inactive ? 'opacity:.5;background:var(--surface-2)' : ''}">
 
             <!-- Reorder arrows -->
             <div style="display:flex;flex-direction:column;gap:2px;padding-top:2px;flex-shrink:0">
@@ -173,8 +173,8 @@
                 <span class="badge" style="background:var(--accent);color:white;font-size:10px">
                   ${esc(TYPE_LABELS[f.field_type] || f.field_type)}
                 </span>
-                ${f.required ? `<span class="badge" style="background:#dc2626;color:white;font-size:10px">Required</span>` : ''}
-                ${inactive   ? `<span class="badge" style="background:#94a3b8;color:white;font-size:10px">Inactive</span>` : ''}
+                ${f.required ? `<span class="badge" style="background:var(--red);color:white;font-size:10px">Required</span>` : ''}
+                ${inactive   ? `<span class="badge badge-inactive" style="font-size:10px">Inactive</span>` : ''}
               </div>
               ${f.help_text ? `<div style="font-size:12px;color:var(--muted);margin-top:3px">${esc(f.help_text)}</div>` : ''}
               ${f.placeholder && f.field_type !== 'boolean' && f.field_type !== 'member_ref'
@@ -185,16 +185,23 @@
             <!-- Actions -->
             <div style="display:flex;gap:6px;flex-shrink:0">
               ${!inactive ? `
-              <button class="btn btn-ghost btn-sm" onclick='openEditModal(${f.id})'>✏️ Edit</button>
+              <button class="btn btn-ghost btn-sm" onclick='openEditModal(${f.id})'>
+                <i data-lucide="pen-line"></i><span class="ico-emoji">✏️</span> Edit
+              </button>
               <button class="btn btn-danger btn-sm" onclick='deactivateField(${f.id}, ${JSON.stringify(f.label)})'>
                 Deactivate
               </button>` : `
-              <button class="btn btn-ghost btn-sm" onclick='reactivateField(${f.id})'>↩ Restore</button>
-              <button class="btn btn-danger btn-sm" onclick='deleteField(${f.id}, ${JSON.stringify(f.label)})'>🗑 Delete</button>`}
+              <button class="btn btn-ghost btn-sm" onclick='reactivateField(${f.id})'>
+                <i data-lucide="rotate-ccw"></i><span class="ico-emoji">↩</span> Restore
+              </button>
+              <button class="btn btn-danger btn-sm" onclick='deleteField(${f.id}, ${JSON.stringify(f.label)})'>
+                <i data-lucide="trash-2"></i><span class="ico-emoji">🗑</span> Delete
+              </button>`}
             </div>
           </div>`;
         }).join('')}
       </div>`;
+    refreshIcons();
   }
 
   /* ── Reorder ─────────────────────────────────────────────────────────── */

@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>🔄 Member Statuses</h1>
+  <h1><i data-lucide="refresh-cw"></i><span class="ico-emoji">🔄</span> Member Statuses</h1>
 </div>
 
 <div class="form-card" style="max-width:680px">
@@ -17,15 +17,15 @@
   </p>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
     <span style="font-size:12px;padding:3px 10px;border-radius:20px;
-                 background:#22c55e20;color:#22c55e;border:1px solid #22c55e40;font-weight:700">
+                 background:var(--green-bg);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);font-weight:700">
       active — on register, alerts, QR sign-in
     </span>
     <span style="font-size:12px;padding:3px 10px;border-radius:20px;
-                 background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40;font-weight:700">
+                 background:var(--amber-bg);color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);font-weight:700">
       inactive — hidden from register and QR
     </span>
     <span style="font-size:12px;padding:3px 10px;border-radius:20px;
-                 background:#ef444420;color:#ef4444;border:1px solid #ef444440;font-weight:700">
+                 background:var(--red-bg);color:var(--red);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);font-weight:700">
       leaver — permanently off register
     </span>
   </div>
@@ -101,9 +101,9 @@
   ];
 
   const BEH_LABELS = {
-    active:   { label: 'active',   bg: '#22c55e20', colour: '#22c55e', border: '#22c55e40' },
-    inactive: { label: 'inactive', bg: '#f59e0b20', colour: '#f59e0b', border: '#f59e0b40' },
-    leaver:   { label: 'leaver',   bg: '#ef444420', colour: '#ef4444', border: '#ef444440' },
+    active:   { label: 'active',   style: 'background:var(--green-bg);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent)' },
+    inactive: { label: 'inactive', style: 'background:var(--amber-bg);color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent)' },
+    leaver:   { label: 'leaver',   style: 'background:var(--red-bg);color:var(--red);border:1px solid color-mix(in srgb,var(--red) 30%,transparent)' },
   };
 
   /* ── Boot ──────────────────────────────────────────────────── */
@@ -191,9 +191,7 @@
         </span>
 
         <!-- Behaviour badge -->
-        <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;
-                     background:${beh.bg};color:${beh.colour};border:1px solid ${beh.border};
-                     white-space:nowrap">
+        <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;white-space:nowrap;${beh.style}">
           ${beh.label}
         </span>
 
@@ -211,6 +209,7 @@
                     style="color:var(--red)">Delete</button>`}
       </div>`;
     }).join('');
+    refreshIcons();
   }
 
   /* ── Modal ─────────────────────────────────────────────────── */
@@ -307,7 +306,7 @@
   function onDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    e.currentTarget.style.background = 'var(--cream)';
+    e.currentTarget.style.background = 'var(--accent-soft)';
   }
   function onDragEnd() {
     document.querySelectorAll('[id^="sr-"]').forEach(el => {
