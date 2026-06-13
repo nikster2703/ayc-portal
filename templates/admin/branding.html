@@ -4,17 +4,18 @@
 {% block content %}
 <div class="page-header">
   <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none">← Settings</a>
-  <h1 style="margin-top:10px">🎨 Branding</h1>
+  <h1 style="margin-top:10px"><i data-lucide="palette"></i><span class="ico-emoji">🎨</span> Branding</h1>
 </div>
 
 <style>
   .brand-section {
-    background: white;
+    background: var(--surface);
     border: 2px solid var(--border);
     border-radius: 14px;
     padding: 24px 26px;
     margin-bottom: 20px;
   }
+  html[data-skin="casual"]:not([data-theme="dark"]) .brand-section { background: white; }
   .brand-section-title {
     font-size: 11px;
     font-weight: 900;
@@ -62,7 +63,7 @@
     transition: border-color .15s, box-shadow .15s;
   }
   .nav-style-card:hover { border-color: var(--accent); }
-  .nav-style-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+  .nav-style-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .nav-style-card input[type=radio] { display: none; }
   .nav-preview-bar {
     height: 38px;
@@ -97,7 +98,7 @@
   }
   .logo-drop:hover, .logo-drop.drag-over {
     border-color: var(--accent);
-    background: var(--accent-light);
+    background: var(--accent-soft);
   }
   .logo-drop input { display: none; }
 
@@ -228,7 +229,7 @@
 
   {% if brand.brand_logo_file %}
   <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;
-              background:var(--cream);border-radius:10px;padding:14px 18px">
+              background:var(--surface-2);border-radius:10px;padding:14px 18px">
     <img src="{{ brand._logo_url }}" alt="Logo" style="height:40px;width:auto;max-width:140px;object-fit:contain">
     <div style="flex:1">
       <div style="font-weight:800;font-size:14px;color:var(--navy)">{{ brand.brand_logo_file }}</div>
@@ -258,7 +259,9 @@
 <!-- ── Actions ───────────────────────────────────────────────────── -->
 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
   <a href="/admin/settings" class="btn btn-ghost">Cancel</a>
-  <button class="btn btn-teal" onclick="saveSettings()">💾 Save Branding</button>
+  <button class="btn btn-teal" onclick="saveSettings()">
+    <i data-lucide="save"></i><span class="ico-emoji">💾</span> Save Branding
+  </button>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -460,5 +463,6 @@
   /* ── Boot — apply current settings immediately ───────────────────── */
   applyAccentToPage(_currentAccent);
   applyNavStyleToPage(_currentNavStyle);
+  refreshIcons();
 </script>
 {% endblock %}

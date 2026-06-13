@@ -8,7 +8,7 @@
   </a>
 </div>
 <div class="page-header" style="margin-bottom:24px">
-  <h1>📤 Export Members</h1>
+  <h1><i data-lucide="download"></i><span class="ico-emoji">📤</span> Export Members</h1>
 </div>
 
 <div style="max-width:640px">
@@ -46,7 +46,7 @@
       </div>
     </div>
     <div id="xlsx-info" style="display:none;margin-top:10px;font-size:12px;
-         color:#1e40af;background:#eff6ff;border:1.5px solid #bfdbfe;
+         color:var(--accent);background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);
          border-radius:8px;padding:8px 12px">
       📋 XLSX always includes a full <strong>Attendance History</strong> sheet and <strong>Payment History</strong> sheet for all exported members, in addition to the main Members sheet below.
     </div>
@@ -99,7 +99,7 @@
 
     <!-- Preview count -->
     <div id="preview-bar" style="display:flex;align-items:center;gap:10px;padding:12px 14px;
-         background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px">
+         background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px">
       <span id="preview-icon" style="font-size:18px">⏳</span>
       <div>
         <div id="preview-text" style="font-size:14px;font-weight:700;color:var(--navy)">Calculating…</div>
@@ -196,7 +196,7 @@
 
     </div>
     <div id="section-warning" style="display:none;margin-top:10px;font-size:12px;
-         color:#9a3412;background:#fff7ed;border:1.5px solid #fed7aa;
+         color:var(--amber);background:var(--amber-bg);border:1.5px solid color-mix(in srgb,var(--amber) 30%,transparent);
          border-radius:8px;padding:8px 12px">
       ⚠️ Select at least one section to enable the export.
     </div>
@@ -217,11 +217,11 @@
 <style>
   .section-card, .format-card {
     padding:10px 12px;border-radius:8px;cursor:pointer;
-    border:1.5px solid var(--border);background:#f8fafc;
+    border:1.5px solid var(--border);background:var(--surface-2);
     transition:border-color .15s, background .15s, opacity .15s;
     user-select:none;
   }
-  .section-card.on, .format-card.on  { border-color:var(--accent);background:#f0fdf4; }
+  .section-card.on, .format-card.on  { border-color:var(--accent);background:var(--accent-soft); }
   .section-card.off, .format-card.off { opacity:.5; }
   .section-card.off .section-tick  { visibility:hidden; }
   .format-card.off  .format-tick   { visibility:hidden; }
@@ -283,8 +283,8 @@
       text.textContent = 'Calculating…';
       sub.textContent  = '';
       btn.disabled     = true;
-      bar.style.background  = '#f0f9ff';
-      bar.style.borderColor = '#bae6fd';
+      bar.style.background  = 'var(--accent-soft)';
+      bar.style.borderColor = 'color-mix(in srgb,var(--accent) 30%,transparent)';
 
       try {
         const res  = await apiFetch('/api/admin/export/preview?' + _params());
@@ -294,8 +294,8 @@
           icon.textContent = '⚠️';
           text.textContent = 'No members match these filters';
           sub.textContent  = 'Adjust the options above to include members in the export.';
-          bar.style.background  = '#fff7ed';
-          bar.style.borderColor = '#fed7aa';
+          bar.style.background  = 'var(--amber-bg)';
+          bar.style.borderColor = 'color-mix(in srgb,var(--amber) 30%,transparent)';
           btn.disabled = true;
           hint.textContent = '';
         } else {
@@ -306,8 +306,8 @@
           sub.textContent  = noSections
             ? 'Select at least one section below.'
             : `Click Download ${fmtLabel} to generate the file.`;
-          bar.style.background  = '#f0fdf4';
-          bar.style.borderColor = '#86efac';
+          bar.style.background  = 'var(--green-bg)';
+          bar.style.borderColor = 'color-mix(in srgb,var(--green) 30%,transparent)';
           btn.disabled = noSections;
           hint.textContent = '';
         }
@@ -315,8 +315,8 @@
         icon.textContent = '❌';
         text.textContent = 'Could not fetch preview — ' + e.message;
         sub.textContent  = '';
-        bar.style.background  = '#fef2f2';
-        bar.style.borderColor = '#fca5a5';
+        bar.style.background  = 'var(--red-bg)';
+        bar.style.borderColor = 'color-mix(in srgb,var(--red) 30%,transparent)';
       }
     }, 300);
   }
@@ -336,5 +336,6 @@
 
   // Initialise
   updatePreview();
+  refreshIcons();
 </script>
 {% endblock %}

@@ -5,7 +5,7 @@
 <div class="page-header">
   <a href="/admin/settings" class="btn btn-ghost btn-sm"
      style="text-decoration:none">← Settings</a>
-  <h1 style="margin-top:10px">🧹 Data Maintenance</h1>
+  <h1 style="margin-top:10px"><i data-lucide="wrench"></i><span class="ico-emoji">🧹</span> Data Maintenance</h1>
 </div>
 
 <!-- ── Backup & Restore ──────────────────────────────────────────── -->
@@ -21,7 +21,7 @@
 
   <!-- Download backup -->
   <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
-              background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;
+              background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px;
               margin-bottom:10px">
     <div style="flex:1">
       <div style="font-weight:700;font-size:14px;color:var(--navy)">Download Backup</div>
@@ -35,7 +35,7 @@
   </div>
 
   <!-- Restore -->
-  <div style="padding:12px 14px;background:#fff5f5;border:1.5px solid #fecaca;
+  <div style="padding:12px 14px;background:var(--red-bg);border:1.5px solid color-mix(in srgb,var(--red) 30%,transparent);
               border-radius:10px">
     <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:4px">
       Restore from Backup
@@ -44,7 +44,7 @@
       Replaces the live database with the uploaded file. The current database is
       automatically saved to <code>data/backups/</code> before the swap.
     </div>
-    <div style="background:#fff;border:1.5px dashed #fca5a5;border-radius:8px;
+    <div style="background:var(--surface);border:1.5px dashed color-mix(in srgb,var(--red) 40%,transparent);border-radius:8px;
                 padding:10px 12px;margin-bottom:10px;cursor:pointer"
          onclick="document.getElementById('restore-file').click()"
          id="drop-zone">
@@ -72,7 +72,7 @@
     you've defined in Field Builder.
   </p>
   <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
-              background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px">
+              background:var(--green-bg);border:1.5px solid color-mix(in srgb,var(--green) 30%,transparent);border-radius:10px">
     <div style="flex:1">
       <div style="font-weight:700;font-size:14px;color:var(--navy)">Run Import Wizard</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">
@@ -97,7 +97,7 @@
     type before downloading.
   </p>
   <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
-              background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px">
+              background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px">
     <div style="flex:1">
       <div style="font-weight:700;font-size:14px;color:var(--navy)">Run Export Wizard</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">
@@ -121,9 +121,9 @@
     Each action is <strong style="color:#991b1b">irreversible</strong> and is logged to the audit trail.
   </p>
 
-  <div style="background:#fff5f5;border:1.5px solid #fecaca;border-radius:10px;
+  <div style="background:var(--red-bg);border:1.5px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:10px;
               padding:10px 14px;margin-bottom:20px;font-size:12px;
-              font-weight:700;color:#991b1b">
+              font-weight:700;color:var(--red)">
     ⚠️ These actions cannot be undone. Use with care.
   </div>
 
@@ -133,21 +133,21 @@
 </div>
 
 <!-- ── Danger zone: clear all members ────────────────────────────── -->
-<div class="form-card" style="max-width:520px;border-color:#7f1d1d;background:#fff5f5;margin-bottom:20px">
-  <h2 style="font-size:16px;font-weight:700;color:#7f1d1d;margin-bottom:4px">
+<div class="form-card" style="max-width:520px;border-color:color-mix(in srgb,var(--red) 40%,var(--border));background:var(--red-bg);margin-bottom:20px">
+  <h2 style="font-size:16px;font-weight:700;color:var(--red);margin-bottom:4px">
     ☠️ Danger Zone
   </h2>
-  <p style="font-size:13px;color:#991b1b;margin-bottom:16px;line-height:1.6">
+  <p style="font-size:13px;color:var(--red);margin-bottom:16px;line-height:1.6">
     These actions are <strong>catastrophic and irreversible</strong>. They should only ever
     be used to completely reset the portal between seasons or before a fresh import.
     A backup is strongly recommended first.
   </p>
 
-  <div style="background:white;border:2px solid #fca5a5;border-radius:10px;padding:14px 16px">
+  <div style="background:var(--surface);border:2px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:10px;padding:14px 16px">
     <div style="display:flex;align-items:flex-start;gap:12px">
       <div style="flex:1">
-        <div style="font-weight:800;font-size:14px;color:#7f1d1d">Clear All Members</div>
-        <div style="font-size:12px;color:#991b1b;margin-top:3px;line-height:1.6">
+        <div style="font-weight:800;font-size:14px;color:var(--red)">Clear All Members</div>
+        <div style="font-size:12px;color:var(--red);margin-top:3px;line-height:1.6">
           Permanently deletes <strong id="member-count-label">all members</strong>,
           their contacts, alert flags, attendance records, and DofE participant data.
           Portal users, documents and settings are not affected.
@@ -162,22 +162,19 @@
 </div>
 
 <!-- ── Clear Members confirmation modal ─────────────────────────── -->
-<div id="clear-members-modal" style="display:none;position:fixed;inset:0;z-index:1000;
-     background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:14px;padding:28px 28px 22px;
-              max-width:440px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,0.22);
-              border:3px solid #dc2626">
-    <div style="font-size:22px;font-weight:800;color:#7f1d1d;margin-bottom:10px">
+<div id="clear-members-modal" class="modal-overlay" onclick="if(event.target===this)closeClearMembersModal()">
+  <div class="modal" style="max-width:440px;border:3px solid color-mix(in srgb,var(--red) 50%,var(--border))">
+    <div style="font-size:22px;font-weight:800;color:var(--red);margin-bottom:10px">
       ☠️ Clear All Members?
     </div>
     <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">
-      This will <strong style="color:#7f1d1d">permanently delete</strong> every member record in the database, along with all associated contacts, alert flags, attendance history, and DofE data.
+      This will <strong style="color:var(--red)">permanently delete</strong> every member record in the database, along with all associated contacts, alert flags, attendance history, and DofE data.
     </p>
-    <div id="clear-members-summary" style="background:#fff5f5;border:1.5px solid #fca5a5;
+    <div id="clear-members-summary" style="background:var(--red-bg);border:1.5px solid color-mix(in srgb,var(--red) 30%,transparent);
          border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px;
          display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">
     </div>
-    <p style="font-size:13px;font-weight:700;color:#7f1d1d;margin-bottom:8px">
+    <p style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:8px">
       This action cannot be undone. Type <code>DELETE ALL MEMBERS</code> to confirm:
     </p>
     <input type="text" id="clear-members-phrase" class="form-input"
@@ -196,11 +193,9 @@
 </div>
 
 <!-- ── Restore confirmation modal ───────────────────────────────── -->
-<div id="restore-modal" style="display:none;position:fixed;inset:0;z-index:1000;
-     background:rgba(0,0,0,0.45);align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:14px;padding:28px 28px 22px;
-              max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18)">
-    <div style="font-size:20px;font-weight:800;color:#991b1b;margin-bottom:8px">
+<div id="restore-modal" class="modal-overlay" onclick="if(event.target===this)closeRestoreModal()">
+  <div class="modal" style="max-width:420px">
+    <div style="font-size:20px;font-weight:800;color:var(--red);margin-bottom:8px">
       ⚠️ Restore Database?
     </div>
     <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">
@@ -208,11 +203,11 @@
       The current database will be saved automatically to
       <code>data/backups/</code> before the swap.
     </p>
-    <div id="restore-summary" style="background:#f8fafc;border:1px solid #e2e8f0;
+    <div id="restore-summary" style="background:var(--surface-2);border:1px solid var(--border);
          border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px;
          display:none">
     </div>
-    <p style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:18px">
+    <p style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:18px">
       All users will be logged out automatically after the restore.
     </p>
     <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -231,14 +226,14 @@
     align-items: center;
     gap: 12px;
     padding: 12px 14px;
-    background: white;
-    border: 1.5px solid #fecaca;
+    background: var(--surface);
+    border: 1.5px solid color-mix(in srgb,var(--red) 30%,var(--border));
     border-radius: 10px;
   }
   .maint-info   { flex: 1; }
   .maint-label  { font-weight: 700; font-size: 14px; color: var(--navy); }
   .maint-desc   { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .maint-count  { font-size: 13px; font-weight: 700; color: #991b1b;
+  .maint-count  { font-size: 13px; font-weight: 700; color: var(--red);
                   white-space: nowrap; min-width: 80px; text-align: right; }
   .maint-btn    { flex-shrink: 0; min-width: 70px; }
 </style>
@@ -330,10 +325,10 @@
       // Pre-populate the clear-members summary modal
       const sum = document.getElementById('clear-members-summary');
       if (sum) sum.innerHTML = [
-        `<div style="color:#7f1d1d"><strong>${n.toLocaleString()}</strong> members</div>`,
-        `<div style="color:#991b1b"><strong>${c.toLocaleString()}</strong> contacts</div>`,
-        `<div style="color:#991b1b"><strong>${counts.attendance?.toLocaleString()??0}</strong> attendance rows</div>`,
-        `<div style="color:#991b1b"><strong>${d.toLocaleString()}</strong> DofE rows</div>`,
+        `<div style="color:var(--red)"><strong>${n.toLocaleString()}</strong> members</div>`,
+        `<div style="color:var(--red)"><strong>${c.toLocaleString()}</strong> contacts</div>`,
+        `<div style="color:var(--red)"><strong>${counts.attendance?.toLocaleString()??0}</strong> attendance rows</div>`,
+        `<div style="color:var(--red)"><strong>${d.toLocaleString()}</strong> DofE rows</div>`,
       ].join('');
 
       if (n === 0) {
@@ -346,22 +341,19 @@
   }
 
   loadMaintenanceCounts();
+  refreshIcons();
 
   // ── Clear All Members ─────────────────────────────────────────────────────
 
   function openClearMembersModal() {
     document.getElementById('clear-members-phrase').value = '';
     document.getElementById('btn-confirm-clear-members').disabled = true;
-    document.getElementById('clear-members-modal').style.display = 'flex';
+    document.getElementById('clear-members-modal').classList.add('open');
   }
 
   function closeClearMembersModal() {
-    document.getElementById('clear-members-modal').style.display = 'none';
+    document.getElementById('clear-members-modal').classList.remove('open');
   }
-
-  document.getElementById('clear-members-modal').addEventListener('click', function(e) {
-    if (e.target === this) closeClearMembersModal();
-  });
 
   async function doClearMembers() {
     const btn = document.getElementById('btn-confirm-clear-members');
@@ -443,17 +435,12 @@
   function openRestoreModal() {
     if (!_restoreFile) return;
     document.getElementById('restore-summary').style.display = 'none';
-    document.getElementById('restore-modal').style.display   = 'flex';
+    document.getElementById('restore-modal').classList.add('open');
   }
 
   function closeRestoreModal() {
-    document.getElementById('restore-modal').style.display = 'none';
+    document.getElementById('restore-modal').classList.remove('open');
   }
-
-  // Close modal on backdrop click
-  document.getElementById('restore-modal').addEventListener('click', function(e) {
-    if (e.target === this) closeRestoreModal();
-  });
 
   async function doRestore() {
     if (!_restoreFile) return;
