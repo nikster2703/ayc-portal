@@ -23,7 +23,7 @@
       <div class="format-card on" data-format="csv" onclick="selectFormat(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">📄</span>
+            <span style="flex-shrink:0"><i data-lucide="file-text" style="width:16px;height:16px"></i><span class="ico-emoji">📄</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">CSV</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Flat file, one row per member — works with any app</div>
@@ -35,7 +35,7 @@
       <div class="format-card off" data-format="xlsx" onclick="selectFormat(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">📊</span>
+            <span style="flex-shrink:0"><i data-lucide="table-2" style="width:16px;height:16px"></i><span class="ico-emoji">📊</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">XLSX (Excel)</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">3 sheets — Members + full Attendance &amp; Payment history</div>
@@ -119,7 +119,7 @@
       <div class="section-card on" data-section="core" onclick="toggleSection(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">🪪</span>
+            <span style="flex-shrink:0"><i data-lucide="id-card" style="width:16px;height:16px"></i><span class="ico-emoji">🪪</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">Core fields</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Member ID, name, DOB, date registered, session, type, status</div>
@@ -132,7 +132,7 @@
       <div class="section-card on" data-section="contacts" onclick="toggleSection(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">📞</span>
+            <span style="flex-shrink:0"><i data-lucide="phone" style="width:16px;height:16px"></i><span class="ico-emoji">📞</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">Contact details</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Contact 1 &amp; 2 — name, phone, email</div>
@@ -145,7 +145,7 @@
       <div class="section-card on" data-section="attendance" onclick="toggleSection(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">📅</span>
+            <span style="flex-shrink:0"><i data-lucide="calendar" style="width:16px;height:16px"></i><span class="ico-emoji">📅</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">Attendance summary</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Total sessions attended and last attended date</div>
@@ -158,7 +158,7 @@
       <div class="section-card on" data-section="payments" onclick="toggleSection(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">💳</span>
+            <span style="flex-shrink:0"><i data-lucide="credit-card" style="width:16px;height:16px"></i><span class="ico-emoji">💳</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">Payment summary</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Payment count, total paid, last payment date, paid this period</div>
@@ -171,7 +171,7 @@
       <div class="section-card on" data-section="flags" onclick="toggleSection(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">🚩</span>
+            <span style="flex-shrink:0"><i data-lucide="flag" style="width:16px;height:16px"></i><span class="ico-emoji">🚩</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">Active flags</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">Current alert flags for each member</div>
@@ -184,7 +184,7 @@
       <div class="section-card on" data-section="custom" onclick="toggleSection(this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div style="display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">🔧</span>
+            <span style="flex-shrink:0"><i data-lucide="wrench" style="width:16px;height:16px"></i><span class="ico-emoji">🔧</span></span>
             <div>
               <div style="font-size:12px;font-weight:800;color:var(--navy)">Custom fields</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">All active Field Builder fields for the selected member type(s)</div>
