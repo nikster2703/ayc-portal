@@ -281,16 +281,26 @@ body {
   border-bottom: 1px solid var(--border);
   padding: 6px 20px;
   display: flex; gap: 2px;
+  position: relative;  /* anchor for sliding pill */
+}
+/* Sliding active pill — positioned by JS */
+#nav-pill {
+  position: absolute;
+  background: var(--accent-soft);
+  border-radius: 9px;
+  pointer-events: none;
+  z-index: 0;
 }
 .nav-link {
   display: flex; align-items: center; gap: 7px;
   padding: 8px 13px; border-radius: 9px;
   font-size: 13.5px; font-weight: 600;
   color: var(--muted); text-decoration: none;
-  transition: color .15s, background .15s;
+  position: relative; z-index: 1;   /* stay above pill */
+  transition: color .15s;
 }
-.nav-link:hover { color: var(--text); background: color-mix(in srgb, var(--text) 5%, transparent); }
-.nav-link.active { color: var(--accent); background: var(--accent-soft); }
+.nav-link:hover { color: var(--text); }
+.nav-link.active { color: var(--accent); background: transparent; }
 .nav-link.soon { opacity: 0.5; pointer-events: none; }
 .nav-icon { font-size: 15px; display: inline-flex; align-items: center; }
 .nav-icon .lucide { width: 15.5px; height: 15.5px; }

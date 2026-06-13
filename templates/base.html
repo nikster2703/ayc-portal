@@ -414,13 +414,57 @@
     window.refreshIcons = function () { if (window.lucide) lucide.createIcons(); };
     refreshIcons();
 
-    /* ── Nav slide transition ───────────────────────────────────────── */
+    /* ── Nav: sliding pill + page-content slide transition ─────────── */
     (function () {
+      const nav        = document.querySelector('.app-nav');
+      const activeLink = nav && nav.querySelector('a.nav-link.active');
+      const reduced    = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      /* ── Sliding pill ─────────────────────────────────── */
+      if (nav && activeLink) {
+        const pill = document.createElement('div');
+        pill.id = 'nav-pill';
+        pill.style.transition = 'none';
+        nav.insertBefore(pill, nav.firstChild);
+
+        function applyRect(el, animate) {
+          // offsetLeft/Top relative to .app-nav (position:relative)
+          pill.style.transition = (animate && !reduced)
+            ? 'left .27s cubic-bezier(.25,.46,.45,.94), top .27s, width .27s cubic-bezier(.25,.46,.45,.94), height .27s'
+            : 'none';
+          pill.style.left   = el.offsetLeft + 'px';
+          pill.style.top    = el.offsetTop  + 'px';
+          pill.style.width  = el.offsetWidth + 'px';
+          pill.style.height = el.offsetHeight + 'px';
+        }
+
+        // Check sessionStorage for where we navigated FROM
+        let fromHref = null;
+        try { fromHref = sessionStorage.getItem('ayc-nav-from'); sessionStorage.removeItem('ayc-nav-from'); } catch(_) {}
+        const fromEl = fromHref ? nav.querySelector('a.nav-link[href="' + fromHref + '"]') : null;
+
+        if (fromEl && fromEl !== activeLink && !reduced) {
+          // Start at previous position, animate to active
+          applyRect(fromEl, false);
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () { applyRect(activeLink, true); });
+          });
+        } else {
+          applyRect(activeLink, false);
+        }
+      }
+
+      /* ── Page-content slide + store nav-from on click ─────────────── */
       document.querySelectorAll('a.nav-link[href]').forEach(function (link) {
         link.addEventListener('click', function (e) {
           const href = this.getAttribute('href');
           if (!href || href.startsWith('#') || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
+          // Remember which nav item we're leaving FROM so next page can animate the pill
+          if (activeLink) {
+            try { sessionStorage.setItem('ayc-nav-from', activeLink.getAttribute('href')); } catch(_) {}
+          }
+          if (reduced) { window.location.href = href; return; }
           const pc = document.querySelector('.page-content');
           if (!pc) { window.location.href = href; return; }
           pc.classList.add('page-exit');
