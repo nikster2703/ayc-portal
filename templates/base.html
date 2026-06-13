@@ -421,35 +421,65 @@
       const reduced    = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       let pill = null;
 
-      /* ── Pill: snap to active position on page load (no animation) ── */
+      /* Casual-light = underline pill (3px at bottom of link).
+         Everything else = full background pill. */
+      function isCasualLight() {
+        return document.documentElement.dataset.skin === 'casual' &&
+               document.documentElement.dataset.theme !== 'dark';
+      }
+
+      function pillRectFor(el) {
+        if (isCasualLight()) {
+          return {
+            left:   el.offsetLeft,
+            top:    el.offsetTop + el.offsetHeight - 3,
+            width:  el.offsetWidth,
+            height: 3
+          };
+        }
+        return {
+          left:   el.offsetLeft,
+          top:    el.offsetTop,
+          width:  el.offsetWidth,
+          height: el.offsetHeight
+        };
+      }
+
+      function applyPill(el, animate) {
+        if (!pill || !el) return;
+        const r = pillRectFor(el);
+        pill.style.transition = (animate && !reduced)
+          ? 'left .17s cubic-bezier(.25,.46,.45,.94), top .17s, width .17s cubic-bezier(.25,.46,.45,.94), height .17s'
+          : 'none';
+        pill.style.left   = r.left   + 'px';
+        pill.style.top    = r.top    + 'px';
+        pill.style.width  = r.width  + 'px';
+        pill.style.height = r.height + 'px';
+      }
+
+      /* ── Pill: snap to active position on page load ── */
       if (nav && activeLink) {
         pill = document.createElement('div');
         pill.id = 'nav-pill';
-        pill.style.transition = 'none';
-        pill.style.left   = activeLink.offsetLeft  + 'px';
-        pill.style.top    = activeLink.offsetTop   + 'px';
-        pill.style.width  = activeLink.offsetWidth + 'px';
-        pill.style.height = activeLink.offsetHeight + 'px';
         nav.insertBefore(pill, nav.firstChild);
+        applyPill(activeLink, false);
       }
 
-      /* ── On click: slide pill to destination + exit page together ─── */
+      /* ── Reposition + reshape when skin/theme toggles ── */
+      document.addEventListener('themechange', function () {
+        if (!pill || !activeLink) return;
+        /* Let CSS cascade settle before measuring new offsets */
+        setTimeout(function () { applyPill(activeLink, false); }, 0);
+      });
+
+      /* ── On click: slide pill + exit page simultaneously ── */
       document.querySelectorAll('a.nav-link[href]').forEach(function (link) {
         link.addEventListener('click', function (e) {
           const href = this.getAttribute('href');
           if (!href || href.startsWith('#') || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
           if (reduced) { window.location.href = href; return; }
-
-          // Slide pill to clicked item simultaneously with page exit
-          if (pill) {
-            pill.style.transition = 'left .17s cubic-bezier(.25,.46,.45,.94), top .17s, width .17s cubic-bezier(.25,.46,.45,.94), height .17s';
-            pill.style.left   = this.offsetLeft  + 'px';
-            pill.style.top    = this.offsetTop   + 'px';
-            pill.style.width  = this.offsetWidth + 'px';
-            pill.style.height = this.offsetHeight + 'px';
-          }
-
+          applyPill(this, true);
           const pc = document.querySelector('.page-content');
           if (pc) pc.classList.add('page-exit');
           setTimeout(function () { window.location.href = href; }, 170);

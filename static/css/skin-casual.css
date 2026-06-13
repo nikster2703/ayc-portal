@@ -164,7 +164,12 @@ html[data-skin="casual"]:not([data-theme="dark"]) .nav-link{
   transition: color .18s, border-color .18s;
 }
 html[data-skin="casual"]:not([data-theme="dark"]) .nav-link:hover{ color: var(--navy); }
-html[data-skin="casual"]:not([data-theme="dark"]) .nav-link.active{ color: var(--accent); border-bottom-color: var(--accent); }
+html[data-skin="casual"]:not([data-theme="dark"]) .nav-link.active{ color: var(--accent); }
+/* Pill is repositioned as a 3px underline in casual-light — border-bottom no longer needed */
+html[data-skin="casual"]:not([data-theme="dark"]) #nav-pill {
+  background: var(--accent);
+  border-radius: 0;
+}
 html[data-skin="casual"]:not([data-theme="dark"]) .nav-link.soon{ opacity: 0.5; pointer-events: none; }
 html[data-skin="casual"]:not([data-theme="dark"]) .nav-icon{ font-size: 16px; }
 html[data-skin="casual"]:not([data-theme="dark"]) .soon-tag{
