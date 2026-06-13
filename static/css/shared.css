@@ -429,7 +429,8 @@ body {
 .badge-admin  { background: var(--accent);    color: #fff; }
 .badge-editor { background: var(--accent-soft); color: var(--accent); }
 .badge-leader { background: var(--green-bg);  color: var(--green); }
-.badge-ro     { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.badge-ro       { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.badge-inactive { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
 
 /* ─── STATES ─────────────────────────────────────── */
 .loading-state { text-align: center; padding: 70px 20px; color: var(--muted); }

@@ -2,10 +2,53 @@
 {% block title %}{{ club_short_name }} Portal — Session Types{% endblock %}
 
 {% block content %}
+<style>
+  .st-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .st-row:last-child { border-bottom: none; }
+  .st-row-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+  .st-row-meta { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .st-row-meta [data-lucide] { width: 12px; height: 12px; flex-shrink: 0; }
+  .st-row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .add-section {
+    border-top: 1.5px solid var(--border);
+    padding-top: 20px;
+    margin-top: 4px;
+  }
+  .add-section-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 14px;
+  }
+  .edit-panel {
+    border: 1.5px solid var(--accent);
+    background: var(--surface);
+  }
+  .edit-panel-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 14px;
+  }
+</style>
+
 <div class="page-header">
-  <a href="/admin/settings" class="btn btn-ghost btn-sm"
-     style="text-decoration:none">← Settings</a>
-  <h1 style="margin-top:10px">📅 Session Types</h1>
+  <a href="/admin/settings" class="btn btn-ghost btn-sm">← Settings</a>
+  <h1 style="margin-top:10px">
+    <i data-lucide="calendar"></i><span class="ico-emoji">📅</span>
+    Session Types
+  </h1>
 </div>
 
 <div class="form-card" style="max-width:600px">
@@ -23,9 +66,8 @@
   </div>
 
   <!-- Add form -->
-  <div style="border-top:1.5px solid var(--border);padding-top:20px">
-    <p style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
-              letter-spacing:.06em;margin-bottom:14px">Add Session Type</p>
+  <div class="add-section">
+    <div class="add-section-label">Add Session Type</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <label class="form-label" style="margin-bottom:4px">Name <span style="color:var(--red)">*</span></label>
@@ -54,10 +96,8 @@
 </div>
 
 <!-- Inline edit panel (hidden until Edit clicked) -->
-<div id="st-edit-panel" class="form-card" style="max-width:600px;display:none;margin-top:16px;
-     border:1.5px solid var(--accent);background:var(--surface)">
-  <p style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;
-            letter-spacing:.06em;margin-bottom:14px">Editing Session Type</p>
+<div id="st-edit-panel" class="form-card edit-panel" style="max-width:600px;display:none;margin-top:16px">
+  <div class="edit-panel-label">Editing Session Type</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
     <div>
       <label class="form-label" style="margin-bottom:4px">Name <span style="color:var(--red)">*</span></label>
@@ -102,36 +142,32 @@
         return;
       }
       el.innerHTML = types.map(st => `
-        <div id="st-row-${st.id}" style="display:grid;grid-template-columns:1fr auto;
-             align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div id="st-row-${st.id}" class="st-row">
           <div>
-            <div style="font-weight:700;font-size:14px;margin-bottom:2px">${esc(st.name)}</div>
-            <div style="font-size:12px;color:var(--muted)">
+            <div class="st-row-name">${esc(st.name)}</div>
+            <div class="st-row-meta">
+              <i data-lucide="calendar"></i>
               ${st.weekday !== null && st.weekday !== undefined
-                ? '📅 ' + WDAY_NAMES[st.weekday]
-                : '📅 No fixed day'}
-              ${st.description ? ' &nbsp;·&nbsp; ' + esc(st.description) : ''}
+                ? WDAY_NAMES[st.weekday]
+                : 'No fixed day'}
+              ${st.description ? '&nbsp;·&nbsp;' + esc(st.description) : ''}
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-            <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;
-                         background:${st.active ? '#dcfce7' : '#f1f5f9'};
-                         color:${st.active ? '#166534' : '#64748b'}">
+          <div class="st-row-actions">
+            <span class="badge ${st.active ? 'badge-active' : 'badge-inactive'}">
               ${st.active ? 'Active' : 'Inactive'}
             </span>
             <button class="btn btn-ghost btn-sm"
-                    onclick="openEdit(${JSON.stringify(st).replace(/"/g,'&quot;')})"
-                    style="font-size:12px">Edit</button>
+                    onclick="openEdit(${JSON.stringify(st).replace(/"/g,'&quot;')})">Edit</button>
             <button class="btn btn-ghost btn-sm"
-                    onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})"
-                    style="font-size:12px">
+                    onclick="toggleSessionType(${st.id}, ${st.active ? 0 : 1})">
               ${st.active ? 'Deactivate' : 'Activate'}
             </button>
-            <button class="btn btn-ghost btn-sm"
-                    onclick="deleteSessionType(${st.id}, '${esc(st.name)}')"
-                    style="font-size:12px;color:var(--red)">Delete</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                    onclick="deleteSessionType(${st.id}, '${esc(st.name)}')">Delete</button>
           </div>
         </div>`).join('');
+      refreshIcons();
     } catch (e) {
       el.innerHTML = `<p style="color:var(--red);font-size:13px">Could not load session types.</p>`;
     }

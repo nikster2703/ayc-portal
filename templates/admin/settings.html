@@ -3,7 +3,10 @@
 
 {% block content %}
 <div class="page-header">
-  <h1>⚙️ Settings</h1>
+  <h1>
+    <i data-lucide="settings"></i><span class="ico-emoji">⚙️</span>
+    Settings
+  </h1>
 </div>
 
 <style>
@@ -26,7 +29,7 @@
     gap: 14px;
   }
   .settings-card {
-    background: white;
+    background: var(--surface);
     border: 2px solid var(--border);
     border-radius: 14px;
     padding: 18px 20px;
@@ -39,13 +42,32 @@
   }
   .settings-card:hover {
     border-color: var(--accent);
-    box-shadow: 0 4px 16px rgba(0,150,180,.1);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .settings-card.danger:hover {
-    border-color: #dc2626;
-    box-shadow: 0 4px 16px rgba(220,38,38,.1);
+    border-color: var(--red);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--red) 12%, transparent);
   }
-  .settings-card__icon { font-size: 26px; line-height: 1; }
+
+  /* Icon slot — shows Lucide in formal, emoji in casual */
+  .settings-card__icon {
+    display: flex;
+    align-items: center;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+  .settings-card__icon [data-lucide] {
+    width: 26px;
+    height: 26px;
+    stroke-width: 1.75;
+    color: var(--accent);
+  }
+  .settings-card__icon .ico-emoji {
+    font-size: 26px;
+    line-height: 1;
+  }
+  .settings-card.danger .settings-card__icon [data-lucide] { color: var(--red); }
+
   .settings-card__title {
     font-size: 15px;
     font-weight: 900;
@@ -69,8 +91,19 @@
     color: var(--muted);
     line-height: 1.5;
   }
-  .settings-card.danger .settings-card__title { color: #991b1b; }
-  .settings-card.danger { border-color: #fecaca; background: #fff5f5; }
+  .settings-card.danger .settings-card__title { color: var(--red); }
+  .settings-card.danger {
+    border-color: color-mix(in srgb, var(--red) 25%, var(--border));
+    background: var(--red-bg);
+  }
+
+  html[data-skin="casual"]:not([data-theme="dark"]) .settings-card {
+    background: white;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .settings-card.danger {
+    background: #fff5f5;
+    border-color: #fecaca;
+  }
 </style>
 
 <!-- ── Access & People ──────────────────────────────────────────────── -->
@@ -81,7 +114,9 @@
 
     {% if 'users.view' in user_permissions %}
     <a href="/admin/users" class="settings-card">
-      <div class="settings-card__icon">👤</div>
+      <div class="settings-card__icon">
+        <i data-lucide="user"></i><span class="ico-emoji">👤</span>
+      </div>
       <div class="settings-card__title">Portal Users</div>
       <div class="settings-card__desc">Manage login accounts, roles, and passwords for everyone who accesses this portal.</div>
     </a>
@@ -89,7 +124,9 @@
 
     {% if 'admin.roles' in user_permissions %}
     <a href="/admin/roles" class="settings-card">
-      <div class="settings-card__icon">🔐</div>
+      <div class="settings-card__icon">
+        <i data-lucide="lock"></i><span class="ico-emoji">🔐</span>
+      </div>
       <div class="settings-card__title">Roles &amp; Permissions</div>
       <div class="settings-card__desc">Control exactly what each role can do — sign-ins, approvals, documents, calendar and more.</div>
     </a>
@@ -97,7 +134,9 @@
 
     {% if 'admin.settings' in user_permissions %}
     <a href="/admin/staff-roles" class="settings-card">
-      <div class="settings-card__icon">🏷️</div>
+      <div class="settings-card__icon">
+        <i data-lucide="tag"></i><span class="ico-emoji">🏷️</span>
+      </div>
       <div class="settings-card__title">Staff Roles</div>
       <div class="settings-card__desc">Customise the role list shown on staff registration and the reception display.</div>
     </a>
@@ -105,7 +144,9 @@
 
     {% if 'admin.branding' in user_permissions %}
     <a href="/admin/branding" class="settings-card">
-      <div class="settings-card__icon">🎨</div>
+      <div class="settings-card__icon">
+        <i data-lucide="palette"></i><span class="ico-emoji">🎨</span>
+      </div>
       <div class="settings-card__title">Branding</div>
       <div class="settings-card__desc">Customise the portal accent colour, navigation bar style, and upload your organisation's logo.</div>
     </a>
@@ -123,35 +164,45 @@
 
     {% if 'admin.settings' in user_permissions %}
     <a href="/admin/member-types" class="settings-card">
-      <div class="settings-card__icon">🗂</div>
+      <div class="settings-card__icon">
+        <i data-lucide="layout-grid"></i><span class="ico-emoji">🗂</span>
+      </div>
       <div class="settings-card__title">Member Types &amp; Fields</div>
       <div class="settings-card__desc">Manage member types (icons, colours, registration access) and configure the custom fields that appear on registration forms, member cards, and the register.</div>
     </a>
 
     {% if 'alerts.view' in user_permissions %}
     <a href="/admin/alerts" class="settings-card">
-      <div class="settings-card__icon">🚨</div>
+      <div class="settings-card__icon">
+        <i data-lucide="bell"></i><span class="ico-emoji">🚨</span>
+      </div>
       <div class="settings-card__title">Member Alerts</div>
       <div class="settings-card__desc">Configure flag rules that automatically identify members needing attention — missed sessions, overdue dates, missing fields, and more.</div>
     </a>
     {% endif %}
 
     <a href="/admin/tags" class="settings-card">
-      <div class="settings-card__icon">🎖</div>
+      <div class="settings-card__icon">
+        <i data-lucide="award"></i><span class="ico-emoji">🎖</span>
+      </div>
       <div class="settings-card__title">Skills &amp; Badges</div>
       <div class="settings-card__desc">Define the tags that can be assigned to members — colour-coded badges shown on member cards and the register.</div>
     </a>
 
     {% if 'payments.manage' in user_permissions %}
     <a href="/admin/payments" class="settings-card">
-      <div class="settings-card__icon">💳</div>
+      <div class="settings-card__icon">
+        <i data-lucide="credit-card"></i><span class="ico-emoji">💳</span>
+      </div>
       <div class="settings-card__title">Payments</div>
       <div class="settings-card__desc">Set the current membership period, and manage payment types and payment methods available when recording member payments.</div>
     </a>
     {% endif %}
 
     <a href="/admin/member-statuses" class="settings-card">
-      <div class="settings-card__icon">🔄</div>
+      <div class="settings-card__icon">
+        <i data-lucide="refresh-cw"></i><span class="ico-emoji">🔄</span>
+      </div>
       <div class="settings-card__title">Member Statuses</div>
       <div class="settings-card__desc">Define the statuses available to members — Active, Inactive, Leaver, and any custom statuses your organisation needs. Each maps to a behaviour that controls register, alerts, and QR sign-in access.</div>
     </a>
@@ -159,7 +210,9 @@
 
     {% if 'admin.session_types' in user_permissions %}
     <a href="/admin/settings/session-types" class="settings-card">
-      <div class="settings-card__icon">📅</div>
+      <div class="settings-card__icon">
+        <i data-lucide="calendar"></i><span class="ico-emoji">📅</span>
+      </div>
       <div class="settings-card__title">Session Types</div>
       <div class="settings-card__desc">Define which nights the club runs and which weekday each maps to for auto-detection.</div>
     </a>
@@ -167,13 +220,17 @@
 
     {% if 'admin.settings' in user_permissions %}
     <a href="/admin/settings/attendance" class="settings-card">
-      <div class="settings-card__icon">📱</div>
+      <div class="settings-card__icon">
+        <i data-lucide="smartphone"></i><span class="ico-emoji">📱</span>
+      </div>
       <div class="settings-card__title">Register &amp; QR Sign-In</div>
       <div class="settings-card__desc">Set attendance alert thresholds and configure the QR quick sign-in — enable sign-out, and customise the welcome messages shown to members.</div>
     </a>
 
     <a href="/admin/document-categories" class="settings-card">
-      <div class="settings-card__icon">📁</div>
+      <div class="settings-card__icon">
+        <i data-lucide="folder"></i><span class="ico-emoji">📁</span>
+      </div>
       <div class="settings-card__title">Document Categories</div>
       <div class="settings-card__desc">Configure the categories used to organise the Document Repository — add, edit, reorder, and deactivate categories as your needs evolve.</div>
     </a>
@@ -190,7 +247,9 @@
   <div class="settings-grid">
 
     <a href="/admin/smtp-profiles" class="settings-card">
-      <div class="settings-card__icon">📧</div>
+      <div class="settings-card__icon">
+        <i data-lucide="mail"></i><span class="ico-emoji">📧</span>
+      </div>
       <div class="settings-card__title">Email Senders</div>
       <div class="settings-card__desc">Manage the SMTP sender profiles used for mailshots — configure multiple accounts so different roles can send from different addresses.</div>
     </a>
@@ -207,7 +266,9 @@
 
     {% if 'audit.view' in user_permissions %}
     <a href="/admin/audit" class="settings-card">
-      <div class="settings-card__icon">🔍</div>
+      <div class="settings-card__icon">
+        <i data-lucide="shield-check"></i><span class="ico-emoji">🔍</span>
+      </div>
       <div class="settings-card__title">Audit Log</div>
       <div class="settings-card__desc">View the full system activity log — every login, edit, approval, and admin action. Filter by user, action, or date range, and download as CSV.</div>
     </a>
@@ -215,13 +276,17 @@
 
     {% if 'admin.maintenance' in user_permissions %}
     <a href="/admin/logs" class="settings-card">
-      <div class="settings-card__icon">🖥️</div>
+      <div class="settings-card__icon">
+        <i data-lucide="monitor"></i><span class="ico-emoji">🖥️</span>
+      </div>
       <div class="settings-card__title">System Logs</div>
-      <div class="settings-card__desc">View and download the application error and warning log — the same output that previously only appeared in the terminal. Colour-coded by severity with level filtering.</div>
+      <div class="settings-card__desc">View and download the application error and warning log — colour-coded by severity with level filtering.</div>
     </a>
 
     <a href="/admin/settings/maintenance" class="settings-card danger">
-      <div class="settings-card__icon">🧹</div>
+      <div class="settings-card__icon">
+        <i data-lucide="trash-2"></i><span class="ico-emoji">🧹</span>
+      </div>
       <div class="settings-card__title">Data Maintenance</div>
       <div class="settings-card__desc">Clear historical records, import members, back up or restore the database. Includes a Danger Zone for purging all member data between seasons.</div>
     </a>

@@ -2,10 +2,69 @@
 {% block title %}{{ club_short_name }} Portal — Register & QR Sign-In{% endblock %}
 
 {% block content %}
+<style>
+  .qr-toggle-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .qr-toggle-card {
+    padding: 16px;
+    border-radius: 10px;
+    border: 1.5px solid var(--border);
+    background: var(--surface-2);
+    cursor: pointer;
+  }
+  .qr-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .qr-toggle-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .qr-toggle-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--navy);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .qr-toggle-title [data-lucide] { width: 15px; height: 15px; }
+  .qr-toggle-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .safeguarding-note {
+    display: none;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    background: var(--amber-bg);
+    border: 1.5px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--amber);
+    line-height: 1.6;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .safeguarding-note {
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #78350f;
+  }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-toggle-card {
+    background: white;
+  }
+</style>
+
 <div class="page-header">
-  <a href="/admin/settings" class="btn btn-ghost btn-sm"
-     style="text-decoration:none">← Settings</a>
-  <h1 style="margin-top:10px">📱 Register &amp; QR Sign-In</h1>
+  <a href="/admin/settings" class="btn btn-ghost btn-sm">← Settings</a>
+  <h1 style="margin-top:10px">
+    <i data-lucide="smartphone"></i><span class="ico-emoji">📱</span>
+    Register &amp; QR Sign-In
+  </h1>
 </div>
 
 <div class="form-card" style="max-width:600px">
@@ -17,31 +76,37 @@
   </p>
 
   <!-- Mode toggles -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
-    <div style="padding:16px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg)">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="qr-signin-enabled" style="width:18px;height:18px;cursor:pointer">
+  <div class="qr-toggle-grid">
+    <div class="qr-toggle-card">
+      <label class="qr-toggle-label">
+        <input type="checkbox" id="qr-signin-enabled">
         <div>
-          <div style="font-size:14px;font-weight:800;color:var(--navy)">✅ Allow QR Sign-In</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">Members can sign in via QR</div>
+          <div class="qr-toggle-title">
+            <i data-lucide="check-circle-2"></i>
+            <span class="ico-emoji">✅</span>
+            Allow QR Sign-In
+          </div>
+          <div class="qr-toggle-subtitle">Members can sign in via QR</div>
         </div>
       </label>
     </div>
-    <div style="padding:16px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg)">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="qr-signout-enabled" style="width:18px;height:18px;cursor:pointer">
+    <div class="qr-toggle-card">
+      <label class="qr-toggle-label">
+        <input type="checkbox" id="qr-signout-enabled">
         <div>
-          <div style="font-size:14px;font-weight:800;color:var(--navy)">👋 Allow QR Sign-Out</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">Members can sign out via QR</div>
+          <div class="qr-toggle-title">
+            <i data-lucide="hand-wave"></i>
+            <span class="ico-emoji">👋</span>
+            Allow QR Sign-Out
+          </div>
+          <div class="qr-toggle-subtitle">Members can sign out via QR</div>
         </div>
       </label>
     </div>
   </div>
 
   <!-- Safeguarding warning -->
-  <div id="signout-warning" style="display:none;margin-bottom:20px;padding:12px 16px;
-       background:#fef3c7;border:1.5px solid #fcd34d;border-radius:10px;
-       font-size:13px;color:#78350f;line-height:1.6">
+  <div id="signout-warning" class="safeguarding-note">
     ⚠️ <strong>Safeguarding note:</strong> Only enable QR sign-out if your organisation
     does <em>not</em> require a guardian to be physically present at sign-out. For youth clubs
     where a parent or carer must collect the child, leave this <strong>off</strong> — sign-out

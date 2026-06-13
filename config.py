@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.6'  # v12.6: audit log dual-skin restyle — styled toolbar, dual-render action icons (Lucide SVG formal / emoji casual) for all 80+ action types, refreshIcons() after render. v12.5: documents + comms
+APP_VERSION = 'v12.7'  # v12.7: settings batch 1 — hub + session_types + staff_roles + attendance + doc_categories. Dual-render icons, .badge-inactive token, tokenised danger/amber colours. v12.6: audit log
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
