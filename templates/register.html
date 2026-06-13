@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header" style="margin-bottom:12px">
-  <h1>✅ Session Register</h1>
+  <h1><span class="ico-emoji">✅ </span>Session Register</h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <select class="session-select" id="session-picker" onchange="onSessionChange()">
       {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
@@ -15,7 +15,7 @@
     <button class="btn btn-ghost btn-sm" id="print-register-btn"
             onclick="openPrintRegister()"
             title="Print a paper copy of this session register">
-      🖨 Print Register
+      <span class="ico-emoji">🖨 </span>Print Register
     </button>
     {% endif %}
     {% if 'register.notes' in user_permissions %}
@@ -23,72 +23,70 @@
             onclick="openAddNoteModal()"
             style="background:#0f766e;color:#fff;border:none"
             title="Add a session note or incident">
-      📝 Add Note
+      <span class="ico-emoji">📝 </span>Add Note
     </button>
     {% endif %}
     {% if 'alerts.view' in user_permissions %}
     <a href="/admin/alerts" class="btn btn-ghost btn-sm" title="View and manage member alert rules">
-      🚨 Alerts
+      <span class="ico-emoji">🚨 </span>Alerts
     </a>
     {% endif %}
     <button class="btn btn-sm" id="complete-register-btn"
             onclick="openCompleteModal()"
             style="display:none;background:#166534;color:#fff;border:none">
-      🔒 Complete Register
+      <span class="ico-emoji">🔒 </span>Complete Register
     </button>
     <button class="btn btn-sm" id="reset-register-btn"
             onclick="openResetModal()"
             style="display:none;background:#7f1d1d;color:#fff;border:none">
-      🔄 Reset Session
+      <span class="ico-emoji">🔄 </span>Reset Session
     </button>
   </div>
 </div>
 
 <!-- ── QR quick-session panel ──────────────────────────────────── -->
 {% if 'register.signin' in user_permissions %}
-<div id="qr-panel" style="display:none;background:#f0f9ff;border:2px solid #bae6fd;
+<div id="qr-panel" class="qr-panel" style="display:none;
      border-radius:12px;padding:14px 18px;margin-bottom:14px;
      align-items:center;gap:18px;flex-wrap:wrap">
   <!-- QR thumbnail -->
   <div id="qr-thumb" style="flex-shrink:0;border-radius:8px;overflow:hidden;line-height:0;
-       background:#fff;padding:6px"></div>
+       background:#fff;padding:6px"></div><!-- white stays: QR needs light background to scan -->
   <!-- Info -->
   <div style="flex:1;min-width:180px">
-    <div style="font-size:14px;font-weight:800;color:#0c4a6e;margin-bottom:4px">
-      📱 QR Quick Sign-In
+    <div class="qr-title" style="font-size:14px;font-weight:800;margin-bottom:4px">
+      <span class="ico-emoji">📱 </span>QR Quick Sign-In
     </div>
-    <div id="qr-stats" style="font-size:13px;color:#0369a1;margin-bottom:10px"></div>
+    <div id="qr-stats" class="qr-stats" style="font-size:13px;margin-bottom:10px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       {% if 'register.qr_manage' in user_permissions %}
-      <button id="qr-regenerate-btn" onclick="regenerateQr()"
-              style="padding:6px 14px;border-radius:8px;border:1.5px solid #0096b4;
-                     background:#fff;color:#0096b4;font-size:13px;font-weight:800;cursor:pointer">
-        🔄 Regenerate QR
+      <button id="qr-regenerate-btn" class="qr-regen-btn" onclick="regenerateQr()">
+        <span class="ico-emoji">🔄 </span>Regenerate QR
       </button>
       {% endif %}
     </div>
   </div>
   <!-- Locked state message (replaces above when register is completed) -->
   <div id="qr-locked-msg" style="display:none;font-size:13px;color:#64748b;font-weight:700">
-    🔒 QR session access disabled — register is locked.
+    <span class="ico-emoji">🔒 </span>QR session access disabled — register is locked.
   </div>
 </div>
 {% endif %}
 
 <!-- ── Locked banner (shown when register is completed) ─────────── -->
-<div id="register-locked-banner" style="display:none;
-     background:#f0fdf4;border:2px solid #86efac;border-radius:12px;
+<div id="register-locked-banner" class="locked-banner" style="display:none;
+     border-radius:12px;
      padding:12px 18px;margin-bottom:14px;
      display:none;align-items:center;gap:10px;flex-wrap:wrap">
-  <span style="font-size:20px">🔒</span>
-  <span id="register-locked-text" style="font-size:14px;font-weight:700;color:#166534;flex:1"></span>
+  <span class="ico-emoji" style="font-size:20px">🔒</span>
+  <span id="register-locked-text" class="locked-text" style="font-size:14px;font-weight:700;flex:1"></span>
   {% if 'register.export' in user_permissions %}
   <button id="export-register-btn"
           onclick="openExportRegister()"
           style="display:none;background:#1e3a5f;color:#fff;border:none;
                  border-radius:8px;padding:8px 14px;font-size:13px;
                  font-weight:700;cursor:pointer;white-space:nowrap">
-    📄 Export Complete Register
+    <span class="ico-emoji">📄 </span>Export Complete Register
   </button>
   {% endif %}
 </div>
@@ -96,7 +94,7 @@
 <!-- ── Complete-register confirmation modal ──────────────────────── -->
 <div class="modal-overlay" id="complete-register-modal">
   <div class="modal" style="max-width:480px">
-    <h2>🔒 Complete Session Register</h2>
+    <h2><span class="ico-emoji">🔒 </span>Complete Session Register</h2>
     <p style="color:var(--muted);font-size:14px;margin-bottom:12px">
       This will lock the register. No further sign-ins or sign-outs will be possible for this session.
     </p>
@@ -104,23 +102,23 @@
          style="background:var(--cream);border-radius:10px;padding:14px;margin-bottom:16px;
                 display:flex;gap:16px;flex-wrap:wrap">
       <div style="text-align:center;flex:1">
-        <div style="font-size:26px;font-weight:900;color:#166534" id="crs-in">—</div>
+        <div style="font-size:26px;font-weight:900;color:var(--green)" id="crs-in">—</div>
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;
                     letter-spacing:.06em;color:var(--muted)">Signed In</div>
       </div>
       <div style="text-align:center;flex:1">
-        <div style="font-size:26px;font-weight:900;color:#475569" id="crs-waiting">—</div>
+        <div style="font-size:26px;font-weight:900;color:var(--muted)" id="crs-waiting">—</div>
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;
                     letter-spacing:.06em;color:var(--muted)">Not Arrived</div>
       </div>
       <div style="text-align:center;flex:1">
-        <div style="font-size:26px;font-weight:900;color:#854d0e" id="crs-out">—</div>
+        <div style="font-size:26px;font-weight:900;color:var(--amber)" id="crs-out">—</div>
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;
                     letter-spacing:.06em;color:var(--muted)">Signed Out</div>
       </div>
     </div>
-    <p id="crs-auto-note" style="font-size:13px;color:#92400e;
-       background:#fef3c7;border-radius:8px;padding:10px 12px;margin-bottom:16px;display:none">
+    <p id="crs-auto-note" style="font-size:13px;color:var(--amber);
+       background:var(--amber-bg);border-radius:8px;padding:10px 12px;margin-bottom:16px;display:none">
     </p>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeCompleteModal()">Cancel</button>
@@ -135,13 +133,13 @@
 <!-- ── Reset-session confirmation modal (admin only) ─────────── -->
 <div class="modal-overlay" id="reset-register-modal">
   <div class="modal" style="max-width:460px">
-    <h2>🔄 Reset Session Register</h2>
+    <h2><span class="ico-emoji">🔄 </span>Reset Session Register</h2>
     <p style="color:var(--muted);font-size:14px;margin-bottom:12px">
       This will <strong>permanently delete all sign-in and sign-out records</strong> for this
       session and unlock the register as if nothing has been recorded yet.
     </p>
-    <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;
-                padding:14px 16px;margin-bottom:16px;font-size:13px;color:#7f1d1d;font-weight:700">
+    <div style="background:var(--red-bg);border:1.5px solid color-mix(in srgb, var(--red) 35%, transparent);border-radius:10px;
+                padding:14px 16px;margin-bottom:16px;font-size:13px;color:var(--red);font-weight:700">
       ⚠️ This cannot be undone. All attendance data for this session date will be erased.
     </div>
     <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
@@ -162,7 +160,7 @@
 {% if 'register.notes' in user_permissions %}
 <div class="modal-overlay" id="add-note-modal">
   <div class="modal" style="max-width:520px">
-    <h2>📝 Add Session Note</h2>
+    <h2><span class="ico-emoji">📝 </span>Add Session Note</h2>
     <div class="form-group" style="margin-bottom:12px">
       <label>Type</label>
       <select id="note-type-select" class="form-input">
@@ -204,12 +202,12 @@
 
 <!-- ── Session Log panel ───────────────────────────────────────── -->
 {% if 'register.signout' in user_permissions %}
-<div id="session-log-panel" style="display:none;
-     border:1.5px solid #ccfbf1;background:#f0fdfa;border-radius:12px;
+<div id="session-log-panel" class="session-log" style="display:none;
+     border-radius:12px;
      padding:14px 18px;margin-bottom:16px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-    <h3 style="font-size:15px;font-weight:800;color:#0f766e;margin:0">
-      📋 Session Log
+    <h3 style="font-size:15px;font-weight:800;margin:0">
+      <span class="ico-emoji">📋 </span>Session Log
       <span id="session-log-count" style="font-size:12px;font-weight:400;
             color:var(--muted);margin-left:6px"></span>
     </h3>
@@ -226,10 +224,10 @@
 <!-- ── Tab bar ─────────────────────────────────────────────────── -->
 <div style="display:flex;gap:6px;margin-bottom:16px">
   <button class="reg-tab-btn active" id="tab-btn-members" onclick="switchRegTab('members')">
-    👦 Members
+    <span class="ico-emoji">👦 </span>Members
   </button>
   <button class="reg-tab-btn" id="tab-btn-staff" onclick="switchRegTab('staff')">
-    🧑‍🤝‍🧑 Staff
+    <span class="ico-emoji">🧑‍🤝‍🧑 </span>Staff
   </button>
 </div>
 
@@ -264,8 +262,8 @@
     <input id="reg-search" type="search" placeholder="Filter by name…"
            oninput="filterRegister()"
            style="width:100%;padding:8px 14px 8px 34px;border:2px solid var(--border);
-                  border-radius:10px;font-family:'Nunito',sans-serif;font-size:14px;
-                  outline:none;background:white;transition:border-color .18s;box-sizing:border-box"
+                  border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);
+                  outline:none;background:var(--surface);transition:border-color .18s;box-sizing:border-box"
            onfocus="this.style.borderColor='var(--accent)'"
            onblur="this.style.borderColor='var(--border)'">
   </div>
@@ -277,17 +275,17 @@
       <button class="sort-btn" data-sort="surname"
               onclick="setSort('surname')"
               style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
-                     border:1.5px solid var(--border);background:white;color:var(--muted);
+                     border:1.5px solid var(--border);background:var(--surface);color:var(--muted);
                      cursor:pointer;transition:all .12s;white-space:nowrap">Surname</button>
       <button class="sort-btn" data-sort="first_name"
               onclick="setSort('first_name')"
               style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
-                     border:1.5px solid var(--border);background:white;color:var(--muted);
+                     border:1.5px solid var(--border);background:var(--surface);color:var(--muted);
                      cursor:pointer;transition:all .12s;white-space:nowrap">First Name</button>
       <button class="sort-btn" data-sort="member_id"
               onclick="setSort('member_id')"
               style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
-                     border:1.5px solid var(--border);background:white;color:var(--muted);
+                     border:1.5px solid var(--border);background:var(--surface);color:var(--muted);
                      cursor:pointer;transition:all .12s;white-space:nowrap">Member ID</button>
     </div>
   </div>
@@ -330,14 +328,14 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
     <div>
       <h2 style="font-size:18px;font-weight:800;color:var(--navy)">
-        🎯 TV Display — Activities Board
+        <span class="ico-emoji">🎯 </span>TV Display — Activities Board
       </h2>
       <p style="font-size:13px;color:var(--muted);margin-top:3px">
         Activities appear as a scrolling ticker on the reception display screen.
       </p>
     </div>
     <a href="/display" target="_blank" class="btn btn-ghost btn-sm">
-      👁 Open display
+      <span class="ico-emoji">👁 </span>Open display
     </a>
   </div>
   <div style="display:flex;gap:10px;margin-bottom:16px">
@@ -387,9 +385,9 @@
     letter-spacing: .06em;
     opacity: .75;
   }
-  .reg-summary-in      { background: #dcfce7; color: #166534; }
-  .reg-summary-waiting { background: #f1f5f9; color: #475569; }
-  .reg-summary-out     { background: #fef9c3; color: #854d0e; }
+  .reg-summary-in      { background: var(--green-bg); color: var(--green); }
+  .reg-summary-waiting { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .reg-summary-out     { background: var(--amber-bg); color: var(--amber); }
 
   /* ── Card grid ──────────────────────────────────── */
   .reg-grid {
@@ -399,7 +397,7 @@
   }
 
   .reg-card {
-    background: white;
+    background: var(--surface);
     border: 2px solid var(--border);
     border-radius: 14px;
     padding: 13px 13px 11px;
@@ -412,21 +410,21 @@
 
   /* State: signed in */
   .reg-card.state-in {
-    background: #f0fdf4;
-    border-color: #86efac;
+    background: var(--green-bg);
+    border-color: color-mix(in srgb, var(--green) 40%, transparent);
   }
 
   /* State: signed out */
   .reg-card.state-out {
-    background: var(--cream);
-    border-color: #e2e8f0;
+    background: var(--bg);
+    border-color: var(--border);
     opacity: .65;
   }
 
   /* Unattended exit — subtle amber tint on the default (not-yet-arrived) state */
-  .reg-card--unattended                { background: #fffbeb; border-color: #fde68a; }
-  .reg-card--unattended.state-in       { background: #f0fdf4; border-color: #86efac; }
-  .reg-card--unattended.state-out      { background: var(--cream); border-color: #e2e8f0; }
+  .reg-card--unattended                { background: var(--amber-bg); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+  .reg-card--unattended.state-in       { background: var(--green-bg); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .reg-card--unattended.state-out      { background: var(--bg); border-color: var(--border); }
 
   .reg-card__name {
     font-size: 14px;
@@ -453,8 +451,8 @@
     color: var(--muted);
     min-height: 18px;
   }
-  .reg-card.state-in  .reg-card__time { color: #166534; }
-  .reg-card.state-out .reg-card__time { color: #854d0e; }
+  .reg-card.state-in  .reg-card__time { color: var(--green); }
+  .reg-card.state-out .reg-card__time { color: var(--amber); }
 
   .reg-card__btn {
     margin-top: auto;
@@ -463,7 +461,7 @@
     padding: 11px 8px;
     border-radius: 9px;
     border: none;
-    font-family: 'Nunito', sans-serif;
+    font-family: inherit;
     font-size: 14px;
     font-weight: 900;
     cursor: pointer;
@@ -474,10 +472,10 @@
   .reg-card__btn:active { transform: scale(.97); }
 
   .reg-card__btn.btn-signin {
-    background: var(--navy);
+    background: var(--accent);
     color: white;
   }
-  .reg-card__btn.btn-signin:hover  { background: var(--navy-dark, #111e36); }
+  .reg-card__btn.btn-signin:hover  { background: var(--accent-strong); }
 
   .reg-card__btn.btn-signout {
     background: #16a34a;
@@ -487,8 +485,8 @@
 
   .reg-card__btn.btn-undo {
     background: none;
-    border: 1.5px dashed #cbd5e1;
-    color: #94a3b8;
+    border: 1.5px dashed var(--border);
+    color: var(--muted);
     font-size: 12px;
     padding: 8px;
     font-weight: 700;
@@ -512,7 +510,7 @@
   /* ── Inline confirmation ────────────────────────────── */
   .reg-card--confirming {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(0,150,180,.15);
+    box-shadow: 0 0 0 3px var(--accent-ring);
     z-index: 1;
   }
 
@@ -533,10 +531,10 @@
   .btn-confirm-undo        { background: #64748b;       color: white; }
   .btn-confirm-no {
     background: none;
-    border: 1.5px solid #cbd5e1;
-    color: #64748b;
+    border: 1.5px solid var(--border);
+    color: var(--muted);
   }
-  .btn-confirm-no:hover { background: #f1f5f9; }
+  .btn-confirm-no:hover { background: var(--surface-2); }
 
   @media (max-width: 600px) {
     .reg-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 8px; }
@@ -547,8 +545,8 @@
     padding: 9px 20px;
     border-radius: 10px;
     border: 2px solid var(--border);
-    background: white;
-    font-family: 'Nunito', sans-serif;
+    background: var(--surface);
+    font-family: inherit;
     font-size: 14px;
     font-weight: 800;
     color: var(--muted);
@@ -556,19 +554,70 @@
     transition: all .15s;
   }
   .reg-tab-btn:hover  { border-color: var(--accent); color: var(--accent); }
-  .reg-tab-btn.active { background: var(--navy); border-color: var(--navy); color: white; }
+  .reg-tab-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
 
   /* Staff cards — purple accent */
-  .reg-card.staff-card.state-in  { background: #f5f3ff; border-color: #c4b5fd; }
+  .reg-card.staff-card.state-in  { background: var(--violet-bg); border-color: color-mix(in srgb, var(--violet) 40%, transparent); }
   .reg-card.staff-card .reg-card__role {
     font-size: 11px;
     font-weight: 700;
-    color: #7c3aed;
+    color: var(--violet);
     text-transform: uppercase;
     letter-spacing: .05em;
   }
   .reg-card.staff-card .reg-card__btn.btn-signin  { background: #7c3aed; }
   .reg-card.staff-card .reg-card__btn.btn-signin:hover { background: #6d28d9; }
+
+  /* ── QR panel / locked banner / session log — token defaults ── */
+  .qr-panel { background: var(--accent-soft); border: 2px solid var(--accent-ring); }
+  .qr-title { color: var(--text); }
+  .qr-stats { color: var(--accent); }
+  .qr-regen-btn {
+    padding: 6px 14px; border-radius: 8px; border: 1.5px solid var(--accent);
+    background: var(--surface); color: var(--accent);
+    font-size: 13px; font-weight: 800; cursor: pointer; font-family: inherit;
+  }
+  .locked-banner { background: var(--green-bg); border: 2px solid color-mix(in srgb, var(--green) 40%, transparent); }
+  .locked-text { color: var(--green); }
+  .session-log {
+    border: 1.5px solid color-mix(in srgb, #0f766e 30%, transparent);
+    background: color-mix(in srgb, #0f766e 7%, var(--surface));
+  }
+  .session-log h3 { color: #0f766e; }
+  html[data-theme="dark"] .session-log h3 { color: #5eead4; }
+
+  /* Lucide glyphs inside register cards are Formal-only */
+  html[data-skin="casual"] .reg-card .lucide { display: none; }
+
+  /* ════════ Casual light — v11-exact values ════════ */
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-summary-in      { background: #dcfce7; color: #166534; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-summary-waiting { background: #f1f5f9; color: #475569; border: none; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-summary-out     { background: #fef9c3; color: #854d0e; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card { background: white; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.state-in,
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card--unattended.state-in { background: #f0fdf4; border-color: #86efac; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.state-out,
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card--unattended.state-out { background: var(--cream); border-color: #e2e8f0; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card--unattended { background: #fffbeb; border-color: #fde68a; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.state-in .reg-card__time  { color: #166534; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.state-out .reg-card__time { color: #854d0e; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card__btn { font-family: 'Nunito', sans-serif; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card__btn.btn-signin { background: var(--navy); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card__btn.btn-signin:hover { background: var(--navy-dark); }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card__btn.btn-undo { border-color: #cbd5e1; color: #94a3b8; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .btn-confirm-no { border-color: #cbd5e1; color: #64748b; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .btn-confirm-no:hover { background: #f1f5f9; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-tab-btn { background: white; font-family: 'Nunito', sans-serif; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-tab-btn.active { background: var(--navy); border-color: var(--navy); color: white; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.staff-card.state-in { background: #f5f3ff; border-color: #c4b5fd; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .reg-card.staff-card .reg-card__role { color: #7c3aed; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-panel { background: #f0f9ff; border-color: #bae6fd; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-title { color: #0c4a6e; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-stats { color: #0369a1; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .qr-regen-btn { background: #fff; border-color: #0096b4; color: #0096b4; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .locked-banner { background: #f0fdf4; border-color: #86efac; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .locked-text { color: #166534; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .session-log { border-color: #ccfbf1; background: #f0fdfa; }
 </style>
 
 <script>
@@ -767,20 +816,21 @@
     let html = '<div class="reg-grid">';
 
     if (groupWaiting.length) {
-      html += `<div class="reg-group-header">⏳ Not Yet Arrived (${groupWaiting.length})</div>`;
+      html += `<div class="reg-group-header"><span class="ico-emoji">⏳ </span>Not Yet Arrived (${groupWaiting.length})</div>`;
       html += groupWaiting.map(m => memberCard(m, sess, date, _registerLocked)).join('');
     }
     if (groupIn.length) {
-      html += `<div class="reg-group-header">✅ Signed In (${groupIn.length})</div>`;
+      html += `<div class="reg-group-header"><span class="ico-emoji">✅ </span>Signed In (${groupIn.length})</div>`;
       html += groupIn.map(m => memberCard(m, sess, date, _registerLocked)).join('');
     }
     if (groupOut.length) {
-      html += `<div class="reg-group-header">🚪 Signed Out (${groupOut.length})</div>`;
+      html += `<div class="reg-group-header"><span class="ico-emoji">🚪 </span>Signed Out (${groupOut.length})</div>`;
       html += groupOut.map(m => memberCard(m, sess, date, _registerLocked)).join('');
     }
 
     html += '</div>';
     container.innerHTML = html;
+    refreshIcons();
     document.getElementById('reg-search-wrap').style.display = '';
     document.getElementById('reg-sort-wrap').style.display   = 'flex';
     _updateSortButtons();
@@ -797,7 +847,7 @@
   function _updateSortButtons() {
     document.querySelectorAll('.sort-btn').forEach(btn => {
       const active = btn.dataset.sort === _sortOrder;
-      btn.style.background   = active ? 'var(--accent)' : 'white';
+      btn.style.background   = active ? 'var(--accent)' : 'var(--surface)';
       btn.style.color        = active ? 'white' : 'var(--muted)';
       btn.style.borderColor  = active ? 'var(--accent)' : 'var(--border)';
       btn.style.fontWeight   = active ? '800' : '700';
@@ -863,7 +913,7 @@
     const unaFlag = m.unattended_exit
       ? `<span title="Unattended exit permitted"
               style="position:absolute;top:8px;right:8px;
-                     font-size:13px;line-height:1;opacity:.75">🚪</span>` : '';
+                     font-size:13px;line-height:1;opacity:.75"><i data-lucide="door-open" style="width:14px;height:14px;color:var(--amber)"></i><span class="ico-emoji">🚪</span></span>` : '';
 
     const tagBadges = (m.tags && m.tags.length)
       ? m.tags.map(t =>
@@ -1186,19 +1236,20 @@
 
     let html = '<div class="reg-grid">';
     if (groupWaiting.length) {
-      html += `<div class="reg-group-header">⏳ Not Yet Arrived (${groupWaiting.length})</div>`;
+      html += `<div class="reg-group-header"><span class="ico-emoji">⏳ </span>Not Yet Arrived (${groupWaiting.length})</div>`;
       html += groupWaiting.map(m => staffCard(m, sess, date, locked)).join('');
     }
     if (groupIn.length) {
-      html += `<div class="reg-group-header">✅ Signed In (${groupIn.length})</div>`;
+      html += `<div class="reg-group-header"><span class="ico-emoji">✅ </span>Signed In (${groupIn.length})</div>`;
       html += groupIn.map(m => staffCard(m, sess, date, locked)).join('');
     }
     if (groupOut.length) {
-      html += `<div class="reg-group-header">🚪 Signed Out (${groupOut.length})</div>`;
+      html += `<div class="reg-group-header"><span class="ico-emoji">🚪 </span>Signed Out (${groupOut.length})</div>`;
       html += groupOut.map(m => staffCard(m, sess, date, locked)).join('');
     }
     html += '</div>';
     container.innerHTML = html;
+    refreshIcons();
   }
 
   function staffCard(m, sess, date, locked = false) {
@@ -1429,7 +1480,7 @@
       const canDel   = CAN_ADD_NOTES;  // author check done server-side; show button if perm held
       return `
         <div style="display:flex;gap:10px;padding:10px 0;
-             border-bottom:1px solid #ccfbf1;align-items:flex-start"
+             border-bottom:1px solid color-mix(in srgb, #0f766e 20%, transparent);align-items:flex-start"
              id="note-entry-${n.id}">
           <div style="flex-shrink:0;min-width:80px;text-align:right;
                font-size:12px;color:var(--muted);padding-top:2px">
@@ -1449,7 +1500,7 @@
                 </button>` : ''}
             </div>
             ${n.title ? `<div style="font-size:14px;font-weight:700;margin-bottom:2px">${esc(n.title)}</div>` : ''}
-            ${n.details ? `<div style="font-size:13px;color:#334155;white-space:pre-wrap">${esc(n.details)}</div>` : ''}
+            ${n.details ? `<div style="font-size:13px;color:var(--text);opacity:.85;white-space:pre-wrap">${esc(n.details)}</div>` : ''}
             <div style="font-size:11px;color:var(--muted);margin-top:4px">
               Added by ${esc(n.added_by_name || 'unknown')}
             </div>
@@ -1593,7 +1644,7 @@
                     background:var(--cream);border:1px solid var(--border);
                     border-radius:10px;padding:10px 14px;gap:10px">
           <span id="activity-text-${a.id}"
-                style="font-size:14px;font-weight:700;flex:1">🎯 ${esc(a.activity)}</span>
+                style="font-size:14px;font-weight:700;flex:1"><span class="ico-emoji">🎯 </span>${esc(a.activity)}</span>
           <input id="activity-edit-input-${a.id}" type="text"
                  class="search-input" maxlength="120"
                  style="flex:1;display:none;font-size:14px"
@@ -1601,7 +1652,7 @@
                  onkeydown="if(event.key==='Enter') saveActivity(${a.id}); if(event.key==='Escape') cancelEdit(${a.id})">
           <div id="activity-view-btns-${a.id}" style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn btn-ghost btn-sm"
-                    onclick="editActivity(${a.id})">✏️ Edit</button>
+                    onclick="editActivity(${a.id})"><span class="ico-emoji">✏️ </span>Edit</button>
             <button class="btn btn-ghost btn-sm" style="color:var(--red)"
                     onclick="deleteActivity(${a.id})">✕ Remove</button>
           </div>
@@ -1639,7 +1690,7 @@
         method: 'PUT',
         body:   JSON.stringify({ activity: text }),
       });
-      document.getElementById(`activity-text-${id}`).textContent = `🎯 ${updated.activity}`;
+      document.getElementById(`activity-text-${id}`).innerHTML = '<span class="ico-emoji">🎯 </span>' + esc(updated.activity);
       cancelEdit(id);
       showToast('Activity updated.');
     } catch (e) {
@@ -1736,7 +1787,7 @@
       showToast('Could not regenerate QR: ' + e.message, true);
     } finally {
       btn.disabled    = false;
-      btn.textContent = '🔄 Regenerate QR';
+      btn.innerHTML = '<span class="ico-emoji">🔄 </span>Regenerate QR';
     }
   }
 
@@ -1774,7 +1825,7 @@
   // Load qrcodejs synchronously then init the panel
   (function loadQrLib() {
     const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.src = '/static/vendor/qrcode.min.js?v={{ app_version }}';
     s.onload = loadQrPanel;
     document.head.appendChild(s);
   })();
