@@ -62,7 +62,8 @@ def _run_alert_rule(db, rule, today_str):
         params_base.append(scoped_sess)
 
     members = db.execute(
-        f'SELECT m.id, m.member_id, m.first_name, m.surname, m.session '
+        f'SELECT m.id, m.member_id, m.first_name, m.surname, m.session, '
+        f'm.date_registered, m.created_at '
         f'FROM members m WHERE {member_cond}',
         params_base
     ).fetchall()
@@ -96,7 +97,18 @@ def _run_alert_rule(db, rule, today_str):
             sessions_by_type[s['session_type']].append(s['session_date'])
 
         for m in members:
-            relevant = sessions_by_type[m['session']][:threshold]
+            # Determine the effective join date for this member.
+            # date_registered takes priority (staff-set, may be a historical date).
+            # created_at is the automatic fallback — always present, never editable.
+            raw_join = (m['date_registered'] or '').strip() or (m['created_at'] or '')[:10]
+            join_date = raw_join[:10]  # normalise to YYYY-MM-DD
+
+            # Only consider sessions that took place on or after the member joined.
+            # This prevents new members being flagged for sessions they could not
+            # have attended before they were registered.
+            all_sessions = sessions_by_type[m['session']]
+            eligible = [d for d in all_sessions if d >= join_date]
+            relevant = eligible[:threshold]
             if len(relevant) < threshold:
                 continue
             # Count positive sign-ins only (signed_in_at IS NOT NULL) so that
