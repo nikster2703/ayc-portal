@@ -103,12 +103,19 @@
               </select>
             </span>
             <span class="rte-sep"></span>
-            <!-- Preview toggle -->
+            <!-- Preview toggle + navigation -->
             <button class="rte-btn rte-preview-btn" id="s-preview-btn" title="Preview message"
                     onmousedown="event.preventDefault()"
                     onclick="togglePreviewMode('s-editor','s-toolbar','s-preview-btn')">
               <span style="font-size:12px">👁</span>
             </button>
+            <button class="rte-btn rte-nav-btn" id="s-prev-btn" style="display:none"
+                    onmousedown="event.preventDefault()" onclick="previewNav('s-editor',-1)"
+                    title="Previous recipient">‹</button>
+            <span class="rte-preview-pos" id="s-preview-pos"></span>
+            <button class="rte-btn rte-nav-btn" id="s-next-btn" style="display:none"
+                    onmousedown="event.preventDefault()" onclick="previewNav('s-editor',1)"
+                    title="Next recipient">›</button>
           </div>
           <!-- Editor -->
           <div class="rte-editor" id="s-editor" contenteditable="true"
@@ -116,7 +123,7 @@
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:5px">
           Use <strong>Insert field</strong> to personalise, e.g. <code>{Forename}</code>.
-          Click 👁 to preview as the first recipient. Recipients see their own email only (BCC-style).
+          Click 👁 to preview — use ‹ › to step through recipients. Recipients see their own email only (BCC-style).
         </div>
       </div>
 
@@ -509,11 +516,19 @@
   // Scroll → dismiss (image moves, bar would drift)
   document.addEventListener('scroll', irbHide, true);
 
-  /* ── Preview mode toggle ─────────────────────────── */
-async function togglePreviewMode(editorId, toolbarId, btnId) {
+  /* ── Preview mode toggle + navigation ───────────── */
+  const _previewRecips = {};  // per-editor: checked checkbox elements at preview entry
+  const _previewIdx    = {};  // per-editor: current navigation index
+
+  async function togglePreviewMode(editorId, toolbarId, btnId) {
     const editor  = document.getElementById(editorId);
     const toolbar = document.getElementById(toolbarId);
     const btn     = document.getElementById(btnId);
+    // Nav elements only exist for s-editor (compose); template modal has no recipients
+    const prevBtn = document.getElementById('s-prev-btn');
+    const nextBtn = document.getElementById('s-next-btn');
+    const posEl   = document.getElementById('s-preview-pos');
+
     if (_previewOn[editorId]) {
       // ── Back to edit ──
       editor.innerHTML       = _rawHtmlBak[editorId] || '';
@@ -521,35 +536,78 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
       _previewOn[editorId]   = false;
       btn.classList.remove('rte-preview-active');
       btn.title = 'Preview message';
-      toolbar.querySelectorAll('button:not(.rte-preview-btn), select')
+      toolbar.querySelectorAll('button:not(.rte-preview-btn):not(.rte-nav-btn), select')
              .forEach(el => el.disabled = false);
+      if (prevBtn) prevBtn.style.display = 'none';
+      if (nextBtn) nextBtn.style.display = 'none';
+      if (posEl)   posEl.style.display   = 'none';
+      // Clear recipient highlight
+      document.querySelectorAll('.recip-row')
+              .forEach(r => r.classList.remove('recip-preview-active'));
     } else {
-      // ── Preview ──
-      const first = document.querySelector('.recip-chk:checked');
-      _rawHtmlBak[editorId]  = editor.innerHTML;
-      editor.contentEditable = 'false';
-      _previewOn[editorId]   = true;
+      // ── Enter preview ──
+      const recips = [...document.querySelectorAll('.recip-chk:checked')];
+      if (!recips.length) {
+        showToast('No recipients selected — tick at least one to preview.', true); return;
+      }
+      _rawHtmlBak[editorId]    = editor.innerHTML;
+      _previewRecips[editorId] = recips;
+      _previewIdx[editorId]    = 0;
+      editor.contentEditable   = 'false';
+      _previewOn[editorId]     = true;
       btn.classList.add('rte-preview-active');
       btn.title = 'Back to editing';
-      toolbar.querySelectorAll('button:not(.rte-preview-btn), select')
+      toolbar.querySelectorAll('button:not(.rte-preview-btn):not(.rte-nav-btn), select')
              .forEach(el => el.disabled = true);
-      if (first) {
-        // Use backend substitution so ALL fields (including custom ones) resolve correctly
-        try {
-          const res = await apiFetch('/api/mailshots/preview-substitute', {
-            method: 'POST',
-            body: JSON.stringify({ body_html: _rawHtmlBak[editorId], email: first.dataset.email }),
-          });
-          editor.innerHTML = res.html;
-        } catch (_) {
-          editor.innerHTML = _rawHtmlBak[editorId]; // fall back to raw if call fails
-        }
-        showToast(`Preview: showing as it would appear to ${first.dataset.name}`);
-      } else {
-        editor.innerHTML = _rawHtmlBak[editorId]; // no recipient — show raw with tokens
-        showToast('No recipient selected — select one to preview substituted values', true);
+      // Show nav only when there's more than one recipient to step through
+      if (recips.length > 1) {
+        if (prevBtn) prevBtn.style.display = '';
+        if (nextBtn) nextBtn.style.display = '';
+        if (posEl)   posEl.style.display   = '';
       }
+      await _renderPreview(editorId);
     }
+  }
+
+  async function _renderPreview(editorId) {
+    const recips = _previewRecips[editorId] || [];
+    const idx    = _previewIdx[editorId]    || 0;
+    const chk    = recips[idx];
+    if (!chk) return;
+
+    const editor = document.getElementById(editorId);
+    const posEl  = document.getElementById('s-preview-pos');
+
+    // Update position label
+    if (posEl && recips.length > 1) {
+      posEl.textContent = `${chk.dataset.name} (${idx + 1}/${recips.length})`;
+    }
+
+    // Highlight the active recipient row and scroll it into view
+    document.querySelectorAll('.recip-row').forEach(row => {
+      const cb = row.querySelector('.recip-chk');
+      const active = cb && cb.dataset.email === chk.dataset.email;
+      row.classList.toggle('recip-preview-active', active);
+      if (active) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+
+    // Fetch backend-substituted HTML
+    try {
+      const res = await apiFetch('/api/mailshots/preview-substitute', {
+        method: 'POST',
+        body: JSON.stringify({ body_html: _rawHtmlBak[editorId], email: chk.dataset.email }),
+      });
+      editor.innerHTML = res.html;
+    } catch (_) {
+      editor.innerHTML = _rawHtmlBak[editorId];
+    }
+  }
+
+  async function previewNav(editorId, delta) {
+    if (!_previewOn[editorId]) return;
+    const recips = _previewRecips[editorId] || [];
+    _previewIdx[editorId] = (_previewIdx[editorId] + delta + recips.length) % recips.length;
+    await _renderPreview(editorId);
   }
 
   /* ── Merge fields ────────────────────────────────── */
@@ -1216,6 +1274,23 @@ async function togglePreviewMode(editorId, toolbarId, btnId) {
   }
   .rte-preview-btn { color: var(--muted); }
   .rte-preview-active { background: var(--accent-light) !important; color: var(--accent) !important; }
+  .rte-nav-btn { font-size:15px;font-weight:900;color:var(--accent); }
+  .rte-preview-pos {
+    display: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 2px;
+  }
+  .recip-row.recip-preview-active {
+    background: var(--accent-light) !important;
+    border-left: 3px solid var(--accent);
+    padding-left: 9px;
+  }
 
   .rte-editor {
     min-height: 100px;

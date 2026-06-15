@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en" data-skin="casual" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documents & Comms — Design Mockup</title>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Tokens: Formal (default) ── */
+:root {
+  --font: 'Inter', system-ui, sans-serif;
+  --accent: #0096b4;
+  --accent-soft: #e0f7fa;
+  --accent-strong: #007a94;
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #dde1e7;
+  --navy: #1b2d4f;
+  --radius: 12px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --red: #dc2626;
+  --green: #16a34a;
+}
+html[data-theme="dark"] {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #263348;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --border: #334155;
+}
+html[data-skin="casual"] {
+  --font: 'Nunito', system-ui, sans-serif;
+  --bg: #f5f3ef;
+  --surface: #ffffff;
+  --surface-2: #ede8e0;
+  --text: #1b2d4f;
+  --muted: #5a6a82;
+  --border: #c8c2b8;
+  --navy: #1b2d4f;
+  --accent: #0096b4;
+}
+
+body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; min-height: 100vh; }
+
+/* ── Control strip ── */
+.controls {
+  position: sticky; top: 0; z-index: 200;
+  background: #1b2d4f; color: white;
+  display: flex; align-items: center; gap: 16px; padding: 10px 24px;
+  font-size: 13px; font-weight: 700; flex-wrap: wrap;
+}
+.controls span { opacity: .6; font-weight: 400; }
+.ctrl-btn {
+  padding: 5px 14px; border-radius: 20px; border: 1.5px solid rgba(255,255,255,.3);
+  background: transparent; color: white; cursor: pointer; font-size: 12px; font-weight: 700;
+  transition: background .15s;
+}
+.ctrl-btn.active, .ctrl-btn:hover { background: rgba(255,255,255,.2); border-color: white; }
+.ctrl-sep { width: 1px; height: 20px; background: rgba(255,255,255,.2); }
+
+/* ── Page shell ── */
+.page-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 24px; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+.page-header h1 { font-size: 21px; font-weight: 800; letter-spacing: -.02em; color: var(--text); display: flex; align-items: center; gap: 10px; }
+.page-tabs { display: flex; gap: 6px; margin-bottom: 24px; }
+.page-tab { padding: 8px 18px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-weight: 700; font-size: 13px; transition: .15s; }
+.page-tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+html[data-skin="casual"] .page-tab.active { background: var(--navy); border-color: var(--navy); }
+
+/* ── Buttons ── */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 8px; border: 1.5px solid transparent; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; font-family: var(--font); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm { padding: 5px 11px; font-size: 12px; }
+html[data-skin="casual"] .btn-primary { background: var(--navy); border-color: var(--navy); }
+html[data-skin="casual"] .btn-primary:hover { background: #1a2840; }
+
+/* ── Toolbar ── */
+.toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+.search-wrap { display: flex; flex: 1; min-width: 220px; max-width: 380px; border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.search-wrap input { flex: 1; border: none; padding: 9px 13px; font-size: 14px; background: transparent; color: var(--text); font-family: var(--font); outline: none; }
+.search-wrap input::placeholder { color: var(--muted); }
+.search-wrap .search-btn { background: var(--accent); color: white; border: none; padding: 0 15px; cursor: pointer; font-size: 13px; font-weight: 700; }
+html[data-skin="casual"] .search-wrap { border-width: 2px; }
+html[data-skin="casual"] .search-wrap .search-btn { background: var(--navy); }
+
+/* ── Category section headers ── */
+.cat-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 900; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--muted);
+  margin-bottom: 10px; padding-bottom: 6px;
+  border-bottom: 1.5px solid var(--border);
+}
+.cat-header .cat-icon {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; background: var(--surface-2);
+}
+
+/* ── Document cards ── */
+.doc-section { margin-bottom: 28px; }
+.doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+
+.doc-card {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: border-color .18s, box-shadow .18s;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+.doc-card:hover { border-color: var(--accent); box-shadow: var(--shadow-md); }
+
+/* Color accent strip on left edge — keyed to file type */
+.doc-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px; border-radius: 0;
+}
+.doc-card.ftype-pdf::before  { background: #dc2626; }
+.doc-card.ftype-word::before { background: #2563eb; }
+.doc-card.ftype-excel::before { background: #16a34a; }
+.doc-card.ftype-image::before { background: #7c3aed; }
+.doc-card.ftype-file::before  { background: var(--accent); }
+
+/* Fixed-height card: inner flex column pushes meta to the bottom */
+.doc-card { height: 168px; }  /* fixed total card height */
+.doc-card-inner { padding: 12px 14px 10px 18px; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0; overflow: hidden; }
+
+.doc-top { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-height: 0; overflow: hidden; }
+.doc-type-icon {
+  width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 900; letter-spacing: -.02em;
+}
+.doc-card.ftype-pdf   .doc-type-icon { background: #fef2f2; color: #dc2626; }
+.doc-card.ftype-word  .doc-type-icon { background: #eff6ff; color: #2563eb; }
+.doc-card.ftype-excel .doc-type-icon { background: #f0fdf4; color: #16a34a; }
+.doc-card.ftype-image .doc-type-icon { background: #faf5ff; color: #7c3aed; }
+.doc-card.ftype-file  .doc-type-icon { background: var(--accent-soft); color: var(--accent); }
+
+.doc-title-wrap { flex: 1; min-width: 0; overflow: hidden; }
+.doc-title { font-size: 13.5px; font-weight: 800; color: var(--text); line-height: 1.3;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.doc-desc  { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.4;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Meta row always pinned to bottom of the inner area */
+.doc-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; flex-shrink: 0; }
+.doc-meta-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.chip-cat   { background: var(--surface-2); color: var(--muted); }
+.chip-date  { color: var(--muted); font-size: 11px; }
+.chip-user  { color: var(--muted); font-size: 11px; }
+.chip-expired   { background: #fef2f2; color: #991b1b; }
+.chip-expiring  { background: #fff7ed; color: #c2410c; }
+
+.doc-actions {
+  display: flex; align-items: center; gap: 4px;
+  padding: 8px 14px 8px 18px; border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.doc-action-btn {
+  width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--surface); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 14px; transition: .15s; color: var(--muted);
+}
+.doc-action-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.doc-action-btn.danger:hover { border-color: var(--red); color: var(--red); background: #fef2f2; }
+.doc-action-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.doc-action-spacer { flex: 1; }
+
+/* Casual skin: doc cards */
+html[data-skin="casual"] .doc-card { border-width: 2px; border-radius: 14px; }
+html[data-skin="casual"] .doc-card::before { width: 5px; }
+html[data-skin="casual"] .doc-type-icon { border-radius: 10px; font-size: 14px; }
+
+/* ── Compact list mode ── */
+.doc-compact-list { display: flex; flex-direction: column; gap: 3px; }
+.doc-compact-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; background: var(--surface);
+  border: 1.5px solid var(--border); border-radius: 8px;
+  transition: border-color .15s;
+}
+.doc-compact-row:hover { border-color: var(--accent); }
+.doc-compact-type { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; flex-shrink: 0; }
+.doc-compact-title { font-weight: 800; font-size: 13px; flex: 1; min-width: 0; }
+.doc-compact-meta  { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.doc-compact-actions { display: flex; gap: 4px; }
+
+/* ── Filter panel ── */
+.filter-panel {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
+}
+html[data-skin="casual"] .filter-panel { border-width: 2px; border-radius: 14px; }
+.filter-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.form-input {
+  height: 36px; padding: 0 12px; border: 1.5px solid var(--border);
+  border-radius: 8px; background: var(--surface); color: var(--text);
+  font-size: 13px; font-family: var(--font); outline: none; transition: border-color .15s;
+}
+.form-input:focus { border-color: var(--accent); }
+html[data-skin="casual"] .form-input { border-width: 2px; }
+
+/* ── COMMS LAYOUT ── */
+.comms-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+  align-items: start;
+}
+.comms-panel {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+html[data-skin="casual"] .comms-panel { border-width: 2px; border-radius: 16px; }
+
+.panel-header {
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.panel-title { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.panel-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+
+/* Form groups */
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.form-label-casual { font-size: 13px; font-weight: 800; text-transform: none; letter-spacing: 0; color: var(--text); }
+.form-control {
+  height: 38px; padding: 0 12px; border: 1.5px solid var(--border);
+  border-radius: 8px; background: var(--surface); color: var(--text);
+  font-size: 13.5px; font-family: var(--font); outline: none; transition: border-color .15s; width: 100%;
+}
+.form-control:focus { border-color: var(--accent); }
+html[data-skin="casual"] .form-control { border-width: 2px; }
+
+/* ── RTE (composer) ── */
+.rte-wrap { border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+html[data-skin="casual"] .rte-wrap { border-width: 2px; }
+.rte-toolbar {
+  display: flex; align-items: center; gap: 4px; padding: 7px 10px;
+  background: var(--surface-2); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.rte-btn {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: 5px; cursor: pointer;
+  font-size: 13px; color: var(--text); transition: background .1s;
+}
+.rte-btn:hover { background: var(--border); }
+.rte-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+.rte-body {
+  min-height: 160px; padding: 12px 14px;
+  background: var(--surface); color: var(--muted);
+  font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;
+}
+.rte-merge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+  background: var(--accent-soft); border: 1.5px solid var(--accent); border-radius: 6px;
+  font-size: 12px; font-weight: 800; color: var(--accent);
+}
+
+/* ── Recipient count badge ── */
+.recip-count-box {
+  background: var(--accent-soft); border: 1.5px solid var(--accent);
+  border-radius: 10px; padding: 14px 16px;
+  display: flex; align-items: center; gap: 12px;
+}
+.recip-count-num { font-size: 28px; font-weight: 900; color: var(--accent); line-height: 1; }
+.recip-count-label { font-size: 12px; font-weight: 700; color: var(--accent); opacity: .8; }
+html[data-skin="casual"] .recip-count-box { border-width: 2px; border-radius: 12px; }
+html[data-skin="casual"] .recip-count-num { color: var(--navy); }
+html[data-skin="casual"] .recip-count-box { border-color: var(--navy); background: #e8edf5; }
+html[data-skin="casual"] .recip-count-label { color: var(--navy); }
+
+/* ── Recipient list ── */
+.recip-list { border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; max-height: 220px; overflow-y: auto; }
+html[data-skin="casual"] .recip-list { border-width: 2px; }
+.recip-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.recip-row:last-child { border-bottom: none; }
+.recip-row:hover { background: var(--accent-soft); }
+.recip-name  { font-weight: 700; font-size: 13px; flex: 1; }
+.recip-email { color: var(--muted); font-size: 11.5px; }
+.recip-chk   { accent-color: var(--accent); cursor: pointer; }
+
+/* ── Flag checkboxes ── */
+.flags-list { border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+html[data-skin="casual"] .flags-list { border-width: 2px; }
+.flag-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.flag-row:last-child { border-bottom: none; }
+.flag-row:hover { background: var(--accent-soft); }
+.flag-chip { padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; color: white; }
+
+/* ── Attachment chip ── */
+.attachment-chip {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  background: #f0f9ff; border: 1.5px solid #bae6fd; border-radius: 8px; font-size: 13px;
+}
+.attachment-chip .doc-name { font-weight: 700; flex: 1; }
+.attachment-chip .doc-file { color: var(--muted); font-size: 11px; }
+.attachment-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+
+/* ── Section divider ── */
+.section-divider { margin: 32px 0 24px; border-top: 2px solid var(--border); padding-top: 24px; }
+.section-divider h2 { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+.section-divider p  { font-size: 13px; color: var(--muted); }
+
+/* ── Lucide SVG icons ── */
+.ico { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+/* ── Send button ── */
+.send-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px; width: 100%; border-radius: 8px;
+  background: var(--accent); color: white; border: none;
+  font-size: 14px; font-weight: 800; cursor: pointer; font-family: var(--font);
+}
+html[data-skin="casual"] .send-btn { background: var(--navy); }
+
+/* ── Info note ── */
+.info-note {
+  background: var(--accent-soft); border: 1.5px solid var(--accent);
+  border-radius: 10px; padding: 12px 14px; font-size: 13px; color: var(--accent-strong);
+  display: flex; gap: 10px;
+}
+html[data-skin="casual"] .info-note { border-color: var(--navy); background: #e8edf5; color: var(--navy); }
+
+/* ── Templates table ── */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 10px 12px; border-bottom: 2px solid var(--border); text-align: left; }
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--accent-soft); }
+
+/* ── Breadcrumb / page nav ── */
+.page-nav { display: flex; gap: 6px; margin-bottom: 28px; border-bottom: 1.5px solid var(--border); }
+.page-nav-tab { padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--muted); border: none; background: none; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: .15s; font-family: var(--font); }
+.page-nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+html[data-skin="casual"] .page-nav-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+
+/* ── Retention banner ── */
+.retention-banner {
+  background: #fff7ed; border: 1.5px solid #fed7aa; border-radius: 10px;
+  padding: 11px 16px; margin-bottom: 14px; font-size: 13px; color: #9a3412;
+  display: flex; align-items: center; gap: 8px;
+}
+html[data-skin="casual"] .retention-banner { border-width: 2px; }
+
+</style>
+</head>
+<body>
+
+<!-- Controls -->
+<div class="controls">
+  <strong>Design Mockup</strong>
+  <span>Skin:</span>
+  <button class="ctrl-btn active" id="btn-casual" onclick="setSkin('casual')">Casual</button>
+  <button class="ctrl-btn" id="btn-formal" onclick="setSkin('formal')">Formal</button>
+  <div class="ctrl-sep"></div>
+  <span>Theme:</span>
+  <button class="ctrl-btn active" id="btn-light" onclick="setTheme('light')">Light</button>
+  <button class="ctrl-btn" id="btn-dark" onclick="setTheme('dark')">Dark</button>
+  <div class="ctrl-sep"></div>
+  <span style="opacity:.5;font-size:11px">Toggle to compare skins · v12 proposal</span>
+</div>
+
+<div class="page-wrap">
+
+<!-- ════════════════════════════════════════════════
+     SECTION 1: DOCUMENT REPOSITORY
+     ════════════════════════════════════════════════ -->
+<div class="page-header">
+  <h1>
+    <svg class="ico" style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h9l5 5v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 5v5h5"/></svg>
+    <span id="doc-title-text">📁</span>
+    Document Repository
+    <select id="cat-select" style="padding:5px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;background:var(--surface);color:var(--text);cursor:pointer;outline:none;font-family:var(--font)">
+      <option>📂 General</option>
+      <option>📋 Policies</option>
+      <option>📝 Forms</option>
+    </select>
+  </h1>
+  <button class="btn btn-primary">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    <span id="upload-emoji">⬆️ </span>Upload Document
+  </button>
+</div>
+
+<!-- Retention banner -->
+<div class="retention-banner">
+  ⚠️ <strong>2 documents</strong> have passed their retention date.
+  <a href="#" style="color:#9a3412;text-decoration:underline;margin-left:4px">View them →</a>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <div class="search-wrap">
+    <input placeholder="Search documents…">
+    <button class="search-btn">Search</button>
+  </div>
+  <button class="btn btn-ghost btn-sm">
+    <svg class="ico" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+    <span id="filters-emoji">⚙️ </span>Filters
+    <span style="background:var(--accent);color:white;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:2px">1</span>
+  </button>
+  <button class="btn btn-ghost btn-sm">
+    <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+    <span id="compact-emoji">⊟ </span>Compact
+  </button>
+</div>
+
+<!-- Filter panel (open state shown) -->
+<div class="filter-panel" style="margin-bottom:16px">
+  <div class="filter-row">
+    <select class="form-input" style="flex:2;min-width:140px">
+      <option>Document Date</option>
+      <option>Title</option>
+      <option>Uploader</option>
+    </select>
+    <select class="form-input" style="flex:1;min-width:100px">
+      <option>Before</option>
+      <option>After</option>
+    </select>
+    <input type="date" class="form-input" value="2026-06-13" style="flex:2">
+    <button class="btn btn-ghost btn-sm" style="padding:5px 9px">✕</button>
+  </div>
+  <div style="margin-top:10px;display:flex;gap:8px">
+    <button class="btn btn-ghost btn-sm">+ Add condition</button>
+    <button class="btn btn-primary btn-sm">Apply</button>
+    <button class="btn btn-ghost btn-sm">Clear all</button>
+  </div>
+</div>
+
+<!-- ── CARD MODE: General category ── -->
+<div class="doc-section">
+  <div class="cat-header">
+    <span class="cat-icon">📂</span>
+    General
+    <span style="margin-left:auto;font-weight:600;opacity:.6">3 documents</span>
+  </div>
+  <div class="doc-grid">
+
+    <!-- Word doc card -->
+    <div class="doc-card ftype-word">
+      <div class="doc-card-inner">
+        <div class="doc-top">
+          <div class="doc-type-icon">DOC</div>
+          <div class="doc-title-wrap">
+            <div class="doc-title">LARA Comparison Infographic</div>
+            <div class="doc-desc">Comparison of LARA assessment frameworks for 2026 review.</div>
+          </div>
+        </div>
+        <div class="doc-meta">
+          <span class="doc-meta-chip chip-cat">📂 General</span>
+          <span class="chip-date">13/06/2026</span>
+          <span class="chip-user">nik</span>
+        </div>
+      </div>
+      <div class="doc-actions">
+        <button class="doc-action-btn" title="View">
+          <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="doc-action-btn" title="Download">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button class="doc-action-btn" title="Edit">
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <div class="doc-action-spacer"></div>
+        <button class="doc-action-btn danger" title="Delete">
+          <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- PDF card with expired badge -->
+    <div class="doc-card ftype-pdf">
+      <div class="doc-card-inner">
+        <div class="doc-top">
+          <div class="doc-type-icon">PDF</div>
+          <div class="doc-title-wrap">
+            <div class="doc-title">Safeguarding Policy 2023
+              <svg class="ico" style="width:13px;height:13px;stroke:#64748b;margin-left:3px" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+          </div>
+        </div>
+        <div class="doc-meta">
+          <span class="doc-meta-chip chip-cat">📋 Policies</span>
+          <span class="chip-date">01/09/2023</span>
+          <span class="doc-meta-chip chip-expired">⚠️ Retention expired</span>
+        </div>
+      </div>
+      <div class="doc-actions">
+        <button class="doc-action-btn" title="View">
+          <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="doc-action-btn" title="Download">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button class="doc-action-btn" title="Edit">
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <div class="doc-action-spacer"></div>
+        <button class="doc-action-btn danger" title="Delete">
+          <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Excel card -->
+    <div class="doc-card ftype-excel">
+      <div class="doc-card-inner">
+        <div class="doc-top">
+          <div class="doc-type-icon">XLS</div>
+          <div class="doc-title-wrap">
+            <div class="doc-title">Membership Register 2025–26</div>
+            <div class="doc-desc">Full export of member records for the current season.</div>
+          </div>
+        </div>
+        <div class="doc-meta">
+          <span class="doc-meta-chip chip-cat">📊 Reports</span>
+          <span class="chip-date">15/01/2026</span>
+          <span class="chip-user">admin</span>
+          <span class="doc-meta-chip chip-expiring">⏳ Expires 15/01/2027</span>
+        </div>
+      </div>
+      <div class="doc-actions">
+        <button class="doc-action-btn" title="View">
+          <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="doc-action-btn" title="Download">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button class="doc-action-btn" title="Edit">
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <div class="doc-action-spacer"></div>
+        <button class="doc-action-btn danger" title="Delete">
+          <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /doc-grid -->
+</div><!-- /doc-section -->
+
+<!-- ── COMPACT MODE EXAMPLE (Policies category) ── -->
+<div class="doc-section">
+  <div class="cat-header">
+    <span class="cat-icon">📋</span>
+    Policies
+    <span style="margin-left:4px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:var(--accent-soft);color:var(--accent)">Compact mode</span>
+    <span style="margin-left:auto;font-weight:600;opacity:.6">4 documents</span>
+  </div>
+  <div class="doc-compact-list">
+    <div class="doc-compact-row">
+      <div class="doc-compact-type" style="background:#fef2f2;color:#dc2626">PDF</div>
+      <div class="doc-compact-title">GDPR Privacy Notice 2026</div>
+      <div class="doc-compact-meta">
+        <span>📋 Policies</span>
+        <span>12/02/2026</span>
+        <span>admin</span>
+      </div>
+      <div class="doc-compact-actions">
+        <button class="doc-action-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        <button class="doc-action-btn" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      </div>
+    </div>
+    <div class="doc-compact-row">
+      <div class="doc-compact-type" style="background:#eff6ff;color:#2563eb">DOC</div>
+      <div class="doc-compact-title">Health & Safety Policy</div>
+      <div class="doc-compact-meta">
+        <span>📋 Policies</span>
+        <span>05/09/2025</span>
+        <span>nik</span>
+      </div>
+      <div class="doc-compact-actions">
+        <button class="doc-action-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        <button class="doc-action-btn" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      </div>
+    </div>
+    <div class="doc-compact-row">
+      <div class="doc-compact-type" style="background:#fef2f2;color:#dc2626">PDF</div>
+      <div class="doc-compact-title">Safeguarding Policy 2026</div>
+      <div class="doc-compact-meta">
+        <span>📋 Policies</span>
+        <span>01/09/2025</span>
+        <span>admin</span>
+      </div>
+      <div class="doc-compact-actions">
+        <button class="doc-action-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        <button class="doc-action-btn" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════
+     SECTION 2: COMMUNICATIONS
+     ════════════════════════════════════════════════ -->
+<div class="section-divider">
+  <h2>
+    <span id="comms-emoji-h">✉️ </span>Communications
+  </h2>
+  <p>Two-panel layout — Compose on the left, Recipients on the right.</p>
+</div>
+
+<!-- Tabs -->
+<div class="page-nav">
+  <button class="page-nav-tab active">
+    <span id="send-tab-emoji">📤 </span>Send Mailshot
+  </button>
+  <button class="page-nav-tab">
+    <span id="tmpl-tab-emoji">📝 </span>Templates
+  </button>
+  <button class="page-nav-tab">
+    <span id="hist-tab-emoji">📬 </span>Sent History
+  </button>
+</div>
+
+<!-- Two-panel layout -->
+<div class="comms-grid">
+
+  <!-- Compose panel -->
+  <div class="comms-panel">
+    <div class="panel-header">
+      <span class="panel-title">
+        <span id="compose-emoji">✏️ </span>Compose
+      </span>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px">
+        <span id="tmpl-load-emoji">📄 </span>Load template…
+      </button>
+    </div>
+    <div class="panel-body">
+
+      <!-- Subject -->
+      <div class="form-group">
+        <label class="form-label" id="subject-label">Subject</label>
+        <input class="form-control" type="text" placeholder="e.g. AYC Session Update — this week" style="font-size:14px">
+      </div>
+
+      <!-- RTE -->
+      <div class="form-group" style="flex:1">
+        <label class="form-label" id="message-label">Message</label>
+        <div class="rte-wrap">
+          <div class="rte-toolbar">
+            <select style="height:26px;padding:0 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;background:var(--surface);font-family:var(--font)">
+              <option>Arial</option><option>Georgia</option>
+            </select>
+            <div class="rte-sep"></div>
+            <button class="rte-btn"><b>B</b></button>
+            <button class="rte-btn"><i>I</i></button>
+            <button class="rte-btn"><u>U</u></button>
+            <div class="rte-sep"></div>
+            <button class="rte-btn">
+              <svg class="ico" style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
+            <button class="rte-btn">
+              <svg class="ico" style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </button>
+            <div class="rte-sep"></div>
+            <div class="rte-merge">
+              <span>{}</span>
+              <select style="appearance:none;background:transparent;border:none;font-size:12px;font-weight:700;color:var(--accent);cursor:pointer;padding:0;font-family:var(--font)">
+                <option>Insert field…</option>
+                <option>{Forename}</option>
+                <option>{Surname}</option>
+              </select>
+            </div>
+          </div>
+          <div class="rte-body">Write your message here…</div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          Use <strong>Insert field</strong> to personalise. Recipients see their own email only.
+        </div>
+      </div>
+
+      <!-- Attachments -->
+      <div class="form-group">
+        <label class="form-label" id="attach-label">Attachments <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select class="form-control" style="flex:1">
+            <option>— select a document —</option>
+            <option>📋 GDPR Privacy Notice 2026</option>
+            <option>📄 LARA Comparison Infographic</option>
+          </select>
+          <button class="btn btn-ghost btn-sm">＋ Add</button>
+        </div>
+        <div class="attachment-chip" style="margin-top:6px">
+          <span>📎</span>
+          <span class="doc-name">LARA Comparison Infographic</span>
+          <span class="doc-file">lara_comparison.docx</span>
+          <button class="attachment-remove">✕</button>
+        </div>
+      </div>
+
+      <!-- Send button -->
+      <div style="display:flex;gap:8px">
+        <button class="send-btn" style="flex:1">
+          <svg class="ico" style="stroke:white" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          <span id="send-btn-text">📤 </span>Send to Recipients
+        </button>
+        <button class="btn btn-ghost" title="Save as template" style="white-space:nowrap">
+          <span id="save-tmpl-emoji">💾 </span>Save as Template
+        </button>
+      </div>
+
+    </div>
+  </div><!-- /compose panel -->
+
+  <!-- Recipients panel -->
+  <div class="comms-panel">
+    <div class="panel-header">
+      <span class="panel-title">
+        <span id="recip-emoji">👥 </span>Recipients
+      </span>
+    </div>
+    <div class="panel-body">
+
+      <div class="form-group">
+        <label class="form-label" id="member-type-label">Member Type</label>
+        <select class="form-control">
+          <option>All types</option>
+          <option>🏅 Junior Member</option>
+          <option>🎖 Senior Member</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" id="session-label">Session</label>
+        <select class="form-control">
+          <option>All sessions</option>
+          <option>Monday only</option>
+          <option>Wednesday only</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" id="status-label">Status</label>
+        <select class="form-control">
+          <option>Active members only</option>
+          <option>All statuses</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" id="flags-label">Alert Flags <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(optional)</span></label>
+        <div class="flags-list">
+          <label class="flag-row">
+            <input type="checkbox" class="recip-chk">
+            <span class="flag-chip" style="background:#ef4444">Missed 3+</span>
+          </label>
+          <label class="flag-row">
+            <input type="checkbox" class="recip-chk">
+            <span class="flag-chip" style="background:#f59e0b">Payment overdue</span>
+          </label>
+          <label class="flag-row">
+            <input type="checkbox" class="recip-chk">
+            <span class="flag-chip" style="background:#8b5cf6">No emergency contact</span>
+          </label>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Tick flags to restrict to members with those flags raised.</div>
+      </div>
+
+      <!-- Recipient count -->
+      <div class="recip-count-box">
+        <div>
+          <div class="recip-count-num">24</div>
+          <div class="recip-count-label">selected recipients</div>
+        </div>
+        <div style="margin-left:auto;display:flex;flex-direction:column;gap:6px">
+          <button class="btn btn-ghost btn-sm">✅ Select all</button>
+          <button class="btn btn-ghost btn-sm">☐ Deselect all</button>
+        </div>
+      </div>
+
+      <!-- Recipient list -->
+      <div class="recip-list">
+        <label class="recip-row">
+          <input type="checkbox" class="recip-chk" checked>
+          <span class="recip-name">Alex Thompson</span>
+          <span class="recip-email">alex.t@example.com</span>
+        </label>
+        <label class="recip-row">
+          <input type="checkbox" class="recip-chk" checked>
+          <span class="recip-name">Jamie Williams</span>
+          <span class="recip-email">jwilliams@example.com</span>
+        </label>
+        <label class="recip-row">
+          <input type="checkbox" class="recip-chk" checked>
+          <span class="recip-name">Sam Patel</span>
+          <span class="recip-email">sampatel@example.com</span>
+        </label>
+        <label class="recip-row">
+          <input type="checkbox" class="recip-chk">
+          <span class="recip-name">Morgan Davies</span>
+          <span class="recip-email">morgan.d@example.com</span>
+        </label>
+        <label class="recip-row">
+          <input type="checkbox" class="recip-chk" checked>
+          <span class="recip-name">Riley Hassan</span>
+          <span class="recip-email">r.hassan@example.com</span>
+        </label>
+      </div>
+
+    </div>
+  </div><!-- /recipients panel -->
+
+</div><!-- /comms-grid -->
+
+<!-- Templates table (shown as reference) -->
+<div style="margin-top:32px">
+  <div class="cat-header" style="margin-bottom:14px">
+    <span class="cat-icon">📝</span>
+    Templates tab — example
+  </div>
+  <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-sm)">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Subject</th>
+          <th>Created by</th>
+          <th style="width:140px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Session cancellation</strong></td>
+          <td style="color:var(--muted)">AYC — Tonight's session is cancelled</td>
+          <td style="color:var(--muted)">nik</td>
+          <td style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm"><span id="edit-emoji">✏️ </span>Edit</button>
+            <button class="btn btn-sm" style="background:#fef2f2;border-color:#fecaca;color:#991b1b"><span id="delete-emoji">🗑 </span></button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Payment reminder</strong></td>
+          <td style="color:var(--muted)">AYC — Your membership payment is due</td>
+          <td style="color:var(--muted)">admin</td>
+          <td style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm"><span class="edit-emoji">✏️ </span>Edit</button>
+            <button class="btn btn-sm" style="background:#fef2f2;border-color:#fecaca;color:#991b1b"><span class="delete-emoji">🗑 </span></button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</div><!-- /page-wrap -->
+
+<script>
+  function setSkin(s) {
+    const html = document.documentElement;
+    if (s === 'casual') {
+      html.dataset.skin = 'casual';
+      delete html.dataset.formal;
+    } else {
+      delete html.dataset.skin;
+    }
+    document.getElementById('btn-casual').classList.toggle('active', s === 'casual');
+    document.getElementById('btn-formal').classList.toggle('active', s === 'formal');
+
+    // Show/hide emoji elements based on skin
+    const isCasual = s === 'casual';
+    const emojiEls = [
+      'doc-title-text','upload-emoji','filters-emoji','compact-emoji',
+      'comms-emoji-h','send-tab-emoji','tmpl-tab-emoji','hist-tab-emoji',
+      'compose-emoji','tmpl-load-emoji','subject-label','message-label',
+      'attach-label','send-btn-text','save-tmpl-emoji','recip-emoji',
+      'member-type-label','session-label','status-label','flags-label',
+      'edit-emoji','delete-emoji'
+    ];
+    // Labels: casual = normal, formal = uppercase small caps style
+    document.querySelectorAll('.form-label').forEach(el => {
+      el.style.textTransform = isCasual ? 'none' : 'uppercase';
+      el.style.fontSize      = isCasual ? '13px' : '11px';
+      el.style.letterSpacing = isCasual ? '0' : '.06em';
+    });
+  }
+
+  function setTheme(t) {
+    const html = document.documentElement;
+    if (t === 'dark') html.dataset.theme = 'dark';
+    else delete html.dataset.theme;
+    document.getElementById('btn-light').classList.toggle('active', t === 'light');
+    document.getElementById('btn-dark').classList.toggle('active', t === 'dark');
+  }
+
+  // Default state
+  setSkin('casual');
+  setTheme('light');
+</script>
+
+</body>
+</html>
