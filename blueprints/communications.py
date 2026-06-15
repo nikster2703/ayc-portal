@@ -264,9 +264,11 @@ _NO_VALUE_SPAN = (
 def api_mailshots_preview_substitute():
     """Server-side merge substitution for preview mode.
     After substitution any token that had no value is highlighted in amber
-    with '— no value' so the composer can see exactly which fields are missing."""
+    with '— no value' so the composer can see exactly which fields are missing.
+    Also substitutes the subject line (plain text) when provided."""
     data      = request.get_json() or {}
     body_html = data.get('body_html', '')
+    subject   = data.get('subject', '')
     email     = (data.get('email') or '').strip().lower()
 
     if email:
@@ -274,10 +276,13 @@ def api_mailshots_preview_substitute():
         member = lookup.get(email)
         if member:
             body_html = _substitute_fields(body_html, member)
+            subject   = _substitute_fields(subject,   member)
 
-    # Highlight any tokens that were not substituted (field has no value for this member)
+    # Highlight unresolved body tokens in amber
     body_html = re.sub(r'\{[^}<>]+\}', _NO_VALUE_SPAN, body_html)
-    return jsonify({'html': body_html})
+    # Mark unresolved subject tokens inline (plain text — no HTML spans)
+    subject   = re.sub(r'\{[^}]+\}', lambda m: f'{m.group(0)} — no value', subject)
+    return jsonify({'html': body_html, 'subject': subject})
 
 def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_type_filter=None):
     """

@@ -34,6 +34,17 @@
           {% endfor %}
         </select>
       </div>
+      <div class="form-group">
+        <label>Initial Status</label>
+        <select id="approve-member-status">
+          <option value="Active">Active</option>
+        </select>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          Set to <strong>Provisional</strong> (or your equivalent inactive status) to add the member
+          to the system without them appearing on the register — useful when confirming a place
+          before the family has responded.
+        </div>
+      </div>
     </div>
 
     <!-- Staff section -->
@@ -187,6 +198,18 @@
   }
 
   loadApprovalRoles();
+
+  /* ── Load member statuses for the initial-status picker ─── */
+  (async function loadMemberStatuses() {
+    try {
+      const statuses = await apiFetch('/api/member-statuses');
+      const sel = document.getElementById('approve-member-status');
+      if (!sel || !statuses.length) return;
+      sel.innerHTML = statuses
+        .map(s => `<option value="${esc(s.name)}"${s.name === 'Active' ? ' selected' : ''}>${esc(s.name)}</option>`)
+        .join('');
+    } catch (_) { /* leave default Active option in place */ }
+  })();
 
   /* ── Field config cache (loaded per member type slug) ─ */
   async function loadFieldConfig(slug) {
@@ -378,6 +401,9 @@
       if (IS_SCOPED) memberSessSel.querySelectorAll('option').forEach(
         opt => { opt.style.display = SESSION_NAMES.includes(opt.value) || !opt.value ? '' : 'none'; }
       );
+      // Reset status to Active each time modal opens
+      const statusSel = document.getElementById('approve-member-status');
+      if (statusSel) statusSel.value = 'Active';
     }
 
     document.getElementById('approve-modal').classList.add('open');
@@ -417,9 +443,10 @@
         payload.portal_role   = prole;
       }
     } else {
-      const sess = document.getElementById('approve-session').value;
+      const sess   = document.getElementById('approve-session').value;
+      const status = document.getElementById('approve-member-status').value;
       if (!sess) { showToast('Please select a session first.', true); return; }
-      payload = { session_assigned: sess };
+      payload = { session_assigned: sess, initial_status: status || 'Active' };
     }
 
     btn.disabled = true;

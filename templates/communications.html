@@ -39,7 +39,10 @@
 
       <div class="form-group">
         <label>Subject <span style="color:var(--red)">*</span></label>
-        <input type="text" id="s-subject" placeholder="e.g. {{ club_short_name }} Session Update — this week">
+        <input type="text" id="s-subject" placeholder="e.g. {{ club_short_name }} Session Update — this week"
+               onfocus="_lastActiveField='s-subject'"
+               onclick="_lastActiveField='s-subject'"
+               onkeyup="_subjectCursors['s-subject']={start:this.selectionStart,end:this.selectionEnd}">
       </div>
 
       <div class="form-group form-group-message">
@@ -97,7 +100,7 @@
             <span class="rte-merge-wrap" title="Insert personalisation field">
               <span class="rte-merge-badge">{}</span>
               <select id="s-merge-picker"
-                      onmousedown="rteSaveSel('s-editor');event.stopPropagation()"
+                      onmousedown="rteSaveBeforeMerge('s-editor');event.stopPropagation()"
                       onchange="insertMergeField('s-editor',this)">
                 <option value="">Insert field…</option>
               </select>
@@ -271,7 +274,10 @@
     </div>
     <div class="form-group">
       <label>Subject</label>
-      <input type="text" id="t-subject" placeholder="e.g. {{ club_short_name }} — Session Cancelled">
+      <input type="text" id="t-subject" placeholder="e.g. {{ club_short_name }} — Session Cancelled"
+             onfocus="_lastActiveField='t-subject'"
+             onclick="_lastActiveField='t-subject'"
+             onkeyup="_subjectCursors['t-subject']={start:this.selectionStart,end:this.selectionEnd}">
     </div>
     <div class="form-group">
       <label>Message Body</label>
@@ -319,7 +325,7 @@
           <span class="rte-merge-wrap">
             <span class="rte-merge-badge">{}</span>
             <select id="t-merge-picker"
-                    onmousedown="rteSaveSel('t-editor');event.stopPropagation()"
+                    onmousedown="rteSaveBeforeMerge('t-editor');event.stopPropagation()"
                     onchange="insertMergeField('t-editor',this)">
               <option value="">Insert field…</option>
             </select>
@@ -354,8 +360,9 @@
 
 {% block scripts %}
 <script>
-  let allTemplates  = [];
-  let editingTmplId = null;
+  let allTemplates     = [];
+  let editingTmplId   = null;
+  let _currentTmplId  = '';   // id of the currently-loaded template ('' = scratch)
   let allDocs       = [];
   let selectedDocs  = [];
   let mergeFields   = { standard: [], custom: [] };
@@ -363,9 +370,12 @@
   /* ════════════════════════════════════════════════════
      RICH TEXT EDITOR
      ════════════════════════════════════════════════════ */
-  const _savedSels  = {};   // saved selection range per editorId
-  const _previewOn  = {};   // preview mode state per editorId
-  const _rawHtmlBak = {};   // raw HTML backup when in preview mode
+  const _savedSels     = {};   // saved selection range per editorId
+  const _previewOn     = {};   // preview mode state per editorId
+  const _rawHtmlBak    = {};   // raw HTML backup when in preview mode
+  const _subjectCursors = {};  // {start, end} cursor pos for subject plain-text inputs
+  let   _lastActiveField = 's-editor';  // which field the user was last typing in
+  let   _rawSubjectBak   = null;        // subject value saved when entering preview
 
   function rteSaveSel(editorId) {
     const sel = window.getSelection();
@@ -434,13 +444,14 @@
     return !document.getElementById(editorId).innerText.trim();
   }
 
-  // Save selection on blur/mouseup/keyup
+  // Save selection on blur/mouseup/keyup; track which field is active
   ['s-editor','t-editor'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
+    el.addEventListener('focus',   () => { _lastActiveField = id; });
     el.addEventListener('blur',    () => rteSaveSel(id));
-    el.addEventListener('mouseup', () => rteSaveSel(id));
-    el.addEventListener('keyup',   () => rteSaveSel(id));
+    el.addEventListener('mouseup', () => { _lastActiveField = id; rteSaveSel(id); });
+    el.addEventListener('keyup',   () => { _lastActiveField = id; rteSaveSel(id); });
   });
 
   /* ════════════════════════════════════════════════════
@@ -541,6 +552,11 @@
       if (prevBtn) prevBtn.style.display = 'none';
       if (nextBtn) nextBtn.style.display = 'none';
       if (posEl)   posEl.style.display   = 'none';
+      // Restore subject
+      if (editorId === 's-editor' && _rawSubjectBak !== null) {
+        document.getElementById('s-subject').value = _rawSubjectBak;
+        _rawSubjectBak = null;
+      }
       // Clear recipient highlight
       document.querySelectorAll('.recip-row')
               .forEach(r => r.classList.remove('recip-preview-active'));
@@ -559,6 +575,10 @@
       btn.title = 'Back to editing';
       toolbar.querySelectorAll('button:not(.rte-preview-btn):not(.rte-nav-btn), select')
              .forEach(el => el.disabled = true);
+      // Save subject for restoration on exit
+      if (editorId === 's-editor') {
+        _rawSubjectBak = document.getElementById('s-subject').value;
+      }
       // Show nav only when there's more than one recipient to step through
       if (recips.length > 1) {
         if (prevBtn) prevBtn.style.display = '';
@@ -591,13 +611,20 @@
       if (active) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
 
-    // Fetch backend-substituted HTML
+    // Fetch backend-substituted HTML (and subject if applicable)
     try {
       const res = await apiFetch('/api/mailshots/preview-substitute', {
         method: 'POST',
-        body: JSON.stringify({ body_html: _rawHtmlBak[editorId], email: chk.dataset.email }),
+        body: JSON.stringify({
+          body_html: _rawHtmlBak[editorId],
+          subject:   editorId === 's-editor' ? (_rawSubjectBak || '') : '',
+          email:     chk.dataset.email,
+        }),
       });
       editor.innerHTML = res.html;
+      if (editorId === 's-editor' && res.subject !== undefined) {
+        document.getElementById('s-subject').value = res.subject;
+      }
     } catch (_) {
       editor.innerHTML = _rawHtmlBak[editorId];
     }
@@ -661,11 +688,38 @@
     }
   }
 
+  // Called from onmousedown on a merge picker — saves the right selection
+  // before the picker steals focus away from whichever field was active.
+  function rteSaveBeforeMerge(editorId) {
+    const subjectId = editorId === 's-editor' ? 's-subject' : 't-subject';
+    if (_lastActiveField === subjectId) {
+      const el = document.getElementById(subjectId);
+      if (el) _subjectCursors[subjectId] = { start: el.selectionStart, end: el.selectionEnd };
+    } else {
+      rteSaveSel(editorId);
+    }
+  }
+
   function insertMergeField(editorId, selectEl) {
     const token = selectEl.value;
     selectEl.value = '';
     if (!token) return;
-    // Use Range API directly — works even if editor isn't currently focused
+
+    // If the last active field was the subject plain-text input, insert there
+    const subjectId = editorId === 's-editor' ? 's-subject' : 't-subject';
+    if (_lastActiveField === subjectId) {
+      const el  = document.getElementById(subjectId);
+      const cur = _subjectCursors[subjectId] || { start: el.value.length, end: el.value.length };
+      const val = el.value;
+      el.value = val.slice(0, cur.start) + token + val.slice(cur.end);
+      const newPos = cur.start + token.length;
+      el.focus();
+      el.setSelectionRange(newPos, newPos);
+      _subjectCursors[subjectId] = { start: newPos, end: newPos };
+      return;
+    }
+
+    // Otherwise insert into the contenteditable RTE editor
     const saved = _savedSels[editorId];
     if (saved) {
       const range = saved.cloneRange();
@@ -825,13 +879,30 @@
   }
 
   function loadTemplate() {
-    const id   = document.getElementById('s-template').value;
+    const sel = document.getElementById('s-template');
+    const id  = sel.value;
+
+    if (!id) {
+      // "— start from scratch —" chosen — confirm if there's content to lose
+      const hasContent = document.getElementById('s-subject').value.trim() || !rteIsEmpty('s-editor');
+      if (hasContent && !confirm('Clear the current message and start from scratch?\n\nAny unsaved content will be lost.')) {
+        sel.value = _currentTmplId;  // revert dropdown to what was loaded before
+        return;
+      }
+      if (_previewOn['s-editor']) togglePreviewMode('s-editor','s-toolbar','s-preview-btn');
+      document.getElementById('s-subject').value = '';
+      rteSetHTML('s-editor', '');
+      _currentTmplId = '';
+      return;
+    }
+
     const tmpl = allTemplates.find(t => String(t.id)===id);
     if (!tmpl) return;
-    document.getElementById('s-subject').value = tmpl.subject;
     // Exit preview mode first if active
     if (_previewOn['s-editor']) togglePreviewMode('s-editor','s-toolbar','s-preview-btn');
+    document.getElementById('s-subject').value = tmpl.subject;
     rteSetHTML('s-editor', tmpl.body_html);
+    _currentTmplId = id;
   }
 
   /* ════════════════════════════════════════════════════

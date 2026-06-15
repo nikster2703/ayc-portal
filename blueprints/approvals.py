@@ -215,6 +215,14 @@ def api_approvals_approve(reg_id):
     if scoped is not None and assigned_session not in (scoped or []):
         return jsonify({'error': 'You can only approve registrations for your own session'}), 403
 
+    # Validate initial status (member registrations only; staff always Active)
+    initial_status = (data.get('initial_status') or 'Active').strip()
+    valid_statuses = [r['name'] for r in db.execute('SELECT name FROM member_statuses').fetchall()]
+    if valid_statuses and initial_status not in valid_statuses:
+        return jsonify({'error': f'Invalid member status: {initial_status}'}), 400
+    if not valid_statuses:
+        initial_status = 'Active'  # fallback if member_statuses table is empty
+
     rtype          = reg['registration_type'] or 'member'
     mid            = _next_member_id(db)
     portal_user_id = None
@@ -302,7 +310,7 @@ def api_approvals_approve(reg_id):
                  ethnicity_religion, medical_sen, gp_contact,
                  unattended_exit, gdpr_consent, mobile, email,
                  status, session, member_type, date_registered)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,"Active",?,?,date("now"))
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,date("now"))
         ''', (
             mid,
             reg['first_name'], reg['surname'], reg['date_of_birth'],
@@ -310,6 +318,7 @@ def api_approvals_approve(reg_id):
             reg['ethnicity_religion'], reg['medical_sen'], reg['gp_contact'],
             reg['unattended_exit'], reg['gdpr_consent'],
             reg['mobile'], reg['email'],
+            initial_status,
             assigned_session,
             member_type_slug,
         ))
@@ -361,6 +370,7 @@ def api_approvals_approve(reg_id):
         'name':           f"{reg['first_name']} {reg['surname']}",
         'type':           rtype,
         'session':        assigned_session,
+        'initial_status': initial_status,
         'portal_user_id': portal_user_id,
         'approved_by':    session['username'],
     })
