@@ -236,18 +236,24 @@
 
 <!-- ── Summary strip ──────────────────────────────────────────── -->
 <div id="reg-summary" class="reg-summary" style="display:none">
-  <div class="reg-summary-tile reg-summary-in">
+  <button type="button" class="reg-summary-tile reg-summary-in" data-filter="in"
+          onclick="setStateFilter('in')" aria-pressed="false"
+          title="Show only signed-in members">
     <span id="sum-in">0</span>
     <small>Signed In</small>
-  </div>
-  <div class="reg-summary-tile reg-summary-waiting">
+  </button>
+  <button type="button" class="reg-summary-tile reg-summary-waiting" data-filter="waiting"
+          onclick="setStateFilter('waiting')" aria-pressed="false"
+          title="Show only members not yet arrived">
     <span id="sum-waiting">0</span>
     <small>Not Arrived</small>
-  </div>
-  <div class="reg-summary-tile reg-summary-out">
+  </button>
+  <button type="button" class="reg-summary-tile reg-summary-out" data-filter="out"
+          onclick="setStateFilter('out')" aria-pressed="false"
+          title="Show only signed-out members">
     <span id="sum-out">0</span>
     <small>Signed Out</small>
-  </div>
+  </button>
 </div>
 
 <!-- ── Register search + sort controls ──────────────────────── -->
@@ -372,7 +378,15 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
+    /* Interactive: each tile filters the grid to its state */
+    font-family: inherit;
+    border: 2px solid transparent;
+    cursor: pointer;
+    text-align: center;
+    transition: transform .1s, box-shadow .15s, border-color .15s, filter .15s;
   }
+  .reg-summary-tile:hover { filter: brightness(.97); }
+  .reg-summary-tile:active { transform: translateY(1px); }
   .reg-summary-tile span {
     font-size: 28px;
     font-weight: 900;
@@ -386,8 +400,17 @@
     opacity: .75;
   }
   .reg-summary-in      { background: var(--green-bg); color: var(--green); }
-  .reg-summary-waiting { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .reg-summary-waiting { background: var(--surface-2); color: var(--muted); }
   .reg-summary-out     { background: var(--amber-bg); color: var(--amber); }
+
+  /* Active filter tile — clear ring + slight lift so it reads as "selected" */
+  .reg-summary-tile.is-active {
+    border-color: currentColor;
+    box-shadow: 0 2px 10px color-mix(in srgb, currentColor 28%, transparent);
+  }
+  .reg-summary-tile.is-active small { opacity: 1; }
+  /* When a filter is active, dim the other two tiles slightly */
+  .reg-summary.has-filter .reg-summary-tile:not(.is-active) { opacity: .55; }
 
   /* ── Card grid ──────────────────────────────────── */
   .reg-grid {
@@ -658,8 +681,24 @@
   // Field config for card rendering — loaded once at startup
   let _fieldConfig = {};
 
-  // Sort order for the register grid; persisted across reloads within the session
-  let _sortOrder = 'surname';
+  // Register view preferences (sort order + state filter), persisted per user in
+  // localStorage so they survive refreshes, session changes and page navigation.
+  const REG_PREFS_KEY = 'ayc-register-' + {{ current_user | tojson }};
+  function loadRegPrefs() {
+    try { return JSON.parse(localStorage.getItem(REG_PREFS_KEY)) || {}; } catch { return {}; }
+  }
+  function saveRegPrefs(patch) {
+    const p = Object.assign(loadRegPrefs(), patch);
+    try { localStorage.setItem(REG_PREFS_KEY, JSON.stringify(p)); } catch { /* private mode */ }
+  }
+  const _regPrefs = loadRegPrefs();
+
+  // Sort order for the register grid. Default: first name.
+  let _sortOrder = _regPrefs.sort || 'first_name';
+
+  // State filter for the register grid: 'all' | 'in' | 'waiting' | 'out'.
+  // Driven by the summary tiles so signing members out doesn't require scrolling.
+  let _stateFilter = _regPrefs.filter || 'all';
 
   // Last fetched register data — lets us re-sort without a network round-trip
   let _lastRegisterMembers = null;
@@ -824,32 +863,43 @@
     groupWaiting.sort(sortFn);
     groupOut.sort(sortFn);
 
-    // Update summary strip
+    // Update summary strip — counts always reflect the full groups,
+    // regardless of which state filter is currently active.
     document.getElementById('sum-in').textContent      = groupIn.length;
     document.getElementById('sum-waiting').textContent = groupWaiting.length;
     document.getElementById('sum-out').textContent     = groupOut.length;
     document.getElementById('reg-summary').style.display = 'flex';
+    _updateFilterTiles();
     // Keep legacy headcount pill if present
     const hc = document.getElementById('headcount');
     if (hc) hc.textContent = `${groupIn.length} in`;
 
-    // Build HTML
+    // Groups in display order. The summary tiles filter the grid to one of these
+    // so, e.g., signing members out doesn't mean scrolling past everyone else.
+    const groups = [
+      { key: 'waiting', header: '<span class="ico-emoji">⏳ </span>Not Yet Arrived', arr: groupWaiting },
+      { key: 'in',      header: '<span class="ico-emoji">✅ </span>Signed In',        arr: groupIn },
+      { key: 'out',     header: '<span class="ico-emoji">🚪 </span>Signed Out',       arr: groupOut },
+    ];
+
     let html = '<div class="reg-grid">';
-
-    if (groupWaiting.length) {
-      html += `<div class="reg-group-header"><span class="ico-emoji">⏳ </span>Not Yet Arrived (${groupWaiting.length})</div>`;
-      html += groupWaiting.map(m => memberCard(m, sess, date, _registerLocked)).join('');
-    }
-    if (groupIn.length) {
-      html += `<div class="reg-group-header"><span class="ico-emoji">✅ </span>Signed In (${groupIn.length})</div>`;
-      html += groupIn.map(m => memberCard(m, sess, date, _registerLocked)).join('');
-    }
-    if (groupOut.length) {
-      html += `<div class="reg-group-header"><span class="ico-emoji">🚪 </span>Signed Out (${groupOut.length})</div>`;
-      html += groupOut.map(m => memberCard(m, sess, date, _registerLocked)).join('');
-    }
-
+    let shownCards = 0;
+    groups.forEach(g => {
+      if (_stateFilter !== 'all' && _stateFilter !== g.key) return;
+      if (!g.arr.length) return;
+      html += `<div class="reg-group-header">${g.header} (${g.arr.length})</div>`;
+      html += g.arr.map(m => memberCard(m, sess, date, _registerLocked)).join('');
+      shownCards += g.arr.length;
+    });
     html += '</div>';
+
+    // Friendly note when the chosen filter has no members in it
+    if (!shownCards && _stateFilter !== 'all') {
+      const labels = { in: 'signed in', waiting: 'yet to arrive', out: 'signed out' };
+      html = `<div class="empty-state">No members are ${labels[_stateFilter] || ''} right now. `
+           + `<a href="#" onclick="setStateFilter('${_stateFilter}');return false">Show everyone</a></div>`;
+    }
+
     container.innerHTML = html;
     refreshIcons();
     document.getElementById('reg-search-wrap').style.display = '';
@@ -860,9 +910,31 @@
   /* ── Sort control ───────────────────────────────────────── */
   function setSort(order) {
     _sortOrder = order;
+    saveRegPrefs({ sort: order });
     if (_lastRegisterMembers) {
       renderRegister(_lastRegisterMembers, _lastRegisterSess, _lastRegisterDate);
     }
+  }
+
+  /* ── State filter (Signed In / Not Arrived / Signed Out tiles) ── */
+  function setStateFilter(state) {
+    // Clicking the active tile again clears the filter (back to everyone)
+    _stateFilter = (_stateFilter === state) ? 'all' : state;
+    saveRegPrefs({ filter: _stateFilter });
+    _updateFilterTiles();
+    if (_lastRegisterMembers) {
+      renderRegister(_lastRegisterMembers, _lastRegisterSess, _lastRegisterDate);
+    }
+  }
+
+  function _updateFilterTiles() {
+    const summary = document.getElementById('reg-summary');
+    if (summary) summary.classList.toggle('has-filter', _stateFilter !== 'all');
+    document.querySelectorAll('#reg-summary .reg-summary-tile').forEach(tile => {
+      const active = tile.dataset.filter === _stateFilter;
+      tile.classList.toggle('is-active', active);
+      tile.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
   }
 
   function _updateSortButtons() {
