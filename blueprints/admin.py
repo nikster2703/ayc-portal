@@ -2438,6 +2438,18 @@ def _ayc_import_members(db, save_path, file_ext):
     mt_rows    = db.execute('SELECT id, slug FROM member_types').fetchall()
     slug_to_id = {r['slug']: r['id'] for r in mt_rows}
 
+    # Default member-type slug for rows that don't specify one (or specify an
+    # unknown slug). Use the club's primary active non-staff type rather than a
+    # hardcoded 'member' — on clubs whose type was renamed (e.g. 'ara-members')
+    # the literal 'member' matches nothing, leaving imported members orphaned
+    # (invisible to every mt.slug = m.member_type join) with no custom fields.
+    default_mt = db.execute('''
+        SELECT slug FROM member_types
+        WHERE active = 1 AND registration_style != 'staff'
+        ORDER BY sort_order LIMIT 1
+    ''').fetchone()
+    default_member_type_slug = default_mt['slug'] if default_mt else 'member'
+
     # Valid statuses (case-insensitive)
     valid_statuses = {r['name'].lower(): r['name'] for r in db.execute(
         'SELECT name FROM member_statuses'
@@ -2473,6 +2485,10 @@ def _ayc_import_members(db, save_path, file_ext):
 
         provided_id  = _cell('member id')
         member_type  = _cell('member type')   # slug
+        # Fall back to the club's primary type when blank or unrecognised, so we
+        # never create members with an orphaned member_type that no type matches.
+        if member_type not in slug_to_id:
+            member_type = default_member_type_slug
 
         if provided_id and db.execute(
             'SELECT id FROM members WHERE member_id = ?', (provided_id,)
@@ -2533,7 +2549,7 @@ def _ayc_import_members(db, save_path, file_ext):
                 core.get('unattended_exit', 0), core.get('gdpr_consent', 0),
                 core.get('staff_role') or None, core.get('date_registered') or None,
                 core.get('comments') or None, core.get('status', 'Active'),
-                member_type or 'member',
+                member_type,
                 email_val or None, mobile_val or None,
             ))
             new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
@@ -2551,7 +2567,7 @@ def _ayc_import_members(db, save_path, file_ext):
                     )
 
             # Custom fields — match remaining columns by label
-            type_id = slug_to_id.get(member_type or 'member')
+            type_id = slug_to_id.get(member_type)
             if type_id:
                 type_fd_ids = {r['field_id'] for r in db.execute(
                     'SELECT field_id FROM member_type_fields WHERE member_type_id = ?', (type_id,)

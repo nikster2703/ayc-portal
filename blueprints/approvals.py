@@ -60,8 +60,18 @@ def api_registration():
     data = request.get_json() or {}
     db   = get_db()
 
-    # Determine member type and registration style
-    slug  = (data.get('member_type_slug') or data.get('registration_type') or 'member').strip()
+    # Determine member type and registration style.
+    # Default to the club's primary active non-staff type rather than a hardcoded
+    # 'member' slug — on clubs whose type was renamed (e.g. 'ara-members') the
+    # literal 'member' resolves to nothing, producing an orphaned registration.
+    default_mt = db.execute('''
+        SELECT slug FROM member_types
+        WHERE active = 1 AND registration_style != 'staff'
+        ORDER BY sort_order LIMIT 1
+    ''').fetchone()
+    default_slug = default_mt['slug'] if default_mt else 'member'
+
+    slug  = (data.get('member_type_slug') or data.get('registration_type') or default_slug).strip()
     mtype = db.execute(
         'SELECT * FROM member_types WHERE slug = ? AND active = 1', (slug,)
     ).fetchone()
@@ -70,10 +80,16 @@ def api_registration():
         style         = mtype['registration_style'] or 'member'
         type_slug_val = mtype['slug']
         rtype         = 'staff' if style == 'staff' else 'member'
-    else:
-        rtype         = 'staff' if slug == 'staff' else 'member'
-        style         = rtype
+    elif slug == 'staff':
+        # Explicit staff registration with no active 'staff' type configured.
+        rtype         = 'staff'
+        style         = 'staff'
         type_slug_val = slug
+    else:
+        # Unknown slug — fall back to the club's primary type to avoid orphans.
+        rtype         = 'member'
+        style         = 'member'
+        type_slug_val = default_slug
 
     # Validate staff role if provided
     applicant_role = (data.get('applicant_role') or data.get('staff_role') or '').strip()
