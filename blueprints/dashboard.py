@@ -107,23 +107,29 @@ def api_dashboard():
     # every member who didn't attend — count only actual sign-ins/outs.
     if scoped is None:
         today_att = db.execute('''
-            SELECT SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS total_signed_in,
-                   SUM(CASE WHEN signed_in_at IS NOT NULL
-                             AND signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
-                   session_type
-            FROM attendance
-            WHERE session_date = ?
-            GROUP BY session_type
+            SELECT SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS total_signed_in,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL
+                             AND a.signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
+                   a.session_type
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
+            WHERE a.session_date = ?
+              AND mt.registration_style != 'staff'
+            GROUP BY a.session_type
         ''', (today,)).fetchall()
     else:
         today_att = db.execute(f'''
-            SELECT SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS total_signed_in,
-                   SUM(CASE WHEN signed_in_at IS NOT NULL
-                             AND signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
-                   session_type
-            FROM attendance
-            WHERE session_date = ? AND session_type IN ({ph})
-            GROUP BY session_type
+            SELECT SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS total_signed_in,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL
+                             AND a.signed_out_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_out,
+                   a.session_type
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
+            WHERE a.session_date = ? AND a.session_type IN ({ph})
+              AND mt.registration_style != 'staff'
+            GROUP BY a.session_type
         ''', [today] + list(scoped)).fetchall()
 
     recent = db.execute('''
@@ -289,21 +295,27 @@ def api_stat_trends():
     # ── Per-session attendance headcounts (Today's Sessions cards) ──────────
     if scoped is None:
         att_by_type = db.execute('''
-            SELECT session_type, session_date,
-                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS n
-            FROM attendance
-            GROUP BY session_type, session_date
-            ORDER BY session_date
+            SELECT a.session_type, a.session_date,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS n
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
+            WHERE mt.registration_style != 'staff'
+            GROUP BY a.session_type, a.session_date
+            ORDER BY a.session_date
         ''').fetchall()
     else:
         ph2 = ','.join('?' * len(scoped))
         att_by_type = db.execute(f'''
-            SELECT session_type, session_date,
-                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS n
-            FROM attendance
-            WHERE session_type IN ({ph2})
-            GROUP BY session_type, session_date
-            ORDER BY session_date
+            SELECT a.session_type, a.session_date,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS n
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
+            WHERE mt.registration_style != 'staff'
+              AND a.session_type IN ({ph2})
+            GROUP BY a.session_type, a.session_date
+            ORDER BY a.session_date
         ''', list(scoped)).fetchall()
     session_attendance = {}
     for r in att_by_type:
@@ -341,8 +353,11 @@ def api_stat_trends():
                    SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS signed,
                    COUNT(*) AS total
             FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
             JOIN session_completions sc
               ON sc.session_date = a.session_date AND sc.session_type = a.session_type
+            WHERE mt.registration_style != 'staff'
             GROUP BY a.session_date
             ORDER BY a.session_date DESC
             LIMIT 12
@@ -354,9 +369,12 @@ def api_stat_trends():
                    SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS signed,
                    COUNT(*) AS total
             FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
             JOIN session_completions sc
               ON sc.session_date = a.session_date AND sc.session_type = a.session_type
-            WHERE a.session_type IN ({ph})
+            WHERE mt.registration_style != 'staff'
+              AND a.session_type IN ({ph})
             GROUP BY a.session_date
             ORDER BY a.session_date DESC
             LIMIT 12
