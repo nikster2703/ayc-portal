@@ -90,6 +90,13 @@ def print_register_page():
     SKIP_PRINT_KEYS = {'first_name', 'surname'}
     dynamic_fields  = [f for f in print_fields_raw if f['key'] not in SKIP_PRINT_KEYS]
 
+    # Use the resolved member type's slug, not the raw URL default ('member').
+    # The print button passes no ?type=, so type_slug falls back to 'member';
+    # if the club's member type uses a different slug (e.g. 'ara-members'),
+    # mtype is resolved via the fallback above and we must filter members by
+    # that same slug — otherwise the query matches zero rows.
+    query_slug = mtype['slug'] if mtype else type_slug
+
     members_raw = db.execute('''
         SELECT  m.*
         FROM    members m
@@ -97,7 +104,7 @@ def print_register_page():
           AND   m.member_type = ?
           AND   m.session     = ?
         ORDER   BY m.first_name, m.surname
-    ''', (type_slug, session_type)).fetchall()
+    ''', (query_slug, session_type)).fetchall()
     members = [dict(r) for r in members_raw]
 
     has_custom = any(not f['system_field'] for f in dynamic_fields)

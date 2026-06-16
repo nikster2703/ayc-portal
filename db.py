@@ -572,16 +572,36 @@ def ensure_tables():
         pass
 
     # v11.2: split show_on_card into show_on_attendance + show_on_card (member profile).
-    # Run once: copy old show_on_card → show_on_attendance, then set show_on_card = OR(card, detail).
-    # Idempotent: once attendance is set the condition won't fire again on already-migrated rows.
+    # One-time data migration for pre-v11.2 databases ONLY — copy old show_on_card →
+    # show_on_attendance, then set show_on_card = OR(card, detail).
+    #
+    # RULE: if any member field already has at least one "Show On" flag set, an admin
+    # has configured the fields and we must not seed or change anything.
+    #
+    # This guard is required because the UPDATE is NOT idempotent: it rewrites
+    # show_on_card = MAX(show_on_card, show_on_detail), which feeds back into the WHERE
+    # clause on the next startup and re-flips show_on_attendance = 1. Since nearly every
+    # field has show_on_detail = 1, without this guard every field ends up populated on
+    # the attendance card after a couple of restarts.
     try:
-        db.execute('''
-            UPDATE member_type_fields
-            SET    show_on_attendance = show_on_card,
-                   show_on_card      = MAX(show_on_card, show_on_detail)
-            WHERE  show_on_attendance = 0 AND (show_on_card = 1 OR show_on_detail = 1)
-        ''')
-        logger.info('Migration: show_on_attendance populated from show_on_card (v11.2)')
+        already_configured = db.execute('''
+            SELECT 1 FROM member_type_fields
+            WHERE  show_on_registration = 1 OR show_on_list = 1
+               OR  show_on_attendance   = 1 OR show_on_card = 1
+               OR  show_on_detail       = 1 OR show_on_print = 1
+               OR  show_on_export       = 1
+            LIMIT 1
+        ''').fetchone()
+        if already_configured:
+            logger.info('show_on_attendance migration skipped: member fields already configured')
+        else:
+            db.execute('''
+                UPDATE member_type_fields
+                SET    show_on_attendance = show_on_card,
+                       show_on_card      = MAX(show_on_card, show_on_detail)
+                WHERE  show_on_attendance = 0 AND (show_on_card = 1 OR show_on_detail = 1)
+            ''')
+            logger.info('Migration: show_on_attendance populated from show_on_card (v11.2)')
     except Exception as _e:
         logger.warning('show_on_attendance data migration skipped: %s', _e)
 
