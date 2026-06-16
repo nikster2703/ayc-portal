@@ -271,7 +271,7 @@
 
 <!-- ── Screen controls ─────────────────────────────────── -->
 <div class="print-controls">
-  <button class="btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <button class="btn-print" onclick="printPage()">🖨 Print / Save as PDF</button>
   <a class="btn-back" href="/register">← Back to Register</a>
   <span class="controls-hint">Tip: In your print dialog choose A4, portrait, and turn off headers/footers.</span>
 </div>
@@ -468,5 +468,32 @@
   </div>
 
 </div><!-- /page -->
+
+<script>
+  // Print only once every image (notably the cache-busted /branding/logo) has
+  // finished loading — calling window.print() mid-load makes Chrome re-render
+  // the preview when the load completes, which can blank the page and print.
+  (function () {
+    var printed = false;
+    function doPrint() {
+      if (printed) return;
+      printed = true;
+      window.print();
+    }
+    window.printPage = function () {
+      var pending = Array.prototype.slice.call(document.images)
+        .filter(function (img) { return !img.complete; });
+      if (!pending.length) { doPrint(); return; }
+      var remaining = pending.length;
+      function settle() { if (--remaining <= 0) doPrint(); }
+      pending.forEach(function (img) {
+        img.addEventListener('load', settle);
+        img.addEventListener('error', settle);
+      });
+      setTimeout(doPrint, 3000);
+    };
+  })();
+</script>
+
 </body>
 </html>
