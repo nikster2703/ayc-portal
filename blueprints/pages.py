@@ -6,7 +6,10 @@ All routes that render templates — main portal sections and admin pages.
 import os
 from datetime import datetime
 
-from flask import Blueprint, redirect, render_template, request, send_from_directory, session
+from flask import (
+    Blueprint, Response, current_app, redirect, render_template,
+    request, send_from_directory, session,
+)
 
 from config import APP_VERSION, BRANDING_DIR, CLUB_NAME, CLUB_SHORT_NAME
 from helpers import (
@@ -156,6 +159,202 @@ def print_register_page():
         club_name      = brand.get('brand_club_name') or CLUB_NAME,
         club_short_name= brand.get('brand_short_name') or CLUB_SHORT_NAME,
         brand          = brand,
+    )
+
+
+@bp.route('/register/print.xlsx')
+@permission_required('register.print')
+def print_register_xlsx():
+    """Excel version of the printable session register.
+
+    Mirrors the print register layout — logo header, the member type's
+    show_on_print fields, and blank Tick on Arrival / Tick When Leaving columns —
+    so it can be saved or printed from Excel. Replaces the in-page Print button,
+    which mis-rendered on some browsers.
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    session_type = request.args.get('session', '').strip()
+    date         = request.args.get('date', '').strip()
+    type_slug    = request.args.get('type', 'member').strip() or 'member'
+
+    if not session_type or not date:
+        return 'Missing session or date parameter', 400
+    if session_type not in get_valid_session_names():
+        return 'Invalid session type', 400
+
+    db = get_db()
+
+    # Resolve member type (fall back to the club's first active type) and use its
+    # slug for the member query — never the raw 'member' default. See print page.
+    mtype = db.execute(
+        'SELECT * FROM member_types WHERE slug = ? AND active = 1', (type_slug,)
+    ).fetchone()
+    if not mtype:
+        mtype = db.execute(
+            'SELECT * FROM member_types WHERE active = 1 ORDER BY sort_order LIMIT 1'
+        ).fetchone()
+    query_slug = mtype['slug'] if mtype else type_slug
+    mtype_name = (mtype['name'] if mtype else '') or ''
+
+    print_fields = []
+    if mtype:
+        print_fields = [dict(r) for r in db.execute('''
+            SELECT  fd.key, fd.label, fd.field_type, fd.column_name, fd.system_field
+            FROM    member_type_fields mtf
+            JOIN    field_definitions fd ON fd.id = mtf.field_id
+            WHERE   mtf.member_type_id = ? AND fd.active = 1 AND mtf.show_on_print = 1
+              AND   fd.key NOT IN ('first_name', 'surname')
+            ORDER   BY mtf.sort_order
+        ''', (mtype['id'],)).fetchall()]
+
+    members = [dict(r) for r in db.execute('''
+        SELECT  m.*
+        FROM    members m
+        WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
+          AND   m.member_type = ?
+          AND   m.session     = ?
+        ORDER   BY m.first_name, m.surname
+    ''', (query_slug, session_type)).fetchall()]
+
+    has_custom = any(not f['system_field'] for f in print_fields)
+    if members and has_custom:
+        ids = [m['id'] for m in members]
+        ph  = ','.join('?' * len(ids))
+        cmap = {}
+        for r in db.execute(
+            f'SELECT mfv.member_id, fd.key, mfv.value FROM member_field_values mfv '
+            f'JOIN field_definitions fd ON fd.id = mfv.field_id '
+            f'WHERE mfv.member_id IN ({ph})', ids
+        ).fetchall():
+            cmap.setdefault(r['member_id'], {})[r['key']] = r['value']
+        for m in members:
+            m['custom_fields'] = cmap.get(m['id'], {})
+    else:
+        for m in members:
+            m['custom_fields'] = {}
+
+    def _field_value(field, member):
+        if field['system_field']:
+            val = member.get(field['column_name'])
+        else:
+            val = (member.get('custom_fields') or {}).get(field['key'])
+        if val is None or val == '':
+            return ''
+        if field['field_type'] == 'boolean':
+            return 'YES' if val in (1, '1', 'true', 'yes', True) else 'NO'
+        return val
+
+    try:
+        display_date = datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except ValueError:
+        display_date = date
+
+    brand  = get_brand_settings()
+    accent = (brand.get('_palette', {}).get('accent') or '#1b2d4f').lstrip('#').upper()
+    short  = brand.get('brand_short_name') or CLUB_SHORT_NAME
+
+    # ── Build workbook ────────────────────────────────────────────────────────
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Register'
+
+    headers  = (['#', 'First Name', 'Surname']
+                + [f['label'] for f in print_fields]
+                + ['Tick on Arrival', 'Tick When Leaving'])
+    ncols    = len(headers)
+    HEADER_ROW = 6   # rows 1-2 logo, 3 title, 4 subtitle, 5 spacer
+
+    HEADER_FILL = PatternFill('solid', fgColor=accent)
+    HEADER_FONT = Font(bold=True, color='FFFFFF', size=10)
+    TITLE_FONT  = Font(bold=True, color=accent, size=15)
+    SUB_FONT    = Font(color='475569', size=10)
+    _thin       = Side(style='thin', color='CBD5E1')
+    BORDER      = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+
+    title = f'Session Register — {session_type}'
+    if mtype_name:
+        title += f' · {mtype_name}s'
+    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=ncols)
+    tc = ws.cell(row=3, column=1, value=title)
+    tc.font = TITLE_FONT
+    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=ncols)
+    sc = ws.cell(row=4, column=1,
+                 value=f'{display_date}  ·  {len(members)} '
+                       f'{(mtype_name or "member").lower()}{"s" if len(members) != 1 else ""}')
+    sc.font = SUB_FONT
+    ws.row_dimensions[1].height = 26
+    ws.row_dimensions[2].height = 26
+    ws.row_dimensions[5].height = 6
+
+    # Logo (optional — embedding requires Pillow; degrade gracefully if absent)
+    logo_path = None
+    if brand.get('brand_logo_file'):
+        cand = os.path.join(BRANDING_DIR, os.path.basename(brand['brand_logo_file']))
+        if os.path.exists(cand):
+            logo_path = cand
+    if not logo_path and current_app.static_folder:
+        cand = os.path.join(current_app.static_folder, 'images', 'logo.png')
+        if os.path.exists(cand):
+            logo_path = cand
+    if logo_path:
+        try:
+            from openpyxl.drawing.image import Image as XLImage
+            img = XLImage(logo_path)
+            target_h = 44
+            if img.height:
+                img.width  = int(img.width * (target_h / float(img.height)))
+                img.height = target_h
+            ws.add_image(img, 'A1')
+        except Exception as _e:  # Pillow missing or unreadable image
+            current_app.logger.warning('Register XLSX logo embed skipped: %s', _e)
+
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=HEADER_ROW, column=ci, value=h)
+        c.fill, c.font, c.border = HEADER_FILL, HEADER_FONT, BORDER
+        c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+    row = HEADER_ROW + 1
+    for idx, m in enumerate(members, 1):
+        ws.cell(row=row, column=1, value=idx)
+        ws.cell(row=row, column=2, value=m.get('first_name') or '')
+        ws.cell(row=row, column=3, value=m.get('surname') or '')
+        for fi, f in enumerate(print_fields):
+            ws.cell(row=row, column=4 + fi, value=_field_value(f, m))
+        for ci in range(1, ncols + 1):
+            ws.cell(row=row, column=ci).border = BORDER
+        row += 1
+    # Blank rows for walk-ins / late arrivals, mirroring the print template.
+    for i in range(5):
+        ws.cell(row=row, column=1, value=len(members) + i + 1)
+        for ci in range(1, ncols + 1):
+            ws.cell(row=row, column=ci).border = BORDER
+        row += 1
+
+    ws.column_dimensions['A'].width = 5
+    ws.column_dimensions['B'].width = 16
+    ws.column_dimensions['C'].width = 16
+    for fi in range(len(print_fields)):
+        ws.column_dimensions[get_column_letter(4 + fi)].width = 18
+    ws.column_dimensions[get_column_letter(ncols - 1)].width = 16
+    ws.column_dimensions[get_column_letter(ncols)].width = 16
+
+    ws.freeze_panes = f'A{HEADER_ROW + 1}'
+    ws.page_setup.orientation = 'landscape'
+    ws.page_setup.paperSize = 9  # A4
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fn = f"{short.lower().replace(' ', '_')}_register_{session_type}_{date}.xlsx".replace(' ', '_')
+    return Response(
+        buf.read(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{fn}"'},
     )
 
 

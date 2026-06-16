@@ -257,10 +257,13 @@
 
 <!-- ── Screen controls ──────────────────────────────── -->
 <div class="print-controls">
-  <button class="btn-print" onclick="printPage()">🖨 Print</button>
+  <a class="btn-print"
+     href="/register/print.xlsx?session={{ session_type | urlencode }}&date={{ date | urlencode }}{% if mtype and mtype.slug %}&type={{ mtype.slug | urlencode }}{% endif %}">
+    ⬇ Export to Excel
+  </a>
   <a class="btn-back" href="/register">← Back to Register</a>
   <span class="controls-hint">
-    Tip: In your print dialog, set paper to A4 landscape and disable "Print headers and footers".
+    Downloads this register as an Excel (.xlsx) file. To print, use your browser's print menu or ⌘/Ctrl+P.
   </span>
 </div>
 
@@ -348,35 +351,6 @@
 <div class="print-footer">
   Printed {{ display_date }} &nbsp;·&nbsp; {{ club_short_name }} Portal
 </div>
-
-<script>
-  // Print only once every image (notably the cache-busted /branding/logo) has
-  // finished loading. Calling window.print() while an image is still in flight
-  // makes Chrome re-render the preview when the load completes "seconds later",
-  // which blanks this large fixed-layout table — and the on-screen page with it.
-  // Cmd+P avoids this because the logo has usually settled by the time it's used.
-  (function () {
-    var printed = false;
-    function doPrint() {
-      if (printed) return;
-      printed = true;
-      window.print();
-    }
-    window.printPage = function () {
-      var pending = Array.prototype.slice.call(document.images)
-        .filter(function (img) { return !img.complete; });
-      if (!pending.length) { doPrint(); return; }
-      var remaining = pending.length;
-      function settle() { if (--remaining <= 0) doPrint(); }
-      pending.forEach(function (img) {
-        img.addEventListener('load', settle);
-        img.addEventListener('error', settle);
-      });
-      // Never hang the button if an image fails to resolve.
-      setTimeout(doPrint, 3000);
-    };
-  })();
-</script>
 
 </body>
 </html>
