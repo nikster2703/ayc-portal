@@ -156,19 +156,33 @@ def api_attendance_trend():
     """Headcount per session date for the dashboard trend chart.
     Returns the last 12 session dates that have any attendance,
     scoped to the user's assigned sessions (all sessions for admins).
+
+    Query params:
+      view=members (default) — active non-staff members only
+      view=staff             — staff/volunteer members only
     """
     db     = get_db()
     scoped = _assigned_session()
+    view   = request.args.get('view', 'members')
+
+    # Staff filter clause (joined to members + member_types)
+    if view == 'staff':
+        style_clause = "mt.registration_style = 'staff'"
+    else:
+        style_clause = "mt.registration_style != 'staff'"
 
     # NB: completing a register writes absence rows (signed_in_at IS NULL)
     # for every member who didn't attend — count only actual sign-ins.
     if scoped is None:
-        rows = db.execute('''
-            SELECT session_date,
-                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS headcount
-            FROM attendance
-            GROUP BY session_date
-            ORDER BY session_date DESC
+        rows = db.execute(f'''
+            SELECT a.session_date,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS headcount
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
+            WHERE {style_clause}
+            GROUP BY a.session_date
+            ORDER BY a.session_date DESC
             LIMIT 12
         ''').fetchall()
     else:
@@ -176,12 +190,15 @@ def api_attendance_trend():
             return jsonify([])
         ph = ','.join('?' * len(scoped))
         rows = db.execute(f'''
-            SELECT session_date,
-                   SUM(CASE WHEN signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS headcount
-            FROM attendance
-            WHERE session_type IN ({ph})
-            GROUP BY session_date
-            ORDER BY session_date DESC
+            SELECT a.session_date,
+                   SUM(CASE WHEN a.signed_in_at IS NOT NULL THEN 1 ELSE 0 END) AS headcount
+            FROM attendance a
+            JOIN members m ON m.id = a.member_id
+            JOIN member_types mt ON mt.slug = m.member_type
+            WHERE {style_clause}
+              AND a.session_type IN ({ph})
+            GROUP BY a.session_date
+            ORDER BY a.session_date DESC
             LIMIT 12
         ''', list(scoped)).fetchall()
 

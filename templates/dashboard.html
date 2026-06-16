@@ -89,7 +89,13 @@
   </div>
 
   <div class="card" id="trend-card" style="padding:18px 20px;display:none">
-    <div class="dash-section-title" style="margin-bottom:10px"><i data-lucide="activity"></i>Attendance — recent sessions</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+      <div class="dash-section-title" style="margin-bottom:0"><i data-lucide="activity"></i><span id="trend-card-title">Attendance — recent sessions</span></div>
+      <div class="trend-toggle" id="trend-toggle" role="group" aria-label="Attendance view">
+        <button id="trend-btn-members" class="trend-toggle-btn active" onclick="setTrendView('members')">Members</button>
+        <button id="trend-btn-staff"   class="trend-toggle-btn"        onclick="setTrendView('staff')">Staff</button>
+      </div>
+    </div>
     <div style="height:190px;position:relative"><canvas id="trend-chart"></canvas></div>
   </div>
 
@@ -597,6 +603,17 @@
   /* ── Attendance trend chart ─────────────────────────── */
   let _trendChart = null;
   let _trendData  = null;
+  let _trendView  = 'members';  // 'members' | 'staff'
+
+  function setTrendView(view) {
+    if (_trendView === view) return;
+    _trendView = view;
+    document.getElementById('trend-btn-members').classList.toggle('active', view === 'members');
+    document.getElementById('trend-btn-staff').classList.toggle('active', view === 'staff');
+    document.getElementById('trend-card-title').textContent =
+      view === 'staff' ? 'Staff attendance — recent sessions' : 'Attendance — recent sessions';
+    loadTrend();
+  }
 
   function cssColor(name) {
     const probe = document.createElement('span');
@@ -635,7 +652,7 @@
         responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: c => ` ${c.parsed.y} signed in` } },
+          tooltip: { callbacks: { label: c => ` ${c.parsed.y} ${_trendView === 'staff' ? 'staff' : 'members'} signed in` } },
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: muted, font: { family: fontFam, size: 10.5 } } },
@@ -648,13 +665,21 @@
 
   async function loadTrend() {
     try {
-      _trendData = await apiFetch('/api/dashboard/attendance-trend');
+      _trendData = await apiFetch('/api/dashboard/attendance-trend?view=' + _trendView);
       if (!_trendData || _trendData.length < 2) {
-        // Not enough history for a meaningful chart — let sessions span the row
-        document.getElementById('dash-cols').style.gridTemplateColumns = '1fr';
+        if (_trendView === 'members') {
+          // Not enough member history — collapse to single column
+          document.getElementById('dash-cols').style.gridTemplateColumns = '1fr';
+          document.getElementById('trend-card').style.display = 'none';
+        } else {
+          // Staff view with no data — show empty state in card rather than hiding it
+          document.getElementById('trend-card').style.display = '';
+          if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
+        }
         return;
       }
       document.getElementById('trend-card').style.display = '';
+      document.getElementById('dash-cols').style.gridTemplateColumns = '';
       buildTrendChart();
     } catch (_) {
       document.getElementById('dash-cols').style.gridTemplateColumns = '1fr';
@@ -1090,6 +1115,23 @@
 
   /* ── Trends global toggle ──────────────────────────── */
   html.no-trends .spark-wrap { display: none !important; }
+
+  /* ── Attendance chart Members/Staff toggle ─────────── */
+  .trend-toggle {
+    display: inline-flex; border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--surface-2);
+    flex-shrink: 0;
+  }
+  .trend-toggle-btn {
+    padding: 4px 14px; font-size: 12px; font-weight: 600; font-family: inherit;
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .trend-toggle-btn + .trend-toggle-btn { border-left: 1px solid var(--border); }
+  .trend-toggle-btn.active {
+    background: var(--accent); color: #fff;
+  }
+  .trend-toggle-btn:not(.active):hover { background: var(--accent-soft); color: var(--accent); }
 
   /* ── Edit mode — stat grid ─────────────────────────── */
   #stat-cards.edit-mode .stat-card {
