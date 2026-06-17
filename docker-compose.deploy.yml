@@ -1,0 +1,56 @@
+# ── Portal — Docker Compose (DEPLOY / prebuilt image) ─────────────────────────
+#
+# This is the file end users run on a NAS, Windows, Mac or Linux box.
+# Unlike docker-compose.yml (which BUILDS the image from source), this file
+# PULLS a ready-made image from the GitHub Container Registry. That means the
+# host needs nothing but Docker — no git clone, no source code, no compiler.
+#
+# A host only needs TWO files in a folder to run the portal:
+#   docker-compose.deploy.yml   (this file)
+#   .env                        (created for you by install.sh)
+#
+# The Docker project name is taken from the folder this file lives in, so
+# cloning/placing it in a club-named folder (e.g. demo-portal, burnham-portal)
+# namespaces the container and volume automatically.
+#
+# Normal flow is to let install.sh drive this. Manual equivalent:
+#   docker compose -f docker-compose.deploy.yml pull
+#   docker compose -f docker-compose.deploy.yml run --rm portal python scripts/seed_admin.py
+#   docker compose -f docker-compose.deploy.yml up -d
+#
+# Update to the latest published version later:
+#   docker compose -f docker-compose.deploy.yml pull
+#   docker compose -f docker-compose.deploy.yml up -d --force-recreate
+
+services:
+
+  portal:
+    # Pin to :latest for the demo. For production, pin a version tag (e.g. :v12.37)
+    # so an upstream change never surprises a live club.
+    image: ${PORTAL_IMAGE:-ghcr.io/nikster2703/ayc-portal:latest}
+    container_name: portal
+    restart: unless-stopped
+    # Host port is configurable via .env (PORT). The container ALWAYS listens
+    # on 5001 internally — the image's gunicorn binds to 5001 — so we only vary
+    # the left-hand (host) side. This lets a host pick any free port safely.
+    ports:
+      - "${PORT:-5001}:5001"
+    environment:
+      - INSTANCE_DIR=/data
+      - PORT=5001
+      - FLASK_DEBUG=0
+      - TZ=Europe/London
+    env_file:
+      - .env
+    volumes:
+      - portal-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  portal-data:
+    driver: local

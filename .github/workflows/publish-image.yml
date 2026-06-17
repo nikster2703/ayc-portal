@@ -1,0 +1,67 @@
+# ── Build & publish the portal image to GitHub Container Registry ─────────────
+#
+# After this runs once, anyone (your NAS, a Windows box, a Mac) can install the
+# portal with just docker-compose.deploy.yml + install.sh — no source, no build.
+#
+# It triggers on:
+#   • a push to main            → publishes :latest
+#   • a version tag like v12.37 → publishes :v12.37 (and updates :latest)
+#   • a manual "Run workflow"    → publishes :latest
+#
+# One-time setup on GitHub: nothing to configure — GITHUB_TOKEN already has
+# permission to push packages to your own repo. After the first successful run,
+# open the repo's "Packages" section and set the package visibility to Public
+# so the NAS can pull without logging in.
+
+name: Publish image
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # NOTE: building only linux/amd64 because QNAP Container Station hosts are
+      # Intel/AMD. If you ever deploy to an ARM box (e.g. a Raspberry Pi or ARM
+      # NAS), add linux/arm64 below — be aware pysqlcipher3 compiles under QEMU
+      # emulation there and the build will be considerably slower.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
