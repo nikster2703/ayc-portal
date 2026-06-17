@@ -92,6 +92,43 @@ fi
 
 # ── 4. Generate secrets + write .env ──────────────────────────────────────────
 if [ -z "${SKIP_ENV:-}" ]; then
+
+  # Guard against the "new key meets old volume" trap. If a data volume from a
+  # previous install still exists, its database was encrypted with the OLD key.
+  # A fresh .env generates a NEW key that cannot open it — which fails later
+  # with a confusing "file is not a database" / hmac error during admin seeding.
+  # Compose names the volume <project>_portal-data, where <project> defaults to
+  # the (lower-cased, sanitised) name of this folder.
+  PROJECT=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')
+  DATA_VOLUME="${PROJECT}_portal-data"
+  if docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1; then
+    say ""
+    say "WARNING: a data volume from a previous install already exists:"
+    say "    $DATA_VOLUME"
+    say "It holds a database encrypted with an OLDER key. Generating a fresh"
+    say ".env now creates a NEW key that cannot open it, so the install would"
+    say "fail with a 'file is not a database' error."
+    say ""
+    say "  [k] Keep   — abort now (default). Restore the matching .env to reuse this data."
+    say "  [d] Delete — ERASE that data and continue with a completely clean install."
+    VOL_CHOICE=$(ask "Choose k or d" "k")
+    case "$VOL_CHOICE" in
+      d|D|delete|DELETE)
+        say "Removing $DATA_VOLUME and any container attached to it…"
+        _cids=$(docker ps -aq --filter "volume=$DATA_VOLUME" 2>/dev/null || true)
+        [ -n "${_cids:-}" ] && docker rm -f $_cids >/dev/null 2>&1 || true
+        docker volume rm "$DATA_VOLUME" >/dev/null 2>&1 || true
+        say "Removed. Continuing with a clean install."
+        ;;
+      *)
+        say "Aborting so your existing data is preserved."
+        say "Put the original .env (with its matching keys) back in this folder and re-run,"
+        say "or delete the volume yourself with: docker volume rm $DATA_VOLUME"
+        exit 0
+        ;;
+    esac
+  fi
+
   say ""
   say "Generating secret keys (pulling a small helper image the first time)…"
 
