@@ -116,9 +116,11 @@ def seed():
             (username, email, pw_hash, 'admin')
         )
         conn.commit()
-        port = os.environ.get('PORT', '5001')
         print(f"\nAdmin user '{username}' created successfully.")
-        print(f'You can now log in at http://localhost:{port}')
+        # Note: this one-off container can't know the host-facing port (Docker
+        # maps it externally), so we don't print a specific URL here. The
+        # installer prints the correct address when it starts the portal.
+        print('You can now log in once the portal is running.')
     except sqlite3.IntegrityError:
         print(f"\nA user named '{username}' already exists.")
     finally:

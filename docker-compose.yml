@@ -27,20 +27,25 @@ services:
 
   portal:
     build: .
-    container_name: portal
+    # No fixed container_name: a fixed name collides between `compose run`
+    # (used to seed the admin) and `compose up`. Compose names the container
+    # <folder>-portal-1 automatically. Management commands use the SERVICE
+    # name "portal", which is unchanged.
     restart: unless-stopped
+    # Host port is configurable via .env (PORT); the container always listens
+    # on 5001 internally (gunicorn binds :5001), so only the host side varies.
     ports:
-      - "${PORT:-5001}:${PORT:-5001}"
+      - "${PORT:-5001}:5001"
     environment:
       - INSTANCE_DIR=/data
-      - PORT=${PORT:-5001}
+      - PORT=5001
       - FLASK_DEBUG=0
     env_file:
       - .env
     volumes:
       - portal-data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-5001}/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
