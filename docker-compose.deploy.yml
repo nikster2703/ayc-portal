@@ -28,7 +28,10 @@ services:
     # Pin to :latest for the demo. For production, pin a version tag (e.g. :v12.37)
     # so an upstream change never surprises a live club.
     image: ${PORTAL_IMAGE:-ghcr.io/nikster2703/ayc-portal:latest}
-    container_name: portal
+    # No fixed container_name: a fixed name collides between `compose run`
+    # (used to seed the admin) and `compose up`. Compose names the container
+    # <folder>-portal-1 automatically, which is unique and conflict-free.
+    # All management commands use the SERVICE name "portal", which is unchanged.
     restart: unless-stopped
     # Host port is configurable via .env (PORT). The container ALWAYS listens
     # on 5001 internally — the image's gunicorn binds to 5001 — so we only vary
