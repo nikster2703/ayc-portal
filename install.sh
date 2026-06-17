@@ -163,8 +163,13 @@ say ""
 say "Starting the portal…"
 compose up -d
 
-# Best-effort local IP detection for the closing message.
-HOST_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
+# Best-effort LAN IP detection for the closing message.
+# `hostname -i` is unreliable on a Docker host (it returns a Docker bridge IP
+# like 172.x.x.x, which is not reachable from other machines). Asking the
+# routing table which source address reaches the internet gives the real LAN
+# address instead, because the default route goes out the LAN, not the bridges.
+HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+[ -z "${HOST_IP:-}" ] && HOST_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
 [ -z "${HOST_IP:-}" ] && HOST_IP="<this-machine-ip>"
 
 say ""
