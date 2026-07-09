@@ -422,9 +422,19 @@ def api_mailshots_send():
     if not _smtp_user or not _smtp_pass:
         return jsonify({'error': 'Email not configured — add a sender profile in Settings → Email Senders'}), 503
 
-    # Use explicit selection from the frontend checklist; fall back to filter query
+    # Use explicit selection from the frontend checklist; fall back to filter query.
+    # v12.42: validate the explicit list against the member contacts this user is
+    # actually allowed to reach (any status, scoped to their sessions) — previously
+    # the endpoint accepted arbitrary addresses from the client, letting anyone
+    # with mailshots.send use the club's SMTP account as an open relay.
     if explicit_recip and isinstance(explicit_recip, list):
-        recipients = [r for r in explicit_recip if r.get('email')]
+        allowed_emails = {r['email'].lower() for r in _get_recipients('all', 'all')}
+        recipients = [r for r in explicit_recip
+                      if r.get('email') and r['email'].lower() in allowed_emails]
+        dropped = len([r for r in explicit_recip if r.get('email')]) - len(recipients)
+        if dropped:
+            current_app.logger.warning(
+                'Mailshot: dropped %d recipient(s) not in the allowed contact list', dropped)
     else:
         session_filter = data.get('session_filter', 'all')
         recipients = _get_recipients(session_filter, status_filter=None)  # defaults to active behaviour

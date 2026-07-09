@@ -29,12 +29,12 @@ import bcrypt
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, session
 
 from config import (
-    BRANDING_DIR, CLUB_SHORT_NAME, DATABASE, INSTANCE_DIR, LOG_DIR,
+    BRANDING_DIR, DATABASE, INSTANCE_DIR, LOG_DIR,
     ROLE_DISPLAY_NAMES,
 )
 from extensions import csrf
 from helpers import (
-    get_db, log_action, permission_required, has_permission,
+    get_db, log_action, permission_required, has_permission, club_slug,
     _assigned_session, _connect_db, _validate_hex_colour, _invalidate_brand_cache,
     get_brand_settings, get_session_types, validate_password,
     get_setting, encrypt_file, decrypt_file,
@@ -408,10 +408,11 @@ def api_users_update(user_id):
         updates.append('email = ?'); params.append(data['email'])
 
     if 'role' in data:
-        target_role_row = db.execute('SELECT id FROM roles WHERE name = ?', (data['role'],)).fetchone()
-        updates.append('role = ?'); params.append(data['role'])
-        if target_role_row:
-            updates.append('role_id = ?'); params.append(target_role_row['id'])
+        # v12.41: reuse the role row validated at the top of this function rather
+        # than re-querying — the second lookup could race a concurrent role
+        # deletion and set role without role_id (desync).
+        updates.append('role = ?');    params.append(data['role'])
+        updates.append('role_id = ?'); params.append(target_role_row['id'])
 
     if 'active' in data:
         updates.append('active = ?'); params.append(1 if data['active'] else 0)
@@ -1766,8 +1767,7 @@ def api_maintenance_clear_members():
 def api_maintenance_backup():
     """Stream a hot backup of the SQLCipher database."""
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
-    filename  = f'{slug}_backup_{timestamp}.db'
+    filename  = f'{club_slug()}_backup_{timestamp}.db'
 
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
         tmp_path = tmp.name
@@ -1850,21 +1850,36 @@ def api_maintenance_restore():
         except Exception:
             summary = {}
 
-        # Step 3: auto-snapshot
+        # Step 3: drop this request's connection BEFORE touching the file
+        # (v12.41: was previously done after the swap)
+        if hasattr(g, 'db'):
+            try: g.db.close()
+            except Exception: pass
+            g.db = None
+
+        # Step 4: auto-snapshot — checkpoint the WAL into the main file first so
+        # the snapshot contains all committed data, then copy.
+        try:
+            _ck = _connect_db()
+            _ck.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            _ck.close()
+        except Exception:
+            pass  # best effort — snapshot still taken below
         backups_dir   = os.path.join(INSTANCE_DIR, 'data', 'backups')
         os.makedirs(backups_dir, exist_ok=True)
         snapshot_ts   = datetime.now().strftime('%Y%m%d_%H%M%S')
         snapshot_path = os.path.join(backups_dir, f'pre_restore_{snapshot_ts}.db')
         shutil.copy2(DATABASE, snapshot_path)
 
-        # Step 4: atomic swap
+        # Step 5: remove stale WAL/SHM sidecars, then swap. Leftover -wal/-shm
+        # files from the OLD database would be replayed against the restored
+        # file on next open and corrupt it (v12.41).
+        for _suffix in ('-wal', '-shm'):
+            try:
+                os.remove(DATABASE + _suffix)
+            except OSError:
+                pass
         shutil.copy2(tmp_path, DATABASE)
-
-        # Step 5: drop stale connection
-        if hasattr(g, 'db'):
-            try: g.db.close()
-            except Exception: pass
-            g.db = None
 
         # Step 6: run migrations on restored DB
         from db import ensure_tables
@@ -2120,7 +2135,7 @@ def api_import_run():
     if _has_payment_col:
         _import_period   = get_setting('current_membership_period', '')
         _membership_type = db.execute(
-            "SELECT id FROM payment_types WHERE name = 'Membership' LIMIT 1"
+            "SELECT id FROM payment_types WHERE is_membership = 1 LIMIT 1"
         ).fetchone()
         if not _membership_type:
             _membership_type = db.execute(
@@ -3277,9 +3292,8 @@ def api_export_members_csv():
         )
         writer.writerow(row)
 
-    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename  = f'{slug}_members_{timestamp}.csv'
+    filename  = f'{club_slug()}_members_{timestamp}.csv'
 
     log_action('export_members', 'members', None, {
         'count': len(members), 'status_filter': status_filter,
@@ -3566,9 +3580,8 @@ def api_export_members_xlsx():
     wb.save(buf)
     buf.seek(0)
 
-    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename  = f'{slug}_members_{timestamp}.xlsx'
+    filename  = f'{club_slug()}_members_{timestamp}.xlsx'
 
     log_action('export_members_xlsx', 'members', None, {
         'count': len(members), 'status_filter': status_filter,

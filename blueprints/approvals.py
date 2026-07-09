@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request, session
 from helpers import (
     get_db, log_action, permission_required, has_permission,
     _assigned_session, _next_member_id, validate_password,
-    get_valid_session_names, rate_limit_touch,
+    get_valid_session_names, rate_limit_touch, client_ip,
 )
 
 bp = Blueprint('approvals', __name__)
@@ -52,9 +52,11 @@ def api_registration():
     Fully field-driven — no hardcoded member/staff branching.
     Supports both legacy (registration_type) and new dynamic (member_type_slug) payloads.
     """
-    # Rate limit: 5 submissions per IP per hour
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
-    if not _registration_rate_limit(client_ip):
+    # Rate limit: 5 submissions per IP per hour.
+    # v12.42: X-Forwarded-For handling centralised in helpers.client_ip(),
+    # gated on TRUST_PROXY_HEADERS so the header can't be spoofed when the
+    # app port is exposed directly.
+    if not _registration_rate_limit(client_ip()):
         return jsonify({'error': 'Too many registration attempts. Please try again later.'}), 429
 
     data = request.get_json() or {}
@@ -249,6 +251,15 @@ def api_approvals_approve(reg_id):
         if not staff_role:
             return jsonify({'error': 'Staff role is required'}), 400
 
+        # v12.41: resolve the staff member-type slug instead of hardcoding 'staff' —
+        # a club that renamed its staff type slug was getting orphaned staff members
+        # (invisible to every registration_style join). Same class of bug as v12.34/35.
+        staff_mt = db.execute(
+            "SELECT slug FROM member_types WHERE active = 1 AND registration_style = 'staff' "
+            "ORDER BY sort_order LIMIT 1"
+        ).fetchone()
+        staff_slug = staff_mt['slug'] if staff_mt else 'staff'
+
         db.execute('''
             INSERT INTO members
                 (member_id, first_name, surname, date_of_birth, address, postcode,
@@ -259,7 +270,7 @@ def api_approvals_approve(reg_id):
             reg['first_name'], reg['surname'], reg['date_of_birth'],
             reg['address'], reg['postcode'],
             assigned_session,
-            'staff',
+            staff_slug,
             staff_role,
         ))
         member_db_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]

@@ -21,7 +21,7 @@ from flask import g, has_request_context, jsonify, redirect, request, session, u
 from config import (
     DATABASE, UPLOAD_DIR, ALLOWED_EXTENSIONS,
     BRAND_KEYS, CLUB_NAME, CLUB_SHORT_NAME,
-    ROLE_ADMIN,
+    ROLE_ADMIN, ROLE_DISPLAY_NAMES,
     LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
 )
 
@@ -84,7 +84,9 @@ def log_action(action, table_name=None, record_id=None, details=None,
     try:
         in_request = has_request_context()
         uid = user_id if user_id is not None else (session.get('user_id') if in_request else None)
-        ip  = ip_address if ip_address is not None else (request.remote_addr if in_request else 'system')
+        # v12.42: client_ip() not remote_addr — behind Caddy the latter logged
+        # the proxy's IP for every audit entry.
+        ip  = ip_address if ip_address is not None else (client_ip() if in_request else 'system')
 
         db = get_db() if in_request else _connect_db()
         own_conn = not in_request
@@ -223,6 +225,75 @@ def has_permission(permission_code):
     return permission_code in session.get('permissions', [])
 
 
+def refresh_session_grants(max_age_seconds=60):
+    """Re-sync role, permissions and session names from the DB into the Flask
+    session (v12.41). Previously grants were loaded only at login, so role edits,
+    session reassignments and account deactivation didn't take effect until the
+    user logged out. Throttled via session['grants_synced_at'] so it costs at
+    most a few queries per user per minute.
+
+    Returns False if the user no longer exists or is inactive — the caller
+    should clear the session and treat them as logged out.
+    """
+    now = time.time()
+    if now - session.get('grants_synced_at', 0) < max_age_seconds:
+        return True
+
+    db   = get_db()
+    user = db.execute(
+        'SELECT id, role, role_id, active_session_id FROM users WHERE id = ? AND active = 1',
+        (session['user_id'],)
+    ).fetchone()
+    if not user:
+        return False
+
+    # Resolve role + permissions (mirrors the login flow: role_id first, name fallback)
+    perms, role_name, role_id = [], user['role'], user['role_id']
+    role_row = None
+    if user['role_id']:
+        role_row = db.execute(
+            'SELECT id, name, permissions, display_name FROM roles WHERE id = ?',
+            (user['role_id'],)
+        ).fetchone()
+    if not role_row:
+        role_row = db.execute(
+            'SELECT id, name, permissions, display_name FROM roles WHERE name = ?',
+            (user['role'],)
+        ).fetchone()
+    role_display = ROLE_DISPLAY_NAMES.get(role_name, role_name)
+    if role_row:
+        role_id      = role_row['id']
+        role_name    = role_row['name']
+        role_display = role_row['display_name'] or ROLE_DISPLAY_NAMES.get(role_name, role_name)
+        try:
+            perms = json.loads(role_row['permissions'])
+        except (TypeError, ValueError):
+            perms = []
+
+    sess_rows = db.execute(
+        'SELECT st.name FROM user_sessions us '
+        'JOIN session_types st ON st.id = us.session_type_id '
+        'WHERE us.user_id = ? AND st.active = 1 '
+        'ORDER BY st.sort_order, st.name',
+        (user['id'],)
+    ).fetchall()
+    session_names = [r['name'] for r in sess_rows]
+
+    # Keep active_session valid for scoped users; admins are never constrained.
+    active_session = session.get('active_session')
+    if role_name != ROLE_ADMIN and session_names and active_session not in session_names:
+        active_session = session_names[0]
+
+    session['role']             = role_name
+    session['role_display']    = role_display
+    session['role_id']          = role_id
+    session['permissions']      = perms
+    session['session_names']    = session_names
+    session['active_session']   = active_session
+    session['grants_synced_at'] = now
+    return True
+
+
 # ── Password policy ────────────────────────────────────────────────────────────
 
 def validate_password(password):
@@ -334,6 +405,15 @@ def tpl_ctx():
         'club_short_name':      short,
         'brand':                brand,
     }
+
+
+def club_slug():
+    """Filename-safe slug of the club short name, preferring the branded value
+    over the .env CLUB_SHORT_NAME (v12.42 — export filenames were inconsistent:
+    some used the brand name, some the .env constant)."""
+    brand = get_brand_settings()
+    short = brand.get('brand_short_name') or CLUB_SHORT_NAME
+    return short.lower().replace(' ', '_')
 
 
 # ── Settings ───────────────────────────────────────────────────────────────────
@@ -691,6 +771,26 @@ def _invalidate_qr_token_for_session(session_type: str, session_date: str):
         (session_type, session_date),
     )
     db.commit()
+
+
+def client_ip():
+    """Return the real client IP for rate limiting and audit (v12.42).
+
+    Behind the reverse proxy (Caddy) every request reaches the container from
+    the proxy's IP, so per-IP rate limits (login lockout, registration, QR)
+    would share ONE bucket across all users — a handful of failures would lock
+    everyone out. The real client IP arrives in X-Forwarded-For.
+
+    Trusting that header is only safe when a proxy we control sets it, so it is
+    gated on TRUST_PROXY_HEADERS (default '1' — matches the standard Caddy
+    deployment). Set TRUST_PROXY_HEADERS=0 in .env if the app port is exposed
+    directly, where a client could spoof the header to dodge rate limits.
+    """
+    if os.environ.get('TRUST_PROXY_HEADERS', '1') == '1':
+        xff = request.headers.get('X-Forwarded-For', '')
+        if xff:
+            return xff.split(',')[0].strip()
+    return request.remote_addr or '0.0.0.0'
 
 
 # ── Rate limiting (DB-backed, shared across worker processes) ──────────────────

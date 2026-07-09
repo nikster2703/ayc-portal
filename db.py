@@ -472,6 +472,9 @@ def ensure_tables():
         "ALTER TABLE session_types ADD COLUMN description TEXT",
         # v10.3: Phase B — persisted active session selection per user
         "ALTER TABLE users ADD COLUMN active_session_id INTEGER REFERENCES session_types(id)",
+        # v12.41: flag the membership payment type so queries stop matching on
+        # name = 'Membership' (which broke silently if the type was renamed)
+        "ALTER TABLE payment_types ADD COLUMN is_membership INTEGER NOT NULL DEFAULT 0",
     ]
     for stmt in alter_stmts:
         try:
@@ -608,386 +611,380 @@ def ensure_tables():
     db.commit()
     db.close()
 
-    # ── Seed default settings ─────────────────────────────────────────────────
-    sdb = _connect_db()
+    # ── Seeding — one shared connection (v12.42) ──────────────────────────────
+    # Previously every seed section below opened and closed its own connection
+    # (9 per startup), and the payment-field migration leaked its connection if
+    # an error fired before its close(). All sections now share `seed`, closed
+    # once in the finally block at the end of this function.
     import sqlcipher3 as _sc3
-    sdb.row_factory = _sc3.Row
-    if not sdb.execute("SELECT key FROM settings WHERE key = 'alerts_last_run'").fetchone():
-        sdb.execute("INSERT INTO settings (key, value) VALUES ('alerts_last_run', '')")
-    _qr_defaults = [
-        ('quick_signin_enabled',      'true'),
-        ('quick_signout_enabled',     'false'),
-        ('quick_signin_welcome_msg',  'Welcome, {name}! Great to see you tonight! 🎉'),
-        ('quick_signin_already_msg',  "You're already signed in, {name}! See you inside 👋"),
-        ('quick_signout_goodbye_msg', 'Goodbye, {name}! See you next time 👋'),
-        ('quick_signout_already_msg', "You're already signed out, {name}. Safe journey home!"),
-    ]
-    for key, val in _qr_defaults:
-        if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
-            sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
-    for key, val in BRAND_KEYS.items():
-        if not sdb.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
-            sdb.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
-    # v11.6: current membership period (admin-configurable)
-    if not sdb.execute("SELECT key FROM settings WHERE key = 'current_membership_period'").fetchone():
-        from datetime import date as _date
-        _yr = _date.today().year
-        _period = f'{_yr}/{str(_yr + 1)[-2:]}'
-        sdb.execute("INSERT INTO settings (key, value) VALUES ('current_membership_period', ?)", (_period,))
-    sdb.commit()
-    sdb.close()
-
-    # ── Seed default session types (fresh install only) ───────────────────────
-    # Only runs when the table is completely empty — never overwrites deliberate deletions.
-    tdb = _connect_db()
-    if not tdb.execute('SELECT id FROM session_types LIMIT 1').fetchone():
-        for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
-            tdb.execute(
-                'INSERT INTO session_types (name, weekday, active, sort_order, description) VALUES (?,?,1,?,?)',
-                (name, weekday, sort_order, f'{name} evening session'),
-            )
-        tdb.commit()
-        logger.info('Seeded default session types (fresh install)')
-    tdb.close()
-
-    # ── Seed default document categories ──────────────────────────────────────
-    catdb = _connect_db()
-    catdb.row_factory = _sc3.Row
-    _default_categories = [
-        ('Policy',        'Organisational policies and procedures',  '📜', '#3b82f6', 0),
-        ('Form',          'Fillable forms and templates',            '📋', '#10b981', 1),
-        ('Template',      'Document templates for staff use',        '✉️', '#8b5cf6', 2),
-        ('Register',      'Session registers and attendance sheets', '📝', '#f59e0b', 3),
-        ('Safeguarding',  'Safeguarding records and incident notes', '🔒', '#ef4444', 4),
-        ('Finance',       'Financial records, invoices and budgets', '💰', '#06b6d4', 5),
-        ('General',       'General documents and miscellaneous',     '📄', '#64748b', 6),
-    ]
-    for name, desc, icon, color, sort_order in _default_categories:
-        if not catdb.execute('SELECT id FROM document_categories WHERE name = ?', (name,)).fetchone():
-            catdb.execute(
-                'INSERT INTO document_categories (name, description, icon, color, sort_order) VALUES (?,?,?,?,?)',
-                (name, desc, icon, color, sort_order),
-            )
-    catdb.commit()
-    catdb.close()
-
-    # ── Seed member statuses ──────────────────────────────────────────────────
-    # Protected statuses (Active, Leaver) cannot be deleted; Active is the default.
-    msdb = _connect_db()
-    msdb.row_factory = _sc3.Row
-    _default_statuses = [
-        # name,       behaviour,  colour,    sort, is_default, is_protected
-        ('Active',   'active',   '#22c55e', 0,    1,          1),
-        ('Inactive', 'inactive', '#f59e0b', 1,    0,          0),
-        ('Leaver',   'leaver',   '#ef4444', 2,    0,          1),
-    ]
-    for name, behaviour, colour, sort_order, is_default, is_protected in _default_statuses:
-        # INSERT OR IGNORE so the loop is idempotent on repeated startups
-        msdb.execute(
-            'INSERT OR IGNORE INTO member_statuses '
-            '(name, behaviour, colour, sort_order, is_default, is_protected) '
-            'VALUES (?,?,?,?,?,?)',
-            (name, behaviour, colour, sort_order, is_default, is_protected),
-        )
-        # Always enforce correct behaviour + protected flag on existing rows
-        msdb.execute(
-            'UPDATE member_statuses SET behaviour = ?, is_protected = ? WHERE name = ?',
-            (behaviour, is_protected, name),
-        )
-    msdb.commit()
-    msdb.close()
-
-    # ── Seed permissions catalogue ─────────────────────────────────────────────
-    pdb = _connect_db()
-    for code, name, desc, cat in ALL_PERMISSIONS:
-        pdb.execute(
-            'INSERT OR IGNORE INTO permissions (code, name, description, category) VALUES (?,?,?,?)',
-            (code, name, desc, cat),
-        )
-    pdb.commit()
-    pdb.close()
-
-    # ── Seed / sync default roles ──────────────────────────────────────────────
-    # Delegated to sync_default_roles() which also runs on every startup,
-    # ensuring Docker/gunicorn instances stay current without a full init-db.
-    sync_default_roles()
-
-    # ── Migrate existing users → role_id ───────────────────────────────────────
-    import sqlcipher3 as _sc3r
-    rdb = _connect_db()
-    rdb.row_factory = _sc3r.Row
-    users_needing_migration = rdb.execute(
-        'SELECT id, role FROM users WHERE role_id IS NULL'
-    ).fetchall()
-    for user in users_needing_migration:
-        role_row = rdb.execute(
-            'SELECT id FROM roles WHERE name = ?', (user['role'],)
-        ).fetchone()
-        if role_row:
-            rdb.execute(
-                'UPDATE users SET role_id = ? WHERE id = ?',
-                (role_row['id'], user['id']),
-            )
-    rdb.commit()
-    rdb.close()
-
-    # ── Seed member types (fresh install only) ────────────────────────────────
-    # Only runs when the table is completely empty — never overwrites deliberate
-    # additions, renames, or deletions made by the club admin.
-    mtdb = _connect_db()
-    mtdb.row_factory = _sc3.Row
-    if not mtdb.execute('SELECT id FROM member_types LIMIT 1').fetchone():
-        for slug, name, icon, colour, description, public_registration, sort_order in [
-            ('member', 'Member', '👦', '#1b2d4f', 'Young people attending club sessions', 1, 0),
-            ('staff',  'Staff',  '🧑', '#0f766e', 'Leaders, coaches and volunteers',      0, 1),
-        ]:
-            mtdb.execute(
-                '''INSERT OR IGNORE INTO member_types
-                   (slug, name, icon, colour, description, public_registration, sort_order)
-                   VALUES (?,?,?,?,?,?,?)''',
-                (slug, name, icon, colour, description, public_registration, sort_order),
-            )
-        mtdb.execute(
-            "UPDATE member_types SET registration_style = 'staff' "
-            "WHERE slug = 'staff' AND (registration_style IS NULL OR registration_style = 'member')"
-        )
-        mtdb.commit()
-        logger.info('Seeded default member types (fresh install)')
-
-    # ── Seed system field definitions ──────────────────────────────────────────
-    for key, label, field_type, column_name, placeholder, help_text, sort_order in [
-        ('first_name',            'First Name',                      'text',      'first_name',         'e.g. Isabella',                             None,  1),
-        ('surname',               'Surname',                         'text',      'surname',            'e.g. Fitzpatrick',                          None,  2),
-        ('date_of_birth',         'Date of Birth',                   'date',      'date_of_birth',      None,                                        None,  3),
-        ('address',               'Home Address',                    'text',      'address',            'Start typing or use the postcode finder',    None,  4),
-        ('postcode',              'Postcode',                        'postcode',  'postcode',           'e.g. TW15 3EL',                             None,  5),
-        ('ethnicity_religion',    'Ethnicity / Religion',            'text',      'ethnicity_religion', 'e.g. English / Christian',                  None,  6),
-        ('medical_sen',           'Medical Needs, Allergies or SEN', 'textarea',  'medical_sen',        None,                                        'Describe any medical conditions, allergies or special educational needs.', 7),
-        ('gp_contact',            'GP / Doctor Surgery Contact',     'text',      'gp_contact',         'e.g. Stanwell Road Surgery — 01784 123456', None,  8),
-        ('unattended_exit',       'Unattended Exit',                 'boolean',   'unattended_exit',    None,                                        'Will make their own way home unaccompanied at the end of the session.',    9),
-        ('gdpr_consent',          'Communications Consent',          'boolean',   'gdpr_consent',       None,                                        'Happy to be contacted about upcoming events and club information.',        10),
-        ('session',               'Session',                         'text',      'session',            None,                                        'Which session this person attends.',                                       11),
-        ('staff_role',            'Staff Role',                      'text',      'staff_role',         None,                                        None, 12),
-        ('comments',              'Internal Notes',                  'textarea',  'comments',           None,                                        'Internal notes — not visible to members or parents.',                      13),
-        ('status',                'Status',                          'select',    'status',             None,                                        None, 14),
-        ('date_registered',       'Date Registered',                 'date',      'date_registered',    None,                                        None, 15),
-        ('contact1_name',         'Primary Contact — Full Name',     'text',      'contact1_name',      'e.g. Charlotte Day',                        None, 30),
-        ('contact1_phone',        'Primary Contact — Phone',         'phone',     'contact1_phone',     'e.g. 07590 118098',                         None, 31),
-        ('contact1_email',        'Primary Contact — Email',         'email',     'contact1_email',     'e.g. charlotte.day@email.com',              None, 32),
-        ('contact2_name',         'Second Contact — Full Name',      'text',      'contact2_name',      'e.g. James Day',                            None, 33),
-        ('contact2_phone',        'Second Contact — Phone',          'phone',     'contact2_phone',     'e.g. 07700 900000',                         None, 34),
-        ('contact2_email',        'Second Contact — Email',          'email',     'contact2_email',     'e.g. james.day@email.com',                  None, 35),
-        ('mobile',                'Mobile Number',                   'phone',     'mobile',             'e.g. 07700 900000',                         None, 36),
-        ('email',                 'Email Address',                   'email',     'email',              'e.g. you@email.com',                        None, 37),
-        ('guardian_confirmation', 'Guardian Confirmation',           'signature', None,                 None,                                        'Parent or guardian types their full name to confirm the registration.',   38),
-    ]:
-        mtdb.execute(
-            '''INSERT OR IGNORE INTO field_definitions
-               (key, label, field_type, column_name, placeholder, help_text, sort_order, system_field)
-               VALUES (?,?,?,?,?,?,?,1)''',
-            (key, label, field_type, column_name, placeholder, help_text, sort_order),
-        )
-    mtdb.execute("""
-        UPDATE field_definitions
-        SET system_field  = 1,
-            column_name   = 'status',
-            field_type    = 'select',
-            options       = CASE WHEN options IS NULL OR options = '' THEN 'Active\nInactive\nLeaver' ELSE options END
-        WHERE key = 'status'
-    """)
-    mtdb.execute("""
-        UPDATE field_definitions
-        SET system_field = 1,
-            column_name  = 'date_registered',
-            field_type   = 'date'
-        WHERE key = 'date_registered'
-    """)
-
-    # ── Seed declaration field definitions ─────────────────────────────────────
-    for key, label, sort_order in [
-        ('consent_attend',
-         'I am the parent / guardian of the young person named above and I give '
-         'consent for them to attend activities organised by {club}.',
-         20),
-        ('consent_photos',
-         "I agree that photos and videos can be taken of my child to publicise "
-         "the group's activities.",
-         21),
-        ('consent_comms',
-         'I am happy to be emailed or texted with up-and-coming events or '
-         'important information regarding {club}.',
-         22),
-        ('consent_belongings',
-         'I understand that {club} is NOT responsible for personal belongings.',
-         23),
-        ('consent_medical',
-         'I give consent for my child to be taken for medical treatment in the '
-         'event of an emergency.',
-         24),
-    ]:
-        mtdb.execute(
-            '''INSERT OR IGNORE INTO field_definitions
-               (key, label, field_type, column_name, placeholder, help_text, sort_order, system_field)
-               VALUES (?,?,'declaration',NULL,NULL,NULL,?,0)''',
-            (key, label, sort_order),
-        )
-    mtdb.commit()
-
-    # ── Seed default member_type_fields (fresh install only per member type) ───
-    # Only seeds show_on values for a member type that has no existing field
-    # configurations — once an admin has configured fields for a type, we never
-    # overwrite their choices (even for fields not yet linked to that type).
-    _default_fields = {
-        'member': [
-            # key,                   req, reg, list, card, detail, print, sort
-            ('first_name',           1,   1,   1,    1,    1,      1,     1),
-            ('surname',              1,   1,   1,    1,    1,      1,     2),
-            ('date_of_birth',        1,   1,   0,    0,    1,      1,     3),
-            ('address',              1,   1,   0,    0,    1,      1,     4),
-            ('postcode',             1,   1,   0,    0,    1,      0,     5),
-            ('ethnicity_religion',   0,   1,   0,    0,    1,      0,     6),
-            ('medical_sen',          0,   1,   0,    0,    1,      1,     7),
-            ('gp_contact',           1,   1,   0,    0,    1,      1,     8),
-            ('unattended_exit',      0,   1,   0,    1,    1,      1,     9),
-            ('gdpr_consent',         0,   1,   0,    0,    1,      0,     10),
-            ('session',              1,   0,   0,    0,    1,      1,     11),
-            ('comments',             0,   0,   0,    0,    1,      0,     12),
-            ('status',               0,   0,   0,    1,    1,      1,     13),
-            ('date_registered',      0,   0,   0,    0,    1,      0,     14),
-            ('contact1_name',        1,   1,   0,    0,    1,      1,     30),
-            ('contact1_phone',       1,   1,   0,    0,    1,      1,     31),
-            ('contact1_email',       0,   1,   0,    0,    1,      0,     32),
-            ('contact2_name',        0,   1,   0,    0,    1,      0,     33),
-            ('contact2_phone',       0,   1,   0,    0,    1,      0,     34),
-            ('contact2_email',       0,   1,   0,    0,    1,      0,     35),
-            ('consent_attend',       1,   1,   0,    0,    1,      0,     20),
-            ('consent_photos',       0,   1,   0,    0,    1,      0,     21),
-            ('consent_comms',        0,   1,   0,    0,    1,      0,     22),
-            ('consent_belongings',   0,   1,   0,    0,    1,      0,     23),
-            ('consent_medical',      1,   1,   0,    0,    1,      0,     24),
-            ('guardian_confirmation',1,   1,   0,    0,    0,      0,     38),
-        ],
-        'staff': [
-            ('first_name',   1, 1, 1, 1, 1, 1, 1),
-            ('surname',      1, 1, 1, 1, 1, 1, 2),
-            ('date_of_birth',0, 1, 0, 0, 1, 0, 3),
-            ('mobile',       0, 1, 0, 0, 1, 0, 36),
-            ('email',        0, 1, 0, 0, 1, 0, 37),
-            ('staff_role',   0, 1, 1, 1, 1, 1, 12),
-            ('session',      1, 0, 0, 0, 1, 1, 11),
-            ('status',       0, 0, 0, 1, 1, 1, 13),
-            ('comments',     0, 0, 0, 0, 1, 0, 99),
-        ],
-    }
-    for type_slug, fields in _default_fields.items():
-        type_row = mtdb.execute(
-            'SELECT id FROM member_types WHERE slug = ?', (type_slug,)
-        ).fetchone()
-        if not type_row:
-            continue
-        type_id = type_row['id']
-        # Skip entirely if this member type already has any field configurations
-        already_configured = mtdb.execute(
-            'SELECT id FROM member_type_fields WHERE member_type_id = ? LIMIT 1',
-            (type_id,)
-        ).fetchone()
-        if already_configured:
-            continue
-        for field_key, req, reg, lst, card, detail, prnt, sort in fields:
-            fd = mtdb.execute(
-                'SELECT id FROM field_definitions WHERE key = ?', (field_key,)
-            ).fetchone()
-            if not fd:
-                continue
-            field_id = fd['id']
-            mtdb.execute(
-                '''INSERT OR IGNORE INTO member_type_fields
-                   (member_type_id, field_id, required, show_on_registration, show_on_list,
-                    show_on_card, show_on_detail, show_on_print, sort_order)
-                   VALUES (?,?,?,?,?,?,?,?,?)''',
-                (type_id, field_id, req, reg, lst, card, detail, prnt, sort),
-            )
-    mtdb.commit()
-    mtdb.close()
-
-    # ── Seed default payment types ─────────────────────────────────────────────
-    ptdb = _connect_db()
-    ptdb.row_factory = _sc3.Row
-    _default_payment_types = [
-        ('Membership', 'Annual membership fee',          0),
-        ('Trip',       'Day trip or residential outing', 1),
-        ('Equipment',  'Equipment or kit purchase',      2),
-        ('Event',      'One-off event or activity fee',  3),
-        ('Other',      'Miscellaneous payment',          4),
-    ]
-    for name, desc, sort_order in _default_payment_types:
-        ptdb.execute(
-            'INSERT OR IGNORE INTO payment_types (name, description, sort_order) VALUES (?,?,?)',
-            (name, desc, sort_order),
-        )
-    _default_payment_methods = [
-        ('Cash',            0),
-        ('Bank Transfer',   1),
-        ('Standing Order',  2),
-        ('Online',          3),
-        ('Other',           4),
-    ]
-    for name, sort_order in _default_payment_methods:
-        ptdb.execute(
-            'INSERT OR IGNORE INTO payment_methods (name, sort_order) VALUES (?,?)',
-            (name, sort_order),
-        )
-    ptdb.commit()
-    ptdb.close()
-
-    # ── Migrate legacy boolean "paid" fields → member_payments rows ────────────
-    # Finds any field_definitions with a key matching *_paid_* or *_membership_paid*
-    # (e.g. "membership_paid_2526", "ara_membership_paid_2526") that store a
-    # boolean value. For each member with value '1' or 'true', inserts a
-    # member_payments row (amount=NULL, payment_date=NULL) so the history is
-    # preserved.  Original field values are left untouched.
+    seed = _connect_db()
+    seed.row_factory = _sc3.Row
     try:
-        migdb = _connect_db()
-        migdb.row_factory = _sc3.Row
-        paid_fields = migdb.execute(
-            "SELECT id, key, label FROM field_definitions "
-            "WHERE (key LIKE '%_paid_%' OR key LIKE '%membership_paid%') "
-            "  AND field_type = 'boolean' AND active = 1"
-        ).fetchall()
-        membership_type = migdb.execute(
-            "SELECT id FROM payment_types WHERE name = 'Membership'"
-        ).fetchone()
-        if paid_fields and membership_type:
-            mt_id = membership_type['id']
-            for pf in paid_fields:
-                # Derive period from label: e.g. "2025/26 Membership Paid" → "2025/26"
-                import re as _re
-                period_match = _re.search(r'(\d{4}/\d{2,4})', pf['label'])
-                period = period_match.group(1) if period_match else pf['key']
 
-                truthy_members = migdb.execute(
-                    "SELECT member_id FROM member_field_values "
-                    "WHERE field_id = ? AND LOWER(TRIM(value)) IN ('1','true','yes')",
-                    (pf['id'],)
-                ).fetchall()
-                for row in truthy_members:
-                    existing = migdb.execute(
-                        "SELECT id FROM member_payments "
-                        "WHERE member_id = ? AND payment_type_id = ? AND period = ? AND voided_at IS NULL",
-                        (row['member_id'], mt_id, period)
-                    ).fetchone()
-                    if not existing:
-                        migdb.execute(
-                            "INSERT INTO member_payments "
-                            "(member_id, payment_type_id, period, recorded_by) "
-                            "VALUES (?,?,?,NULL)",
+        # ── Seed default settings ─────────────────────────────────────────────────
+        if not seed.execute("SELECT key FROM settings WHERE key = 'alerts_last_run'").fetchone():
+            seed.execute("INSERT INTO settings (key, value) VALUES ('alerts_last_run', '')")
+        _qr_defaults = [
+            ('quick_signin_enabled',      'true'),
+            ('quick_signout_enabled',     'false'),
+            ('quick_signin_welcome_msg',  'Welcome, {name}! Great to see you tonight! 🎉'),
+            ('quick_signin_already_msg',  "You're already signed in, {name}! See you inside 👋"),
+            ('quick_signout_goodbye_msg', 'Goodbye, {name}! See you next time 👋'),
+            ('quick_signout_already_msg', "You're already signed out, {name}. Safe journey home!"),
+        ]
+        for key, val in _qr_defaults:
+            if not seed.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
+                seed.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
+        for key, val in BRAND_KEYS.items():
+            if not seed.execute('SELECT key FROM settings WHERE key = ?', (key,)).fetchone():
+                seed.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, val))
+        # v11.6: current membership period (admin-configurable)
+        if not seed.execute("SELECT key FROM settings WHERE key = 'current_membership_period'").fetchone():
+            from datetime import date as _date
+            _yr = _date.today().year
+            _period = f'{_yr}/{str(_yr + 1)[-2:]}'
+            seed.execute("INSERT INTO settings (key, value) VALUES ('current_membership_period', ?)", (_period,))
+        seed.commit()
+
+        # ── Seed default session types (fresh install only) ───────────────────────
+        # Only runs when the table is completely empty — never overwrites deliberate deletions.
+        if not seed.execute('SELECT id FROM session_types LIMIT 1').fetchone():
+            for sort_order, (name, weekday) in enumerate([('Tuesday', 1), ('Thursday', 3)]):
+                seed.execute(
+                    'INSERT INTO session_types (name, weekday, active, sort_order, description) VALUES (?,?,1,?,?)',
+                    (name, weekday, sort_order, f'{name} evening session'),
+                )
+            seed.commit()
+            logger.info('Seeded default session types (fresh install)')
+
+        # ── Seed default document categories ──────────────────────────────────────
+        _default_categories = [
+            ('Policy',        'Organisational policies and procedures',  '📜', '#3b82f6', 0),
+            ('Form',          'Fillable forms and templates',            '📋', '#10b981', 1),
+            ('Template',      'Document templates for staff use',        '✉️', '#8b5cf6', 2),
+            ('Register',      'Session registers and attendance sheets', '📝', '#f59e0b', 3),
+            ('Safeguarding',  'Safeguarding records and incident notes', '🔒', '#ef4444', 4),
+            ('Finance',       'Financial records, invoices and budgets', '💰', '#06b6d4', 5),
+            ('General',       'General documents and miscellaneous',     '📄', '#64748b', 6),
+        ]
+        for name, desc, icon, color, sort_order in _default_categories:
+            if not seed.execute('SELECT id FROM document_categories WHERE name = ?', (name,)).fetchone():
+                seed.execute(
+                    'INSERT INTO document_categories (name, description, icon, color, sort_order) VALUES (?,?,?,?,?)',
+                    (name, desc, icon, color, sort_order),
+                )
+        seed.commit()
+
+        # ── Seed member statuses ──────────────────────────────────────────────────
+        # Protected statuses (Active, Leaver) cannot be deleted; Active is the default.
+        _default_statuses = [
+            # name,       behaviour,  colour,    sort, is_default, is_protected
+            ('Active',   'active',   '#22c55e', 0,    1,          1),
+            ('Inactive', 'inactive', '#f59e0b', 1,    0,          0),
+            ('Leaver',   'leaver',   '#ef4444', 2,    0,          1),
+        ]
+        for name, behaviour, colour, sort_order, is_default, is_protected in _default_statuses:
+            # INSERT OR IGNORE so the loop is idempotent on repeated startups
+            seed.execute(
+                'INSERT OR IGNORE INTO member_statuses '
+                '(name, behaviour, colour, sort_order, is_default, is_protected) '
+                'VALUES (?,?,?,?,?,?)',
+                (name, behaviour, colour, sort_order, is_default, is_protected),
+            )
+            # Always enforce correct behaviour + protected flag on existing rows
+            seed.execute(
+                'UPDATE member_statuses SET behaviour = ?, is_protected = ? WHERE name = ?',
+                (behaviour, is_protected, name),
+            )
+        seed.commit()
+
+        # ── Seed permissions catalogue ─────────────────────────────────────────────
+        for code, name, desc, cat in ALL_PERMISSIONS:
+            seed.execute(
+                'INSERT OR IGNORE INTO permissions (code, name, description, category) VALUES (?,?,?,?)',
+                (code, name, desc, cat),
+            )
+        seed.commit()
+
+        # ── Seed / sync default roles ──────────────────────────────────────────────
+        # Delegated to sync_default_roles() which also runs on every startup,
+        # ensuring Docker/gunicorn instances stay current without a full init-db.
+        sync_default_roles()
+
+        # ── Migrate existing users → role_id ───────────────────────────────────────
+        users_needing_migration = seed.execute(
+            'SELECT id, role FROM users WHERE role_id IS NULL'
+        ).fetchall()
+        for user in users_needing_migration:
+            role_row = seed.execute(
+                'SELECT id FROM roles WHERE name = ?', (user['role'],)
+            ).fetchone()
+            if role_row:
+                seed.execute(
+                    'UPDATE users SET role_id = ? WHERE id = ?',
+                    (role_row['id'], user['id']),
+                )
+        seed.commit()
+
+        # ── Seed member types (fresh install only) ────────────────────────────────
+        # Only runs when the table is completely empty — never overwrites deliberate
+        # additions, renames, or deletions made by the club admin.
+        if not seed.execute('SELECT id FROM member_types LIMIT 1').fetchone():
+            for slug, name, icon, colour, description, public_registration, sort_order in [
+                ('member', 'Member', '👦', '#1b2d4f', 'Young people attending club sessions', 1, 0),
+                ('staff',  'Staff',  '🧑', '#0f766e', 'Leaders, coaches and volunteers',      0, 1),
+            ]:
+                seed.execute(
+                    '''INSERT OR IGNORE INTO member_types
+                       (slug, name, icon, colour, description, public_registration, sort_order)
+                       VALUES (?,?,?,?,?,?,?)''',
+                    (slug, name, icon, colour, description, public_registration, sort_order),
+                )
+            seed.execute(
+                "UPDATE member_types SET registration_style = 'staff' "
+                "WHERE slug = 'staff' AND (registration_style IS NULL OR registration_style = 'member')"
+            )
+            seed.commit()
+            logger.info('Seeded default member types (fresh install)')
+
+        # ── Seed system field definitions ──────────────────────────────────────────
+        for key, label, field_type, column_name, placeholder, help_text, sort_order in [
+            ('first_name',            'First Name',                      'text',      'first_name',         'e.g. Isabella',                             None,  1),
+            ('surname',               'Surname',                         'text',      'surname',            'e.g. Fitzpatrick',                          None,  2),
+            ('date_of_birth',         'Date of Birth',                   'date',      'date_of_birth',      None,                                        None,  3),
+            ('address',               'Home Address',                    'text',      'address',            'Start typing or use the postcode finder',    None,  4),
+            ('postcode',              'Postcode',                        'postcode',  'postcode',           'e.g. TW15 3EL',                             None,  5),
+            ('ethnicity_religion',    'Ethnicity / Religion',            'text',      'ethnicity_religion', 'e.g. English / Christian',                  None,  6),
+            ('medical_sen',           'Medical Needs, Allergies or SEN', 'textarea',  'medical_sen',        None,                                        'Describe any medical conditions, allergies or special educational needs.', 7),
+            ('gp_contact',            'GP / Doctor Surgery Contact',     'text',      'gp_contact',         'e.g. Stanwell Road Surgery — 01784 123456', None,  8),
+            ('unattended_exit',       'Unattended Exit',                 'boolean',   'unattended_exit',    None,                                        'Will make their own way home unaccompanied at the end of the session.',    9),
+            ('gdpr_consent',          'Communications Consent',          'boolean',   'gdpr_consent',       None,                                        'Happy to be contacted about upcoming events and club information.',        10),
+            ('session',               'Session',                         'text',      'session',            None,                                        'Which session this person attends.',                                       11),
+            ('staff_role',            'Staff Role',                      'text',      'staff_role',         None,                                        None, 12),
+            ('comments',              'Internal Notes',                  'textarea',  'comments',           None,                                        'Internal notes — not visible to members or parents.',                      13),
+            ('status',                'Status',                          'select',    'status',             None,                                        None, 14),
+            ('date_registered',       'Date Registered',                 'date',      'date_registered',    None,                                        None, 15),
+            ('contact1_name',         'Primary Contact — Full Name',     'text',      'contact1_name',      'e.g. Charlotte Day',                        None, 30),
+            ('contact1_phone',        'Primary Contact — Phone',         'phone',     'contact1_phone',     'e.g. 07590 118098',                         None, 31),
+            ('contact1_email',        'Primary Contact — Email',         'email',     'contact1_email',     'e.g. charlotte.day@email.com',              None, 32),
+            ('contact2_name',         'Second Contact — Full Name',      'text',      'contact2_name',      'e.g. James Day',                            None, 33),
+            ('contact2_phone',        'Second Contact — Phone',          'phone',     'contact2_phone',     'e.g. 07700 900000',                         None, 34),
+            ('contact2_email',        'Second Contact — Email',          'email',     'contact2_email',     'e.g. james.day@email.com',                  None, 35),
+            ('mobile',                'Mobile Number',                   'phone',     'mobile',             'e.g. 07700 900000',                         None, 36),
+            ('email',                 'Email Address',                   'email',     'email',              'e.g. you@email.com',                        None, 37),
+            ('guardian_confirmation', 'Guardian Confirmation',           'signature', None,                 None,                                        'Parent or guardian types their full name to confirm the registration.',   38),
+        ]:
+            seed.execute(
+                '''INSERT OR IGNORE INTO field_definitions
+                   (key, label, field_type, column_name, placeholder, help_text, sort_order, system_field)
+                   VALUES (?,?,?,?,?,?,?,1)''',
+                (key, label, field_type, column_name, placeholder, help_text, sort_order),
+            )
+        seed.execute("""
+            UPDATE field_definitions
+            SET system_field  = 1,
+                column_name   = 'status',
+                field_type    = 'select',
+                options       = CASE WHEN options IS NULL OR options = '' THEN 'Active\nInactive\nLeaver' ELSE options END
+            WHERE key = 'status'
+        """)
+        seed.execute("""
+            UPDATE field_definitions
+            SET system_field = 1,
+                column_name  = 'date_registered',
+                field_type   = 'date'
+            WHERE key = 'date_registered'
+        """)
+
+        # ── Seed declaration field definitions ─────────────────────────────────────
+        for key, label, sort_order in [
+            ('consent_attend',
+             'I am the parent / guardian of the young person named above and I give '
+             'consent for them to attend activities organised by {club}.',
+             20),
+            ('consent_photos',
+             "I agree that photos and videos can be taken of my child to publicise "
+             "the group's activities.",
+             21),
+            ('consent_comms',
+             'I am happy to be emailed or texted with up-and-coming events or '
+             'important information regarding {club}.',
+             22),
+            ('consent_belongings',
+             'I understand that {club} is NOT responsible for personal belongings.',
+             23),
+            ('consent_medical',
+             'I give consent for my child to be taken for medical treatment in the '
+             'event of an emergency.',
+             24),
+        ]:
+            seed.execute(
+                '''INSERT OR IGNORE INTO field_definitions
+                   (key, label, field_type, column_name, placeholder, help_text, sort_order, system_field)
+                   VALUES (?,?,'declaration',NULL,NULL,NULL,?,0)''',
+                (key, label, sort_order),
+            )
+        seed.commit()
+
+        # ── Seed default member_type_fields (fresh install only per member type) ───
+        # Only seeds show_on values for a member type that has no existing field
+        # configurations — once an admin has configured fields for a type, we never
+        # overwrite their choices (even for fields not yet linked to that type).
+        _default_fields = {
+            'member': [
+                # key,                   req, reg, list, card, detail, print, sort
+                ('first_name',           1,   1,   1,    1,    1,      1,     1),
+                ('surname',              1,   1,   1,    1,    1,      1,     2),
+                ('date_of_birth',        1,   1,   0,    0,    1,      1,     3),
+                ('address',              1,   1,   0,    0,    1,      1,     4),
+                ('postcode',             1,   1,   0,    0,    1,      0,     5),
+                ('ethnicity_religion',   0,   1,   0,    0,    1,      0,     6),
+                ('medical_sen',          0,   1,   0,    0,    1,      1,     7),
+                ('gp_contact',           1,   1,   0,    0,    1,      1,     8),
+                ('unattended_exit',      0,   1,   0,    1,    1,      1,     9),
+                ('gdpr_consent',         0,   1,   0,    0,    1,      0,     10),
+                ('session',              1,   0,   0,    0,    1,      1,     11),
+                ('comments',             0,   0,   0,    0,    1,      0,     12),
+                ('status',               0,   0,   0,    1,    1,      1,     13),
+                ('date_registered',      0,   0,   0,    0,    1,      0,     14),
+                ('contact1_name',        1,   1,   0,    0,    1,      1,     30),
+                ('contact1_phone',       1,   1,   0,    0,    1,      1,     31),
+                ('contact1_email',       0,   1,   0,    0,    1,      0,     32),
+                ('contact2_name',        0,   1,   0,    0,    1,      0,     33),
+                ('contact2_phone',       0,   1,   0,    0,    1,      0,     34),
+                ('contact2_email',       0,   1,   0,    0,    1,      0,     35),
+                ('consent_attend',       1,   1,   0,    0,    1,      0,     20),
+                ('consent_photos',       0,   1,   0,    0,    1,      0,     21),
+                ('consent_comms',        0,   1,   0,    0,    1,      0,     22),
+                ('consent_belongings',   0,   1,   0,    0,    1,      0,     23),
+                ('consent_medical',      1,   1,   0,    0,    1,      0,     24),
+                ('guardian_confirmation',1,   1,   0,    0,    0,      0,     38),
+            ],
+            'staff': [
+                ('first_name',   1, 1, 1, 1, 1, 1, 1),
+                ('surname',      1, 1, 1, 1, 1, 1, 2),
+                ('date_of_birth',0, 1, 0, 0, 1, 0, 3),
+                ('mobile',       0, 1, 0, 0, 1, 0, 36),
+                ('email',        0, 1, 0, 0, 1, 0, 37),
+                ('staff_role',   0, 1, 1, 1, 1, 1, 12),
+                ('session',      1, 0, 0, 0, 1, 1, 11),
+                ('status',       0, 0, 0, 1, 1, 1, 13),
+                ('comments',     0, 0, 0, 0, 1, 0, 99),
+            ],
+        }
+        for type_slug, fields in _default_fields.items():
+            type_row = seed.execute(
+                'SELECT id FROM member_types WHERE slug = ?', (type_slug,)
+            ).fetchone()
+            if not type_row:
+                continue
+            type_id = type_row['id']
+            # Skip entirely if this member type already has any field configurations
+            already_configured = seed.execute(
+                'SELECT id FROM member_type_fields WHERE member_type_id = ? LIMIT 1',
+                (type_id,)
+            ).fetchone()
+            if already_configured:
+                continue
+            for field_key, req, reg, lst, card, detail, prnt, sort in fields:
+                fd = seed.execute(
+                    'SELECT id FROM field_definitions WHERE key = ?', (field_key,)
+                ).fetchone()
+                if not fd:
+                    continue
+                field_id = fd['id']
+                seed.execute(
+                    '''INSERT OR IGNORE INTO member_type_fields
+                       (member_type_id, field_id, required, show_on_registration, show_on_list,
+                        show_on_card, show_on_detail, show_on_print, sort_order)
+                       VALUES (?,?,?,?,?,?,?,?,?)''',
+                    (type_id, field_id, req, reg, lst, card, detail, prnt, sort),
+                )
+        seed.commit()
+
+        # ── Seed default payment types ─────────────────────────────────────────────
+        _default_payment_types = [
+            ('Membership', 'Annual membership fee',          0),
+            ('Trip',       'Day trip or residential outing', 1),
+            ('Equipment',  'Equipment or kit purchase',      2),
+            ('Event',      'One-off event or activity fee',  3),
+            ('Other',      'Miscellaneous payment',          4),
+        ]
+        for name, desc, sort_order in _default_payment_types:
+            seed.execute(
+                'INSERT OR IGNORE INTO payment_types (name, description, sort_order) VALUES (?,?,?)',
+                (name, desc, sort_order),
+            )
+        _default_payment_methods = [
+            ('Cash',            0),
+            ('Bank Transfer',   1),
+            ('Standing Order',  2),
+            ('Online',          3),
+            ('Other',           4),
+        ]
+        for name, sort_order in _default_payment_methods:
+            seed.execute(
+                'INSERT OR IGNORE INTO payment_methods (name, sort_order) VALUES (?,?)',
+                (name, sort_order),
+            )
+        # v12.41: one-time flag of the membership type. Guarded so a club that
+        # renamed its flagged type and later created a new type called 'Membership'
+        # doesn't get the flag silently moved.
+        if not seed.execute('SELECT id FROM payment_types WHERE is_membership = 1 LIMIT 1').fetchone():
+            seed.execute("UPDATE payment_types SET is_membership = 1 WHERE name = 'Membership'")
+        seed.commit()
+
+        # ── Migrate legacy boolean "paid" fields → member_payments rows ────────────
+        # Finds any field_definitions with a key matching *_paid_* or *_membership_paid*
+        # (e.g. "membership_paid_2526", "ara_membership_paid_2526") that store a
+        # boolean value. For each member with value '1' or 'true', inserts a
+        # member_payments row (amount=NULL, payment_date=NULL) so the history is
+        # preserved.  Original field values are left untouched.
+        try:
+            paid_fields = seed.execute(
+                "SELECT id, key, label FROM field_definitions "
+                "WHERE (key LIKE '%_paid_%' OR key LIKE '%membership_paid%') "
+                "  AND field_type = 'boolean' AND active = 1"
+            ).fetchall()
+            membership_type = seed.execute(
+                "SELECT id FROM payment_types WHERE is_membership = 1"
+            ).fetchone()
+            if not membership_type:
+                membership_type = seed.execute(
+                    "SELECT id FROM payment_types WHERE name = 'Membership'"
+                ).fetchone()
+            if paid_fields and membership_type:
+                mt_id = membership_type['id']
+                for pf in paid_fields:
+                    # Derive period from label: e.g. "2025/26 Membership Paid" → "2025/26"
+                    import re as _re
+                    period_match = _re.search(r'(\d{4}/\d{2,4})', pf['label'])
+                    period = period_match.group(1) if period_match else pf['key']
+
+                    truthy_members = seed.execute(
+                        "SELECT member_id FROM member_field_values "
+                        "WHERE field_id = ? AND LOWER(TRIM(value)) IN ('1','true','yes')",
+                        (pf['id'],)
+                    ).fetchall()
+                    for row in truthy_members:
+                        existing = seed.execute(
+                            "SELECT id FROM member_payments "
+                            "WHERE member_id = ? AND payment_type_id = ? AND period = ? AND voided_at IS NULL",
                             (row['member_id'], mt_id, period)
-                        )
-                        logger.info(
-                            'Migration: inserted payment for member_id=%s period=%s from field %s',
-                            row['member_id'], period, pf['key']
-                        )
-            migdb.commit()
-        migdb.close()
-    except Exception as _mig_exc:
-        logger.warning('Payment field migration skipped: %s', _mig_exc)
+                        ).fetchone()
+                        if not existing:
+                            seed.execute(
+                                "INSERT INTO member_payments "
+                                "(member_id, payment_type_id, period, recorded_by) "
+                                "VALUES (?,?,?,NULL)",
+                                (row['member_id'], mt_id, period)
+                            )
+                            logger.info(
+                                'Migration: inserted payment for member_id=%s period=%s from field %s',
+                                row['member_id'], period, pf['key']
+                            )
+                seed.commit()
+        except Exception as _mig_exc:
+            logger.warning('Payment field migration skipped: %s', _mig_exc)
+    finally:
+        seed.close()

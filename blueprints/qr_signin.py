@@ -18,7 +18,7 @@ from helpers import (
     _is_register_locked, _touch_attendance,
     _get_or_create_qr_token,
     _validate_qr_token,
-    rate_limit_touch,
+    rate_limit_touch, client_ip,
 )
 
 bp = Blueprint('qr_signin', __name__)
@@ -30,8 +30,9 @@ def _rl_check(endpoint: str, max_per_min: int) -> bool:
     Backed by the rate_limits table (helpers.rate_limit_touch) so the per-minute
     cap is shared across all worker processes.
     """
-    ip = request.remote_addr or 'unknown'
-    allowed, _ = rate_limit_touch(f'qr:{endpoint}:{ip}', max_per_min, 60)
+    # v12.42: client_ip() — behind Caddy all phones shared one bucket, so a
+    # busy sign-in night could rate-limit the whole queue.
+    allowed, _ = rate_limit_touch(f'qr:{endpoint}:{client_ip()}', max_per_min, 60)
     return allowed
 
 

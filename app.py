@@ -145,6 +145,25 @@ def enforce_idle_timeout():
     session['last_activity'] = now
 
 
+@app.before_request
+def refresh_grants():
+    """Re-sync role/permissions/session grants from the DB (throttled to 60s).
+    v12.41: previously grants lived in the cookie session from login until
+    logout, so role changes, new session assignments and deactivations didn't
+    apply until the user logged out. Also kicks deactivated/deleted users.
+    Runs after enforce_idle_timeout (registration order)."""
+    if 'user_id' not in session:
+        return
+    if request.path == '/api/display/stream' or request.path.startswith('/static/'):
+        return
+    from helpers import refresh_session_grants
+    if not refresh_session_grants():
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Your account is no longer active. Please log in again.'}), 401
+        return redirect(url_for('auth.login_page'))
+
+
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @app.route('/api/health')
@@ -226,14 +245,41 @@ def init_db_command():
 
 # ── APScheduler — nightly alert check at 02:00 ───────────────────────────────
 
+# Held open for the process lifetime — releasing the handle releases the flock.
+_scheduler_lock_fh = None
+
+
 def _start_scheduler():
     """Start the background scheduler for nightly alert rule evaluation.
     In Flask debug/reloader mode only start in the child process (WERKZEUG_RUN_MAIN)
     so the scheduler doesn't run twice.
+
+    Cross-process guard (v12.41): app.py runs once per gunicorn worker, so with
+    --workers > 1 the nightly alert check would fire once per worker and racing
+    runs could double-insert flags. An flock on a lock file ensures exactly one
+    worker owns the scheduler; the others skip it. Set RUN_SCHEDULER=0 to disable
+    entirely (e.g. when running a separate dedicated scheduler container).
     """
     if os.environ.get('FLASK_DEBUG') == '1':
         if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
             return
+    if os.environ.get('RUN_SCHEDULER', '1') != '1':
+        print('[alerts] Scheduler disabled via RUN_SCHEDULER=0')
+        return
+
+    global _scheduler_lock_fh
+    try:
+        import fcntl
+        _scheduler_lock_fh = open(os.path.join(LOG_DIR, '.scheduler.lock'), 'w')
+        try:
+            fcntl.flock(_scheduler_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            _scheduler_lock_fh.close()
+            _scheduler_lock_fh = None
+            print('[alerts] Scheduler already owned by another worker — skipping')
+            return
+    except ImportError:
+        pass  # non-POSIX dev box — assume a single process
 
     from blueprints.alerts import run_all_alert_rules
 

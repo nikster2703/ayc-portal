@@ -17,7 +17,7 @@ from extensions import csrf
 from flask import render_template
 from helpers import (
     get_db, log_action, login_required, validate_password,
-    get_brand_settings,
+    get_brand_settings, client_ip,
     login_rate_status, record_login_failure, clear_login_failures,
 )
 
@@ -42,7 +42,10 @@ def login_page():
 @bp.route('/api/auth/login', methods=['POST'])
 @csrf.exempt
 def api_login():
-    ip      = request.remote_addr or '0.0.0.0'
+    # v12.42: use client_ip() — behind Caddy request.remote_addr is the proxy's
+    # IP, so every user shared one login-failure bucket (10 failures by anyone
+    # locked ALL users out for 15 minutes).
+    ip      = client_ip()
     allowed, retry_after = login_rate_status(ip)
     if not allowed:
         return jsonify({
@@ -127,6 +130,11 @@ def api_login():
                     (first_id['id'], user['id'])
                 )
 
+        # v12.42: mark the session permanent so app.permanent_session_lifetime
+        # (8h) actually applies — without this the lifetime setting had no
+        # effect and the cookie was browser-session only. The 30-min idle
+        # timeout in app.py still applies on top.
+        session.permanent        = True
         session['user_id']       = user['id']
         session['username']      = user['username']
         session['role']          = role_name

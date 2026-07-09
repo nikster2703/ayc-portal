@@ -10,7 +10,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 
 from helpers import (
     get_db, log_action, permission_required,
-    _assigned_session, get_session_types,
+    _assigned_session, get_session_types, rate_limit_touch, client_ip,
 )
 from config import GETADDRESS_KEY
 
@@ -70,22 +70,20 @@ def api_members():
     elif paid_filter == '0':
         conditions.append("paid_sub.member_id IS NULL AND mt.registration_style != 'staff'")
 
-    flag_join = ''
+    # v12.42: rule_id is now a bound parameter (was interpolated — safe since it
+    # was int()-cast, but parameterised for consistency with everything else).
+    flag_join, flag_params = '', []
     if status_filter == 'flagged' or flag_filter:
+        flag_join = 'INNER JOIN member_flags mf ON mf.member_id = m.id AND mf.resolved_at IS NULL'
         if flag_filter:
             try:
                 rule_id_int = int(flag_filter)
             except (ValueError, TypeError):
                 rule_id_int = None
             if rule_id_int:
-                flag_join = (
-                    f'INNER JOIN member_flags mf ON mf.member_id = m.id '
-                    f'AND mf.rule_id = {rule_id_int} AND mf.resolved_at IS NULL'
-                )
-            else:
-                flag_join = 'INNER JOIN member_flags mf ON mf.member_id = m.id AND mf.resolved_at IS NULL'
-        else:
-            flag_join = 'INNER JOIN member_flags mf ON mf.member_id = m.id AND mf.resolved_at IS NULL'
+                flag_join = ('INNER JOIN member_flags mf ON mf.member_id = m.id '
+                             'AND mf.rule_id = ? AND mf.resolved_at IS NULL')
+                flag_params = [rule_id_int]
 
     where = ' AND '.join(conditions)
 
@@ -105,7 +103,7 @@ def api_members():
             SELECT DISTINCT mp2.member_id
             FROM   member_payments mp2
             JOIN   payment_types pt2 ON pt2.id = mp2.payment_type_id
-            WHERE  pt2.name = 'Membership'
+            WHERE  pt2.is_membership = 1
               AND  mp2.period = ?
               AND  mp2.voided_at IS NULL
         ) paid_sub ON paid_sub.member_id = m.id
@@ -116,7 +114,7 @@ def api_members():
                ON c2.member_id = m.id AND c2.contact_order = 2
         WHERE   {where}
         ORDER   BY m.first_name, m.surname
-    ''', [current_period] + params).fetchall()
+    ''', [current_period] + flag_params + params).fetchall()
 
     member_ids        = [r['id'] for r in rows]
     custom_fields_map = {}
@@ -446,6 +444,13 @@ def api_member_permanent_delete(member_id):
     if not member:
         return jsonify({'error': 'Member not found'}), 404
 
+    # v12.42: session-scope check for consistency with every other member
+    # endpoint (hard_delete is admin-only by default, but a custom role could
+    # grant it to a scoped user).
+    scoped = _assigned_session()
+    if scoped is not None and (member['session'] or '') not in scoped:
+        return jsonify({'error': 'Forbidden'}), 403
+
     expected = f"{member['first_name']} {member['surname']}"
     if token.lower() != expected.lower():
         return jsonify({'error': 'Confirmation name does not match — deletion cancelled'}), 400
@@ -513,9 +518,18 @@ def api_member_permanent_delete(member_id):
 
 @bp.route('/api/postcode/<path:postcode>')
 def api_postcode_lookup(postcode):
-    """Proxy getaddress.io lookups server-side to avoid browser CORS restrictions."""
+    """Proxy getaddress.io lookups server-side to avoid browser CORS restrictions.
+
+    Public (the registration form uses it pre-auth) but rate-limited per IP
+    (v12.41) — previously anyone who found the URL could drain the paid
+    getaddress.io lookup quota.
+    """
     if not GETADDRESS_KEY:
         return jsonify({'error': 'Address lookup not configured on this server'}), 503
+
+    allowed, _retry = rate_limit_touch(f'postcode:{client_ip()}', 20, 60)   # 20 lookups/min/IP
+    if not allowed:
+        return jsonify({'error': 'Too many address lookups — please slow down and try again shortly.'}), 429
 
     clean = urllib.parse.quote(postcode.replace(' ', '').upper())
     url   = f'https://ga.ideal-postcodes.co.uk/find/{clean}?api-key={GETADDRESS_KEY}'
@@ -568,7 +582,16 @@ def api_member_activity(member_id):
 @bp.route('/api/members/<int:member_id>/tags')
 @permission_required('members.view')
 def api_member_tags_get(member_id):
-    db   = get_db()
+    db = get_db()
+
+    # v12.42: session-scope check — this was the only member read endpoint
+    # without one, letting scoped users read tags for out-of-session members.
+    scoped = _assigned_session()
+    if scoped is not None:
+        member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
+        if not member or (member['session'] or '') not in scoped:
+            return jsonify({'error': 'Forbidden'}), 403
+
     rows = db.execute('''
         SELECT  mt.id AS assignment_id, td.id, td.name, td.icon, td.colour, td.category,
                 mt.expires_at, mt.notes, mt.created_at

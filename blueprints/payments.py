@@ -80,6 +80,7 @@ def api_member_payments_list(member_id):
                 mp.void_reason,
                 mp.created_at,
                 pt.name  AS payment_type,
+                pt.is_membership,
                 pm.name  AS payment_method,
                 mp.payment_type_id,
                 mp.method_id,
@@ -99,9 +100,10 @@ def api_member_payments_list(member_id):
 
     # Determine whether this member has a valid (non-voided) membership payment
     # for the current period.
+    # v12.41: match on the is_membership flag, not the type's display name
     paid_current = any(
         p for p in payments
-        if p['payment_type'] == 'Membership'
+        if p['is_membership']
         and p['period'] == current
         and not p['voided_at']
     )
@@ -190,10 +192,21 @@ def api_payment_update(payment_id):
     data = request.get_json() or {}
     payment_type_id = data.get('payment_type_id', pay['payment_type_id'])
     period          = (data.get('period') or pay['period']).strip()
-    payment_date    = (data.get('payment_date') or '').strip() or None
     amount_raw      = data.get('amount')
-    method_id       = data.get('method_id') or None
-    notes           = (data.get('notes') or '').strip() or None
+    # v12.41: omitted keys keep their existing values — previously a partial PUT
+    # silently wiped payment_date, method_id and notes.
+    if 'payment_date' in data:
+        payment_date = (data.get('payment_date') or '').strip() or None
+    else:
+        payment_date = pay['payment_date']
+    if 'method_id' in data:
+        method_id = data.get('method_id') or None
+    else:
+        method_id = pay['method_id']
+    if 'notes' in data:
+        notes = (data.get('notes') or '').strip() or None
+    else:
+        notes = pay['notes']
 
     amount = pay['amount']
     if amount_raw not in (None, ''):

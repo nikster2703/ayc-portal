@@ -720,13 +720,17 @@ def import_history_page():
     session_types = db.execute('SELECT name FROM session_types ORDER BY sort_order, name').fetchall()
     payment_types = db.execute('SELECT name FROM payment_types ORDER BY sort_order, name').fetchall()
     payment_methods = db.execute('SELECT name FROM payment_methods ORDER BY sort_order, name').fetchall()
+    # tpl_ctx() also contains 'session_types' (active only) — override it here with
+    # the full list (incl. inactive) rather than passing it twice, which raises
+    # TypeError: got multiple values for keyword argument 'session_types'.
+    ctx = tpl_ctx()
+    ctx['session_types'] = session_types
     return render_template(
         'admin/import_history.html',
         active_page='settings',
-        session_types=session_types,
         payment_types=payment_types,
         payment_methods=payment_methods,
-        **tpl_ctx()
+        **ctx
     )
 
 

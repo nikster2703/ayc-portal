@@ -697,8 +697,17 @@ body {
   .dg            { grid-template-columns: 1fr; }
   .user-pill     { display: none; }
 
-  .data-table th:nth-child(n+4),
-  .data-table td:nth-child(n+4) { display: none; }
+  /* Hide middle columns but always keep the last one — it's usually
+     the Actions column (edit/delete), which must stay reachable. */
+  .data-table th:nth-child(n+4):not(:last-child),
+  .data-table td:nth-child(n+4):not(:last-child) { display: none; }
+  .data-table td { overflow-wrap: anywhere; }
+
+  /* iOS Safari zooms the page when a focused control's font-size is
+     under 16px — bump form controls to 16px on touch-size screens. */
+  .search-input, .session-select,
+  .form-group input, .form-group select, .form-group textarea,
+  .form-input { font-size: 16px; }
 
   .modal-overlay { padding: 12px; }
   .modal         { padding: 20px 16px; border-radius: 14px; }
@@ -720,6 +729,15 @@ body {
   .page-header h1 { font-size: 15px; }
   .btn           { padding: 8px 13px; font-size: 13px; }
   .btn-sm        { padding: 5px 10px; font-size: 11.5px; }
+
+  /* Long session names can't push the logout button off-screen */
+  .session-pill  { max-width: 42vw; overflow: hidden; }
+  .session-pill > span:not(.session-pill-dot) {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Toast spans the width instead of overhanging the right edge */
+  .toast         { left: 16px; right: 16px; bottom: 16px; text-align: center; }
 }
 
 /* ─── APP FOOTER ─────────────────────────────────── */

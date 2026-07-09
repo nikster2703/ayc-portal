@@ -306,6 +306,15 @@
     .cal-grid-wrap { grid-template-columns: 1fr !important; }
   }
 
+  /* Phone: tighten day cells so all 7 columns stay usable */
+  @media (max-width: 479px) {
+    .cal-grid    { gap: 2px; }
+    .cal-day     { min-height: 58px; max-height: 58px; padding: 4px 4px; border-radius: 7px; border-width: 1px; }
+    .cal-day-num { font-size: 11px; margin-bottom: 2px; }
+    .cal-pill    { font-size: 8.5px; padding: 1px 3px; border-radius: 4px; }
+    .cal-dow     { font-size: 9.5px; }
+  }
+
   /* ════════ Casual light — v11-exact values ════════ */
   html[data-skin="casual"]:not([data-theme="dark"]) .cal-day { background: white; }
   html[data-skin="casual"]:not([data-theme="dark"]) .cal-day.today { box-shadow: 0 0 0 2px rgba(0,150,180,.15); }

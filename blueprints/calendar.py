@@ -114,6 +114,13 @@ def api_admin_session_types_update(st_id):
             db.execute('UPDATE session_completions  SET session_type = ? WHERE session_type = ?', (name, old_name))
             db.execute('UPDATE term_sessions        SET session_type = ? WHERE session_type = ?', (name, old_name))
             db.execute('UPDATE session_activities   SET session_type = ? WHERE session_type = ?', (name, old_name))
+            # v12.41: previously missed — renaming orphaned session notes (they vanished
+            # from the register/print/export), broke session-scoped alert rules, killed
+            # today's QR tokens and detached pending registrations from their session.
+            db.execute('UPDATE session_notes        SET session_type = ? WHERE session_type = ?', (name, old_name))
+            db.execute('UPDATE quick_signin_tokens  SET session_type = ? WHERE session_type = ?', (name, old_name))
+            db.execute('UPDATE alert_rules          SET applies_to_session = ? WHERE applies_to_session = ?', (name, old_name))
+            db.execute('UPDATE pending_registrations SET assigned_session  = ? WHERE assigned_session  = ?', (name, old_name))
         db.commit()
         log_action('update_session_type', 'session_types', st_id,
                    {'name': name, 'old_name': old_name, 'weekday': weekday,
@@ -201,7 +208,10 @@ def api_calendar_list():
     params = []
 
     if year and month:
-        prefix = f"{int(year):04d}-{int(month):02d}-"
+        try:
+            prefix = f"{int(year):04d}-{int(month):02d}-"
+        except (TypeError, ValueError):
+            return jsonify({'error': 'year and month must be numeric'}), 400
         query += ' AND session_date LIKE ?'
         params.append(prefix + '%')
     elif term:
@@ -397,7 +407,10 @@ def api_calendar_delete(session_id):
 @login_required
 def api_calendar_upcoming():
     from datetime import datetime
-    limit = min(int(request.args.get('limit', 6)), 20)
+    try:
+        limit = min(int(request.args.get('limit', 6)), 20)
+    except (TypeError, ValueError):
+        limit = 6
     today = datetime.now().strftime('%Y-%m-%d')
     db    = get_db()
     rows  = db.execute('''

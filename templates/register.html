@@ -6,8 +6,9 @@
   <h1><span class="ico-emoji">✅ </span>Session Register</h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <select class="session-select" id="session-picker" onchange="onSessionChange()">
-      {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
-      {% endfor %}
+      {# Admins (no session_names) see every active session type; scoped users only see theirs #}
+      {% for st in session_types %}{% if current_role == 'admin' or not session_names or st.name in session_names %}<option value="{{ st.name }}">{{ st.name }}</option>
+      {% endif %}{% endfor %}
     </select>
     <input type="date" id="date-picker" class="session-select"
            style="width:auto" onchange="loadRegister()">
@@ -720,7 +721,10 @@
 
     const userSession  = "{{ current_session }}";
     const sessionNames = {{ session_names | tojson }};
-    const isMulti      = sessionNames.length > 1;
+    const isAdmin      = USER_ROLE === 'admin';
+    // Admins have no session_names by design but may still have an active_session
+    // persisted (users.active_session_id) — they must never be locked to it.
+    const isMulti      = isAdmin || sessionNames.length > 1;
 
     if (userSession) {
       picker.value = userSession;
@@ -729,7 +733,7 @@
       // available session so the register doesn't break mid-session.
       if (!picker.value && SESSION_TYPES.length) picker.value = SESSION_TYPES[0].name;
       // Single-session users are locked to their session.
-      // Multi-session users can switch (the picker is already filtered to their sessions).
+      // Multi-session users and admins can switch (options are filtered server-side).
       picker.disabled = !isMulti && !!picker.value;
     }
 
@@ -749,7 +753,7 @@
     // For multi-session users, persist the new active session to the DB so it
     // survives navigation and re-login.  Fire-and-forget — don't block the UI.
     const sessionNames = {{ session_names | tojson }};
-    if (sessionNames.length > 1) {
+    if (USER_ROLE === 'admin' || sessionNames.length > 1) {
       const chosen = document.getElementById('session-picker').value;
       apiFetch('/api/auth/active-session', {
         method: 'POST',
@@ -1077,7 +1081,7 @@
     }
 
     return `
-      <div class="reg-card ${stateClass} ${unaShade}" id="card-${m.id}" data-name="${(m.first_name + ' ' + m.surname).toLowerCase()}">
+      <div class="reg-card ${stateClass} ${unaShade}" id="card-${m.id}" data-name="${esc((m.first_name + ' ' + m.surname).toLowerCase())}">
         ${unaFlag}
         <div class="reg-card__name">${esc(m.first_name)} ${esc(m.surname)}</div>
         ${tagBadges ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:3px 0">${tagBadges}</div>` : ''}

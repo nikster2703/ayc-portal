@@ -725,9 +725,10 @@ html[data-skin="casual"]:not([data-theme="dark"]) .data-table td{ padding: 10px 
   /* User pill — not needed when space is tight */
   html[data-skin="casual"]:not([data-theme="dark"]) .user-pill{ display: none; }
 
-  /* Tables — hide columns 4+ */
-  html[data-skin="casual"]:not([data-theme="dark"]) .data-table th:nth-child(n+4),
-html[data-skin="casual"]:not([data-theme="dark"]) .data-table td:nth-child(n+4){ display: none; }
+  /* Tables — hide columns 4+ but keep the last (Actions) column */
+  html[data-skin="casual"]:not([data-theme="dark"]) .data-table th:nth-child(n+4):not(:last-child),
+html[data-skin="casual"]:not([data-theme="dark"]) .data-table td:nth-child(n+4):not(:last-child){ display: none; }
+  html[data-skin="casual"]:not([data-theme="dark"]) .data-table td{ overflow-wrap: anywhere; }
 
   /* Modal */
   html[data-skin="casual"]:not([data-theme="dark"]) .modal-overlay{ padding: 12px; }

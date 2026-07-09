@@ -9,9 +9,8 @@ from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, request
 
-from config import CLUB_SHORT_NAME
 from helpers import (
-    get_db, login_required, permission_required, _assigned_session,
+    get_db, login_required, permission_required, _assigned_session, club_slug,
 )
 
 bp = Blueprint('dashboard', __name__)
@@ -404,12 +403,19 @@ def api_stat_trends():
 @bp.route('/api/admin/audit')
 @permission_required('audit.view')
 def api_audit_log():
-    limit     = min(int(request.args.get('limit', 500)), 2000)
-    offset    = int(request.args.get('offset', 0))
+    # v12.41: validate numeric params — bad input previously raised ValueError → 500
+    try:
+        limit  = min(int(request.args.get('limit', 500)), 2000)
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'limit and offset must be numeric'}), 400
     action    = request.args.get('action', '').strip()
     user_id   = request.args.get('user_id', '').strip()
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
+
+    if user_id and not user_id.isdigit():
+        return jsonify({'error': 'user_id must be numeric'}), 400
 
     db     = get_db()
     wheres = ['1=1']
@@ -461,6 +467,9 @@ def api_audit_log_export():
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
 
+    if user_id and not user_id.isdigit():
+        return jsonify({'error': 'user_id must be numeric'}), 400
+
     db     = get_db()
     wheres = ['1=1']
     params: list = []
@@ -496,8 +505,7 @@ def api_audit_log_export():
                          r['details'] or '', r['ip_address'] or ''])
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    slug      = CLUB_SHORT_NAME.lower().replace(' ', '_')
-    filename  = f'{slug}_audit_log_{timestamp}.csv'
+    filename  = f'{club_slug()}_audit_log_{timestamp}.csv'
 
     return Response(
         buf.getvalue(),
