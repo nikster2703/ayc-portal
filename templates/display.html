@@ -462,14 +462,19 @@
     return COLOURS[h % COLOURS.length];
   }
 
-  /* ── Session — use the logged-in user's assigned session;
-       fall back to day-of-week detection for admin (unscoped) ── */
+  /* ── Session resolution, highest priority first (v12.52):
+       1. ?session= query param — set by the register's "Open display" button,
+          so the display always shows the session the register was on
+       2. the logged-in user's assigned session
+       3. day-of-week detection (admin / no assignment)               ── */
   const dayNames   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const monthNames = ['January','February','March','April','May','June',
                       'July','August','September','October','November','December'];
 
   const SESSION_TYPES   = {{ session_types | tojson }};
   const currentSession = (() => {
+    const requested = new URLSearchParams(location.search).get('session');
+    if (requested && SESSION_TYPES.some(s => s.name === requested)) return requested;
     const assigned = '{{ current_session }}';
     if (assigned && SESSION_TYPES.some(s => s.name === assigned)) return assigned;
     // Admin / no assignment — fall back to day of week

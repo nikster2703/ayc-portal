@@ -341,7 +341,9 @@
         Activities appear as a scrolling ticker on the reception display screen.
       </p>
     </div>
-    <a href="/display" target="_blank" class="btn btn-ghost btn-sm">
+    <!-- v12.52: carry the register's currently selected session to the display -->
+    <a href="/display" target="_blank" class="btn btn-ghost btn-sm"
+       onclick="this.href = '/display?session=' + encodeURIComponent(document.getElementById('session-picker').value || '')">
       <span class="ico-emoji">👁 </span>Open display
     </a>
   </div>
