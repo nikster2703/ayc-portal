@@ -414,6 +414,28 @@
     window.refreshIcons = function () { if (window.lucide) lucide.createIcons(); };
     refreshIcons();
 
+    /* ── Fix: clear the page-enter animation once it finishes ───────
+       .page-content has `animation: _page-in ... both` (shared.css) so the
+       page slides/fades in on load. A `transform` used anywhere in a running
+       (or fill-mode-held) animation makes the element a containing block for
+       any `position: fixed` descendant — so every modal-overlay nested inside
+       {% block content %} (approve/reject modals, Complete Register, etc.)
+       was being positioned relative to .page-content's full scrollable height
+       instead of the viewport. On a long approvals list or member register,
+       that pushed the centred modal hundreds of pixels below the fold —
+       looking like a crash, since only the blurred backdrop was visible.
+       Scrolling the page to the top (as approvals.html tried) doesn't fix
+       this, since the offset comes from the containing block, not scroll
+       position. Clearing `animation` after it completes drops the lingering
+       transform and restores normal viewport-relative fixed positioning. */
+    (function () {
+      const pc = document.querySelector('.page-content');
+      if (!pc) return;
+      const clearEnterAnim = () => { pc.style.animation = 'none'; };
+      pc.addEventListener('animationend', clearEnterAnim, { once: true });
+      setTimeout(clearEnterAnim, 400); // fallback in case animationend never fires
+    })();
+
     /* ── Nav: sliding pill + page-content slide transition ─────────── */
     (function () {
       const nav        = document.querySelector('.app-nav');
@@ -486,7 +508,9 @@
           if (reduced) { window.location.href = href; return; }
           applyPill(this, true);
           const pc = document.querySelector('.page-content');
-          if (pc) pc.classList.add('page-exit');
+          // Clear the inline `animation: none` left by the enter-animation
+          // fix above so the .page-exit CSS animation can actually play.
+          if (pc) { pc.style.animation = ''; pc.classList.add('page-exit'); }
           setTimeout(function () { window.location.href = href; }, 170);
         });
       });

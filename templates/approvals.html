@@ -383,12 +383,6 @@
 
   /* ── Approve modal ────────────────────────────────── */
   function openApproveModal(id, name, regType, applicantRole, sessionPref) {
-    // Jump to the top of the page first — on long approval lists the modal
-    // is centred in the current viewport, so if you're scrolled deep into
-    // the list it can render below the fold. Scrolling up first guarantees
-    // the modal is always visible as soon as it opens.
-    window.scrollTo(0, 0);
-
     pendingRegId   = id;
     pendingRegType = regType || 'member';
 
@@ -501,7 +495,6 @@
 
   /* ── Reject modal ─────────────────────────────────── */
   function openRejectModal(id, name) {
-    window.scrollTo(0, 0);
     pendingRegId = id;
     document.getElementById('reject-name').textContent = name;
     document.getElementById('reject-notes').value      = '';
