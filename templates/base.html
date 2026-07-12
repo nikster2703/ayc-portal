@@ -419,7 +419,7 @@
        page slides/fades in on load. A `transform` used anywhere in a running
        (or fill-mode-held) animation makes the element a containing block for
        any `position: fixed` descendant — so every modal-overlay nested inside
-       {% block content %} (approve/reject modals, Complete Register, etc.)
+       the page content area (approve/reject modals, Complete Register, etc.)
        was being positioned relative to .page-content's full scrollable height
        instead of the viewport. On a long approvals list or member register,
        that pushed the centred modal hundreds of pixels below the fold —
