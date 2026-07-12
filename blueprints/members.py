@@ -543,7 +543,9 @@ def api_member_permanent_delete(member_id):
                 json.dumps({
                     'member':           expected,
                     'member_id':        member['member_id'],
-                    'session':          member['session'],
+                    # v12.55: record every assigned session, not just the echo
+                    'sessions':         get_member_session_names(member_id) or
+                                        ([member['session']] if member['session'] else []),
                     'deleted_by':       session.get('username'),
                     'att_deleted':      att_count,
                     'dofe_deleted':     dofe_count,

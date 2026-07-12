@@ -2282,6 +2282,17 @@ def api_import_run():
                         (new_id, fd['id'], str(fval))
                     )
 
+            # v12.55: 'session' may be a delimited list ("Tuesday; Thursday").
+            # Parse, validate and write member_sessions + the echo column.
+            _raw_sess = core.get('session')
+            if _raw_sess is None:
+                _cur = db.execute('SELECT session FROM members WHERE id = ?', (new_id,)).fetchone()
+                _raw_sess = _cur['session'] if _cur else ''
+            _valid_sess, _bad_sess = _apply_member_sessions(db, new_id, _raw_sess)
+            if _bad_sess:
+                errors.append({'row': row_num,
+                               'error': 'unknown session(s) ignored: ' + ', '.join(_bad_sess)})
+
             # ── Create payment record if marked as paid ──────────────────────
             if _bool_val(core.get('_payment_paid', 0)) and _membership_type and _import_period:
                 db.execute(
@@ -2392,6 +2403,37 @@ def api_import_report(report_id):
         as_attachment=True,
         download_name='import_not_imported.csv',
     )
+
+
+# ── Multi-session import helper (v12.55, Phase D) ──────────────────────────────
+
+def _apply_member_sessions(db, member_db_id, raw_session_value):
+    """Parse a delimited session list ("Tuesday; Thursday" — separators ; , / |),
+    validate each name case-insensitively against session_types, rewrite the
+    member's member_sessions rows and keep the members.session echo in sync
+    (first valid session in sort order; empty when none).
+    Returns (valid_names, invalid_tokens)."""
+    types    = db.execute('SELECT id, name FROM session_types ORDER BY sort_order, name').fetchall()
+    by_lower = {t['name'].lower(): t for t in types}
+    order    = [t['name'] for t in types]
+    valid, invalid, seen = [], [], set()
+    for tok in _re.split(r'[;,/|]', str(raw_session_value or '')):
+        tok = tok.strip()
+        if not tok:
+            continue
+        t = by_lower.get(tok.lower())
+        if t is None:
+            invalid.append(tok)
+        elif t['name'] not in seen:
+            valid.append(t['name']); seen.add(t['name'])
+    valid.sort(key=order.index)
+    db.execute('DELETE FROM member_sessions WHERE member_id = ?', (member_db_id,))
+    for n in valid:
+        db.execute('INSERT OR IGNORE INTO member_sessions (member_id, session_type_id) VALUES (?,?)',
+                   (member_db_id, by_lower[n.lower()]['id']))
+    db.execute('UPDATE members SET session = ? WHERE id = ?',
+               (valid[0] if valid else '', member_db_id))
+    return valid, invalid
 
 
 # ── AYC round-trip import ──────────────────────────────────────────────────────
@@ -2604,6 +2646,13 @@ def _ayc_import_members(db, save_path, file_ext):
                             'INSERT OR REPLACE INTO member_field_values (member_id, field_id, value) VALUES (?,?,?)',
                             (new_id, fd['id'], val)
                         )
+
+            # v12.55: session column may be a delimited list — write junction rows
+            _raw_sess = core.get('session')
+            if _raw_sess is None:
+                _cur = db.execute('SELECT session FROM members WHERE id = ?', (new_id,)).fetchone()
+                _raw_sess = _cur['session'] if _cur else ''
+            _apply_member_sessions(db, new_id, _raw_sess)
 
             db.commit()
             imported += 1
@@ -3127,6 +3176,11 @@ def api_export_members_csv():
     # ── Fetch members with contacts ──────────────────────────────────────────
     members = db.execute(f'''
         SELECT  m.*,
+                (SELECT group_concat(name, '; ') FROM (
+                    SELECT st_s.name FROM member_sessions ms_s
+                    JOIN session_types st_s ON st_s.id = ms_s.session_type_id
+                    WHERE ms_s.member_id = m.id ORDER BY st_s.sort_order, st_s.name
+                )) AS session_list,
                 c1.contact_name  AS contact1_name,
                 c1.contact_phone AS contact1_phone,
                 c1.contact_email AS contact1_email,
@@ -3140,6 +3194,8 @@ def api_export_members_csv():
         ORDER   BY {_export_order(sort_by)}
     ''', params).fetchall()
     members = [dict(r) for r in members]
+    for _m in members:   # v12.55: Session column = every assigned session, '; '-joined
+        _m['session'] = _m.pop('session_list', None) or _m.get('session') or ''
 
     if not members:
         return Response('No members match the selected filters.\n',
@@ -3338,6 +3394,11 @@ def api_export_members_xlsx():
     # ── Fetch members ────────────────────────────────────────────────────────
     members = db.execute(f'''
         SELECT  m.*,
+                (SELECT group_concat(name, '; ') FROM (
+                    SELECT st_s.name FROM member_sessions ms_s
+                    JOIN session_types st_s ON st_s.id = ms_s.session_type_id
+                    WHERE ms_s.member_id = m.id ORDER BY st_s.sort_order, st_s.name
+                )) AS session_list,
                 c1.contact_name  AS contact1_name,
                 c1.contact_phone AS contact1_phone,
                 c1.contact_email AS contact1_email,
@@ -3351,6 +3412,8 @@ def api_export_members_xlsx():
         ORDER   BY {_export_order(sort_by)}
     ''', params).fetchall()
     members = [dict(r) for r in members]
+    for _m in members:   # v12.55: Session column = every assigned session, '; '-joined
+        _m['session'] = _m.pop('session_list', None) or _m.get('session') or ''
 
     if not members:
         return jsonify({'error': 'No members match the selected filters'}), 404
@@ -3616,7 +3679,10 @@ def _export_where(status_filter, session_filter, type_filter):
     # 'all' = no status filter
 
     if session_filter and session_filter != 'all':
-        conditions.append('m.session = ?')
+        # v12.55: match any assigned session via the member_sessions junction
+        conditions.append('EXISTS (SELECT 1 FROM member_sessions ms_x '
+                          'JOIN session_types st_x ON st_x.id = ms_x.session_type_id '
+                          'WHERE ms_x.member_id = m.id AND st_x.name = ?)')
         params.append(session_filter)
 
     if type_filter and type_filter != 'all':

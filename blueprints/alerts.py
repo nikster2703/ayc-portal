@@ -58,7 +58,10 @@ def _run_alert_rule(db, rule, today_str):
     )
     params_base = []
     if scoped_sess:
-        member_cond += ' AND m.session = ?'
+        # v12.55: rule applies if the member has that session assigned (junction)
+        member_cond += (' AND EXISTS (SELECT 1 FROM member_sessions ms_x '
+                        'JOIN session_types st_x ON st_x.id = ms_x.session_type_id '
+                        'WHERE ms_x.member_id = m.id AND st_x.name = ?)')
         params_base.append(scoped_sess)
 
     members = db.execute(
@@ -67,6 +70,14 @@ def _run_alert_rule(db, rule, today_str):
         f'FROM members m WHERE {member_cond}',
         params_base
     ).fetchall()
+
+    # v12.55: sessions per member (junction), echo column as defensive fallback
+    member_sessions_map = {}
+    for _r in db.execute(
+        'SELECT ms.member_id, st.name FROM member_sessions ms '
+        'JOIN session_types st ON st.id = ms.session_type_id'
+    ).fetchall():
+        member_sessions_map.setdefault(_r['member_id'], []).append(_r['name'])
 
     # ── Existing active flags for this rule ────────────────────────────────────
     existing_flags = {
@@ -106,20 +117,34 @@ def _run_alert_rule(db, rule, today_str):
             # Only consider sessions that took place on or after the member joined.
             # This prevents new members being flagged for sessions they could not
             # have attended before they were registered.
-            all_sessions = sessions_by_type[m['session']]
-            eligible = [d for d in all_sessions if d >= join_date]
-            relevant = eligible[:threshold]
+            #
+            # v12.55 (multi-session): evaluate against the member's COMBINED
+            # timeline — the last N completed registers across every session
+            # they are assigned to, newest first. The member is flagged only if
+            # they attended none of those N club sessions, i.e. the rule means
+            # "disengaged from the club", not "dropped one of their sessions".
+            m_sessions = member_sessions_map.get(m['id']) or \
+                         ([m['session']] if m['session'] else [])
+            events = sorted(
+                ((d, st) for st in m_sessions
+                         for d in sessions_by_type.get(st, [])
+                         if d >= join_date),
+                key=lambda e: e[0], reverse=True
+            )
+            relevant = events[:threshold]
             if len(relevant) < threshold:
                 continue
             # Count positive sign-ins only (signed_in_at IS NOT NULL) so that
             # absence rows written at register-completion time are not counted
-            # as attended sessions.  Also filter by session_type to avoid
+            # as attended sessions. Match on (date, session_type) pairs to avoid
             # cross-session contamination on shared dates.
+            pair_cond = ' OR '.join(
+                ['(session_date = ? AND session_type = ?)'] * len(relevant))
+            pair_params = [v for pair in relevant for v in pair]
             attended = db.execute(
-                'SELECT COUNT(*) AS n FROM attendance '
-                'WHERE member_id = ? AND session_type = ? AND signed_in_at IS NOT NULL '
-                'AND session_date IN ({})'.format(','.join('?' * len(relevant))),
-                [m['id'], m['session']] + relevant
+                f'SELECT COUNT(*) AS n FROM attendance '
+                f'WHERE member_id = ? AND signed_in_at IS NOT NULL AND ({pair_cond})',
+                [m['id']] + pair_params
             ).fetchone()['n']
             if attended == 0:
                 should_flag.add(m['id'])
@@ -502,7 +527,10 @@ def api_alerts_summary():
         placeholders = ','.join('?' * len(scoped))
         rows = db.execute(f'''
             SELECT ar.id, ar.name, ar.flag_label, ar.flag_colour,
-                   COUNT(CASE WHEN mf.resolved_at IS NULL AND m.session IN ({placeholders})
+                   COUNT(CASE WHEN mf.resolved_at IS NULL
+                              AND EXISTS (SELECT 1 FROM member_sessions ms_x
+                                          JOIN session_types st_x ON st_x.id = ms_x.session_type_id
+                                          WHERE ms_x.member_id = m.id AND st_x.name IN ({placeholders}))
                               THEN 1 END) AS flag_count
             FROM alert_rules ar
             LEFT JOIN member_flags mf ON mf.rule_id = ar.id
