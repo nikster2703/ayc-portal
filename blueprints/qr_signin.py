@@ -194,7 +194,10 @@ def api_qr_search():
                  AND a.session_date = ? AND a.session_type = ?
                JOIN member_types mt ON mt.slug = m.member_type
                WHERE EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
-                 AND (m.session = ? OR mt.registration_style = 'staff')
+                 AND (EXISTS (SELECT 1 FROM member_sessions ms_x
+                              JOIN session_types st_x ON st_x.id = ms_x.session_type_id
+                              WHERE ms_x.member_id = m.id AND st_x.name = ?)
+                      OR mt.registration_style = 'staff')  -- v12.51: junction match
                  AND LOWER(m.first_name) LIKE LOWER(?)
                ORDER BY m.first_name, m.surname
                LIMIT 20''',

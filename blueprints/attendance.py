@@ -14,10 +14,17 @@ from helpers import (
     get_db, log_action, login_required, permission_required,
     _assigned_session, _is_register_locked, _touch_attendance,
     _fetch_tags_for_members, get_valid_session_names, _read_attendance_marker,
-    _invalidate_qr_token_for_session,
+    _invalidate_qr_token_for_session, member_in_scope,
 )
 
 bp = Blueprint('attendance', __name__)
+
+# v12.51 Phase B: register membership comes from the member_sessions junction —
+# a member assigned to N sessions appears on all N registers. Takes one
+# parameter (the session name).
+_MS_MATCH = ('EXISTS (SELECT 1 FROM member_sessions ms_x '
+             'JOIN session_types st_x ON st_x.id = ms_x.session_type_id '
+             'WHERE ms_x.member_id = m.id AND st_x.name = ?)')
 
 
 @bp.route('/api/attendance/<session_type>/<date>')
@@ -44,7 +51,7 @@ def api_attendance_get(session_type, date):
                AND a.session_type = ?
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   mt.registration_style != "staff"
-          AND   m.session      = ?
+          AND   ''' + _MS_MATCH + '''
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()
 
@@ -96,7 +103,7 @@ def api_attendance_staff_get(session_type, date):
         JOIN    member_types mt ON mt.slug = m.member_type
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   mt.registration_style = 'staff'
-          AND   m.session      = ?
+          AND   ''' + _MS_MATCH + '''
         ORDER   BY m.first_name, m.surname
     ''', (date, session_type, session_type)).fetchall()
 
@@ -265,7 +272,7 @@ def api_attendance_complete():
     all_session_members = db.execute(
         '''SELECT m.id FROM members m
            JOIN member_types mt ON mt.slug = m.member_type
-           WHERE m.session = ?
+           WHERE ''' + _MS_MATCH + '''
              AND EXISTS (SELECT 1 FROM member_statuses ms
                          WHERE ms.name = m.status AND ms.behaviour = 'active')
              AND mt.registration_style != 'staff' ''',
@@ -384,11 +391,11 @@ def api_attendance_reset():
 @permission_required('members.view')
 def api_attendance_history(member_id):
     db     = get_db()
-    scoped = _assigned_session()  # None or list
-    if scoped is not None:
-        member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
-        if not member or (member['session'] or '') not in (scoped or []):
-            return jsonify({'error': 'Forbidden'}), 403
+    member = db.execute('SELECT id FROM members WHERE id = ?', (member_id,)).fetchone()
+    if not member:
+        return jsonify({'error': 'Not found'}), 404
+    if not member_in_scope(member_id):   # v12.51: any-session intersection
+        return jsonify({'error': 'Forbidden'}), 403
 
     rows = db.execute(
         'SELECT session_date, session_type, signed_in_at, signed_out_at'

@@ -105,7 +105,7 @@ def print_register_page():
         FROM    members m
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   m.member_type = ?
-          AND   m.session     = ?
+          AND   EXISTS (SELECT 1 FROM member_sessions ms_x JOIN session_types st_x ON st_x.id = ms_x.session_type_id WHERE ms_x.member_id = m.id AND st_x.name = ?)  -- v12.51: junction
         ORDER   BY m.first_name, m.surname
     ''', (query_slug, session_type)).fetchall()
     members = [dict(r) for r in members_raw]
@@ -216,7 +216,7 @@ def print_register_xlsx():
         FROM    members m
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   m.member_type = ?
-          AND   m.session     = ?
+          AND   EXISTS (SELECT 1 FROM member_sessions ms_x JOIN session_types st_x ON st_x.id = ms_x.session_type_id WHERE ms_x.member_id = m.id AND st_x.name = ?)  -- v12.51: junction
         ORDER   BY m.first_name, m.surname
     ''', (query_slug, session_type)).fetchall()]
 
@@ -386,7 +386,7 @@ def export_register_page():
     member_mt = db.execute(
         '''SELECT mt.id FROM member_types mt
            JOIN members m ON m.member_type = mt.slug
-           WHERE m.session = ? AND mt.registration_style != "staff" AND mt.active = 1
+           WHERE EXISTS (SELECT 1 FROM member_sessions ms_x JOIN session_types st_x ON st_x.id = ms_x.session_type_id WHERE ms_x.member_id = m.id AND st_x.name = ?) AND mt.registration_style != "staff" AND mt.active = 1
            LIMIT 1''',
         (session_type,)
     ).fetchone()
@@ -413,7 +413,7 @@ def export_register_page():
                AND a.session_type = ?
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   mt.registration_style != 'staff'
-          AND   m.session     = ?
+          AND   EXISTS (SELECT 1 FROM member_sessions ms_x JOIN session_types st_x ON st_x.id = ms_x.session_type_id WHERE ms_x.member_id = m.id AND st_x.name = ?)  -- v12.51: junction
         ORDER   BY m.surname, m.first_name
     ''', (date, session_type, session_type)).fetchall()
 
@@ -455,7 +455,7 @@ def export_register_page():
         JOIN    member_types mt ON mt.slug = m.member_type
         WHERE   EXISTS (SELECT 1 FROM member_statuses ms WHERE ms.name = m.status AND ms.behaviour = 'active')
           AND   mt.registration_style = 'staff'
-          AND   m.session     = ?
+          AND   EXISTS (SELECT 1 FROM member_sessions ms_x JOIN session_types st_x ON st_x.id = ms_x.session_type_id WHERE ms_x.member_id = m.id AND st_x.name = ?)  -- v12.51: junction
         ORDER   BY m.surname, m.first_name
     ''', (date, session_type, session_type)).fetchall()
 

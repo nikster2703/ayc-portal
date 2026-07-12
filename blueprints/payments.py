@@ -42,16 +42,12 @@ def _current_period():
     return get_setting('current_membership_period', '')
 
 
-def _member_in_scope(member_session):
-    """Return True if the current user may access a member in the given session.
-
-    Mirrors the scoping used across members/attendance/approvals: admins (scope
-    None) see everything; non-admins are restricted to their assigned sessions.
-    """
-    scoped = _assigned_session()  # None (admin) or list of session names
-    if scoped is None:
-        return True
-    return (member_session or '') in (scoped or [])
+def _member_in_scope(member_id):
+    """v12.51: delegate to helpers.member_in_scope — any of the member's
+    sessions (member_sessions junction) intersecting the user's scope grants
+    access. Admins (scope None) always pass."""
+    from helpers import member_in_scope
+    return member_in_scope(member_id)
 
 
 # ── Member payment endpoints ──────────────────────────────────────────────────
@@ -63,7 +59,7 @@ def api_member_payments_list(member_id):
     member = db.execute('SELECT id, first_name, surname, session FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Member not found'}), 404
-    if not _member_in_scope(member['session']):
+    if not _member_in_scope(member['id']):
         return jsonify({'error': 'Forbidden'}), 403
 
     include_voided = request.args.get('include_voided', '0') == '1'
@@ -122,7 +118,7 @@ def api_member_payments_create(member_id):
     member = db.execute('SELECT id, first_name, surname, session FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Member not found'}), 404
-    if not _member_in_scope(member['session']):
+    if not _member_in_scope(member['id']):
         return jsonify({'error': 'Forbidden'}), 403
 
     data = request.get_json() or {}
@@ -185,8 +181,8 @@ def api_payment_update(payment_id):
     ).fetchone()
     if not pay:
         return jsonify({'error': 'Payment not found or already voided'}), 404
-    _m = db.execute('SELECT session FROM members WHERE id = ?', (pay['member_id'],)).fetchone()
-    if not _m or not _member_in_scope(_m['session']):
+    _m = db.execute('SELECT id FROM members WHERE id = ?', (pay['member_id'],)).fetchone()
+    if not _m or not _member_in_scope(_m['id']):
         return jsonify({'error': 'Forbidden'}), 403
 
     data = request.get_json() or {}
@@ -253,8 +249,8 @@ def api_payment_void(payment_id):
     ).fetchone()
     if not pay:
         return jsonify({'error': 'Payment not found or already voided'}), 404
-    _m = db.execute('SELECT session FROM members WHERE id = ?', (pay['member_id'],)).fetchone()
-    if not _m or not _member_in_scope(_m['session']):
+    _m = db.execute('SELECT id FROM members WHERE id = ?', (pay['member_id'],)).fetchone()
+    if not _m or not _member_in_scope(_m['id']):
         return jsonify({'error': 'Forbidden'}), 403
 
     data        = request.get_json() or {}

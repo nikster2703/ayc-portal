@@ -529,11 +529,11 @@ def api_alerts_summary():
 def api_member_flags(member_id):
     """Return all flags (active and resolved) for a member."""
     db     = get_db()
-    scoped = _assigned_session()
     member = db.execute('SELECT * FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Not found'}), 404
-    if scoped is not None and (member['session'] or '') not in (scoped or []):
+    from helpers import member_in_scope
+    if not member_in_scope(member_id):   # v12.51: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
     flags = db.execute('''

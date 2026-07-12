@@ -37,14 +37,19 @@ def api_dashboard():
             JOIN member_types mt ON mt.slug = m.member_type
             LEFT JOIN member_statuses ms ON ms.name = m.status
         ''').fetchone()
+        # v12.51: per-session counts via the junction — a member assigned to N
+        # sessions counts once in EACH session (headline totals above stay
+        # member-distinct because they don't join the junction).
         session_rows = db.execute('''
-            SELECT m.session,
+            SELECT st.name AS session,
                    SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS members,
                    SUM(CASE WHEN mt.registration_style  = 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS staff
-            FROM members m
-            JOIN member_types mt ON mt.slug = m.member_type
+            FROM member_sessions msj
+            JOIN session_types st ON st.id = msj.session_type_id
+            JOIN members m        ON m.id = msj.member_id
+            JOIN member_types mt  ON mt.slug = m.member_type
             LEFT JOIN member_statuses ms ON ms.name = m.status
-            GROUP BY m.session
+            GROUP BY st.name
         ''').fetchall()
         pending = db.execute(
             'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
@@ -71,17 +76,21 @@ def api_dashboard():
             FROM members m
             JOIN member_types mt ON mt.slug = m.member_type
             LEFT JOIN member_statuses ms ON ms.name = m.status
-            WHERE m.session IN ({ph})
+            WHERE EXISTS (SELECT 1 FROM member_sessions ms_x
+                          JOIN session_types st_x ON st_x.id = ms_x.session_type_id
+                          WHERE ms_x.member_id = m.id AND st_x.name IN ({ph}))
         ''', scoped).fetchone()
         session_rows = db.execute(f'''
-            SELECT m.session,
+            SELECT st.name AS session,
                    SUM(CASE WHEN mt.registration_style != 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS members,
                    SUM(CASE WHEN mt.registration_style  = 'staff' AND ms.behaviour = 'active' THEN 1 ELSE 0 END) AS staff
-            FROM members m
-            JOIN member_types mt ON mt.slug = m.member_type
+            FROM member_sessions msj
+            JOIN session_types st ON st.id = msj.session_type_id
+            JOIN members m        ON m.id = msj.member_id
+            JOIN member_types mt  ON mt.slug = m.member_type
             LEFT JOIN member_statuses ms ON ms.name = m.status
-            WHERE m.session IN ({ph})
-            GROUP BY m.session
+            WHERE st.name IN ({ph})
+            GROUP BY st.name
         ''', scoped).fetchall()
         pending = db.execute(
             f'SELECT COUNT(*) AS n FROM pending_registrations WHERE status = "pending"'
@@ -90,7 +99,10 @@ def api_dashboard():
         ).fetchone()['n']
         alert_rows = db.execute(f'''
             SELECT ar.id, ar.flag_label, ar.flag_colour,
-                   COUNT(CASE WHEN m.session IN ({ph}) THEN mf.id END) AS flag_count
+                   COUNT(CASE WHEN EXISTS (SELECT 1 FROM member_sessions ms_x
+                                           JOIN session_types st_x ON st_x.id = ms_x.session_type_id
+                                           WHERE ms_x.member_id = m.id AND st_x.name IN ({ph}))
+                              THEN mf.id END) AS flag_count
             FROM alert_rules ar
             LEFT JOIN member_flags mf ON mf.rule_id = ar.id AND mf.resolved_at IS NULL
             LEFT JOIN members m ON m.id = mf.member_id
@@ -244,7 +256,11 @@ def api_stat_trends():
         if not scoped:
             return jsonify({})
         ph = ','.join('?' * len(scoped))
-        sess_filter, sess_args = f' AND m.session IN ({ph})', list(scoped)
+        # v12.51: scope via the member_sessions junction (any-session match)
+        sess_filter = (f' AND EXISTS (SELECT 1 FROM member_sessions ms_x'
+                       f' JOIN session_types st_x ON st_x.id = ms_x.session_type_id'
+                       f' WHERE ms_x.member_id = m.id AND st_x.name IN ({ph}))')
+        sess_args = list(scoped)
 
     member_rows = db.execute(f'''
         SELECT m.created_at FROM members m
@@ -267,9 +283,14 @@ def api_stat_trends():
     staff_new = sum(1 for r in staff_rows if (r['created_at'] or '')[:10] >= month_ago)
 
     # ── Per-session membership growth (session stat tiles) ──────────────────
+    # v12.51: one row per member-session pair so multi-session members feed
+    # every one of their sessions' growth tiles.
     per_sess_rows = db.execute(f'''
-        SELECT m.created_at, m.session FROM members m
-        JOIN member_types mt ON mt.slug = m.member_type
+        SELECT m.created_at, st.name AS session
+        FROM member_sessions msj
+        JOIN session_types st ON st.id = msj.session_type_id
+        JOIN members m        ON m.id = msj.member_id
+        JOIN member_types mt  ON mt.slug = m.member_type
         LEFT JOIN member_statuses ms ON ms.name = m.status
         WHERE mt.registration_style != 'staff' AND ms.behaviour = 'active'{sess_filter}
     ''', sess_args).fetchall()

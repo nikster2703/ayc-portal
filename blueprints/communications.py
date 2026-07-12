@@ -72,7 +72,12 @@ def _build_member_lookup(emails):
         SELECT  m.id, m.first_name, m.surname, m.member_type,
                 m.date_of_birth, m.address, m.postcode, m.ethnicity_religion,
                 m.medical_sen, m.gp_contact, m.unattended_exit, m.gdpr_consent,
-                m.status, m.session, m.staff_role, m.mobile,
+                m.status, m.staff_role, m.mobile,
+                COALESCE((SELECT group_concat(name, ', ') FROM (
+                    SELECT st_s.name FROM member_sessions ms_s
+                    JOIN session_types st_s ON st_s.id = ms_s.session_type_id
+                    WHERE ms_s.member_id = m.id ORDER BY st_s.sort_order, st_s.name
+                )), m.session) AS session,   -- v12.51: all sessions, comma-joined
                 m.date_registered, m.comments,
                 c.contact_email AS email,
                 c.contact_name  AS c1_name,
@@ -319,22 +324,25 @@ def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_ty
         conditions.append('m.status = ?')
         params.append(status_filter)
 
+    # v12.51 Phase B: session matching via the member_sessions junction — a
+    # member assigned to N sessions matches any of them. "No session assigned"
+    # (no junction rows) keeps its historical meaning: reachable by everyone.
+    _MS_ANY  = ('EXISTS (SELECT 1 FROM member_sessions ms_x '
+                'JOIN session_types st_x ON st_x.id = ms_x.session_type_id '
+                'WHERE ms_x.member_id = m.id AND st_x.name IN ({ph}))')
+    _MS_NONE = 'NOT EXISTS (SELECT 1 FROM member_sessions ms_n WHERE ms_n.member_id = m.id)'
+
     scoped = _assigned_session()
     if scoped is not None:
         # scoped is a list of session names; non-admin users are restricted to their sessions.
-        # Also include members with no session assigned (session IS NULL / '') so that
-        # unassigned members are always reachable.
         if scoped:
-            ph = ','.join('?' * len(scoped))
-            conditions.append(f"(m.session IN ({ph}) OR m.session IS NULL OR m.session = '')")
+            conditions.append(f"({_MS_ANY.format(ph=','.join('?' * len(scoped)))} OR {_MS_NONE})")
             params.extend(scoped)
         # empty scoped list means the user has no sessions — return nothing
         else:
             conditions.append('1=0')
     elif session_filter and session_filter != 'all':
-        # Include members explicitly assigned to this session, plus those with no session
-        # set (NULL / empty) — unassigned members are treated as belonging to all sessions.
-        conditions.append("(m.session = ? OR m.session IS NULL OR m.session = '')")
+        conditions.append(f"({_MS_ANY.format(ph='?')} OR {_MS_NONE})")
         params.append(session_filter)
 
     # Flag filter — member must have an unresolved flag for one of the selected rules

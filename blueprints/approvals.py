@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request, session
 from helpers import (
     get_db, log_action, permission_required, has_permission,
     _assigned_session, _next_member_id, validate_password,
-    get_valid_session_names, rate_limit_touch, client_ip,
+    get_valid_session_names, rate_limit_touch, client_ip, set_member_sessions,
 )
 
 bp = Blueprint('approvals', __name__)
@@ -225,13 +225,30 @@ def api_approvals_approve(reg_id):
     if not reg:
         return jsonify({'error': 'Registration not found or already reviewed'}), 404
 
-    assigned_session = data.get('session_assigned', '').strip()
-    if not assigned_session:
-        return jsonify({'error': 'Session must be assigned when approving'}), 400
+    # v12.51 Phase B: approval can assign one or MORE sessions. New UI sends
+    # sessions_assigned (list); legacy callers send session_assigned (string).
+    raw_list = data.get('sessions_assigned')
+    if isinstance(raw_list, list):
+        assigned_sessions = [str(s).strip() for s in raw_list if str(s).strip()]
+    else:
+        single = (data.get('session_assigned') or '').strip()
+        assigned_sessions = [single] if single else []
+    # dedupe, preserve order
+    assigned_sessions = list(dict.fromkeys(assigned_sessions))
+    if not assigned_sessions:
+        return jsonify({'error': 'At least one session must be assigned when approving'}), 400
+
+    valid_sessions = get_valid_session_names()
+    bad = [s for s in assigned_sessions if s not in valid_sessions]
+    if bad:
+        return jsonify({'error': f'Invalid session(s): {", ".join(bad)}'}), 400
 
     scoped = _assigned_session()  # None or list
-    if scoped is not None and assigned_session not in (scoped or []):
-        return jsonify({'error': 'You can only approve registrations for your own session'}), 403
+    if scoped is not None and any(s not in (scoped or []) for s in assigned_sessions):
+        return jsonify({'error': 'You can only approve registrations into your own sessions'}), 403
+
+    # Echo value for legacy columns (members.session, pending_registrations.assigned_session)
+    assigned_session = assigned_sessions[0]
 
     # Validate initial status (member registrations only; staff always Active)
     initial_status = (data.get('initial_status') or 'Active').strip()
@@ -305,7 +322,7 @@ def api_approvals_approve(reg_id):
             if existing:
                 return jsonify({'error': f'Username "{username}" is already taken'}), 409
             pw_hash = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
-            # Resolve session_type_id for the assigned session
+            # Resolve session_type_id for the first assigned session (active default)
             _st_row = db.execute(
                 'SELECT id FROM session_types WHERE name = ?', (assigned_session,)
             ).fetchone()
@@ -316,11 +333,14 @@ def api_approvals_approve(reg_id):
                 (username, reg['email'] or '', pw_hash, portal_role, role_row['id'], _st_id)
             )
             portal_user_id = cur.lastrowid
-            if _st_id:
-                db.execute(
-                    'INSERT OR IGNORE INTO user_sessions (user_id, session_type_id) VALUES (?,?)',
-                    (portal_user_id, _st_id)
-                )
+            # v12.51: grant the new login access to EVERY assigned session
+            for _sname in assigned_sessions:
+                _sr = db.execute('SELECT id FROM session_types WHERE name = ?', (_sname,)).fetchone()
+                if _sr:
+                    db.execute(
+                        'INSERT OR IGNORE INTO user_sessions (user_id, session_type_id) VALUES (?,?)',
+                        (portal_user_id, _sr['id'])
+                    )
             log_action('create_user', 'users', portal_user_id, {
                 'username': username, 'role': portal_role,
                 'created_by': session.get('username'),
@@ -363,6 +383,10 @@ def api_approvals_approve(reg_id):
                     (member_db_id, order, name or '', phone or '', email or '')
                 )
 
+    # v12.51: junction rows for every assigned session (echo column already set
+    # by the INSERT above; set_member_sessions re-sorts it consistently).
+    set_member_sessions(member_db_id, assigned_sessions)
+
     # Write custom fields from registration into member_field_values
     custom_raw = reg['custom_fields'] if 'custom_fields' in reg.keys() else None
     if custom_raw:
@@ -397,6 +421,7 @@ def api_approvals_approve(reg_id):
         'name':           f"{reg['first_name']} {reg['surname']}",
         'type':           rtype,
         'session':        assigned_session,
+        'sessions':       assigned_sessions,   # v12.51: full multi-assignment
         'initial_status': initial_status,
         'portal_user_id': portal_user_id,
         'approved_by':    session['username'],

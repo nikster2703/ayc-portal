@@ -27,12 +27,16 @@
     <!-- Member section -->
     <div id="approve-member-section">
       <div class="form-group">
-        <label>Assign to Session <span style="color:var(--red)">*</span></label>
-        <select id="approve-session">
-          <option value="">— select session —</option>
-          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+        <label>Assign to Session(s) <span style="color:var(--red)">*</span></label>
+        <!-- v12.51: multi-session approval — tick every session the member will attend -->
+        <div id="approve-sessions" style="display:flex;flex-wrap:wrap;gap:8px">
+          {% for st in session_types %}
+          <label class="sess-chip" data-session="{{ st.name }}">
+            <input type="checkbox" value="{{ st.name }}">
+            <span>{{ st.name }}</span>
+          </label>
           {% endfor %}
-        </select>
+        </div>
       </div>
       <div class="form-group">
         <label>Initial Status</label>
@@ -50,12 +54,15 @@
     <!-- Staff section -->
     <div id="approve-staff-section" style="display:none">
       <div class="form-group">
-        <label>Assign to Session <span style="color:var(--red)">*</span></label>
-        <select id="approve-staff-session">
-          <option value="">— select session —</option>
-          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+        <label>Assign to Session(s) <span style="color:var(--red)">*</span></label>
+        <div id="approve-staff-sessions" style="display:flex;flex-wrap:wrap;gap:8px">
+          {% for st in session_types %}
+          <label class="sess-chip" data-session="{{ st.name }}">
+            <input type="checkbox" value="{{ st.name }}" onchange="updatePortalSessionLabel()">
+            <span>{{ st.name }}</span>
+          </label>
           {% endfor %}
-        </select>
+        </div>
       </div>
       <div class="form-group">
         <label>Staff Role <span style="color:var(--red)">*</span></label>
@@ -152,6 +159,20 @@
   }
   #login-fields { display: none; }
   #login-fields.visible { display: flex; }
+
+  /* v12.51: session checkbox chips (same pattern as the members editor) */
+  .sess-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1.5px solid var(--border); border-radius: 99px;
+    padding: 6px 13px; cursor: pointer; user-select: none;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    background: var(--surface); transition: border-color .15s, color .15s, background .15s;
+  }
+  .sess-chip:hover { border-color: var(--accent); }
+  .sess-chip:has(input:checked) {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  .sess-chip input { accent-color: var(--accent); margin: 0; }
 
   /* Portal-session info note — tokens by default, v11-exact in casual light */
   .info-note {
@@ -381,32 +402,21 @@
     document.getElementById('approve-save-btn').innerHTML =
       isStaff ? '<span class="ico-emoji">✅ </span>Approve & Add Staff Member' : '<span class="ico-emoji">✅ </span>Approve & Create Member';
 
-    // For scoped roles (non-admin), pre-fill and lock the session to their own
-    const memberSessSel = document.getElementById('approve-session');
-    const staffSessSel  = document.getElementById('approve-staff-session');
-
-    const _isSingle = IS_SCOPED && SESSION_NAMES.length === 1;
+    // v12.51: multi-session chips. Scoped users only see (and may only tick)
+    // their own sessions; the requested session (or their session) starts ticked.
     if (isStaff) {
-      staffSessSel.value    = IS_SCOPED ? USER_SESSION : (sessionPref || '');
-      staffSessSel.disabled = _isSingle;
-      // Hide options not in this user's allowed sessions
-      if (IS_SCOPED) staffSessSel.querySelectorAll('option').forEach(
-        opt => { opt.style.display = SESSION_NAMES.includes(opt.value) || !opt.value ? '' : 'none'; }
-      );
-      staffSessSel.onchange = () => updatePortalSessionLabel(staffSessSel.value);
+      setChipGroup('approve-staff-sessions',
+                   IS_SCOPED ? [USER_SESSION] : (sessionPref ? [sessionPref] : []));
       document.getElementById('approve-staff-role').value   = applicantRole || '';
       document.getElementById('create-login-cb').checked    = false;
       document.getElementById('login-fields').classList.remove('visible');
       document.getElementById('approve-username').value  = '';
       document.getElementById('approve-temp-pw').value   = '';
       document.getElementById('approve-portal-role').value = 'readonly';
-      updatePortalSessionLabel(staffSessSel.value);
+      updatePortalSessionLabel();
     } else {
-      memberSessSel.value    = IS_SCOPED ? USER_SESSION : '';
-      memberSessSel.disabled = _isSingle;
-      if (IS_SCOPED) memberSessSel.querySelectorAll('option').forEach(
-        opt => { opt.style.display = SESSION_NAMES.includes(opt.value) || !opt.value ? '' : 'none'; }
-      );
+      setChipGroup('approve-sessions',
+                   IS_SCOPED ? [USER_SESSION] : (sessionPref ? [sessionPref] : []));
       // Reset status to Active each time modal opens
       const statusSel = document.getElementById('approve-member-status');
       if (statusSel) statusSel.value = 'Active';
@@ -415,9 +425,24 @@
     document.getElementById('approve-modal').classList.add('open');
   }
 
-  function updatePortalSessionLabel(val) {
+  /* v12.51: session chip-group helpers */
+  function setChipGroup(groupId, selected) {
+    document.querySelectorAll('#' + groupId + ' .sess-chip').forEach(chip => {
+      const name = chip.dataset.session;
+      chip.style.display = (!IS_SCOPED || SESSION_NAMES.includes(name)) ? '' : 'none';
+      chip.querySelector('input').checked = (selected || []).includes(name);
+    });
+  }
+  function getChipGroup(groupId) {
+    return [...document.querySelectorAll('#' + groupId + ' input:checked')].map(cb => cb.value);
+  }
+
+  function updatePortalSessionLabel() {
     const lbl = document.getElementById('portal-session-label');
-    if (lbl) lbl.textContent = val || '— (select a session above first)';
+    if (lbl) {
+      const sel = getChipGroup('approve-staff-sessions');
+      lbl.textContent = sel.length ? sel.join(', ') : '— (select a session above first)';
+    }
   }
 
   function toggleLoginFields() {
@@ -431,11 +456,11 @@
     let payload    = {};
 
     if (isStaff) {
-      const sess = document.getElementById('approve-staff-session').value;
+      const sessList = getChipGroup('approve-staff-sessions');   // v12.51
       const role = document.getElementById('approve-staff-role').value;
-      if (!sess) { showToast('Please select a session.', true); return; }
+      if (!sessList.length) { showToast('Please select at least one session.', true); return; }
       if (!role) { showToast('Please select a staff role.', true); return; }
-      payload = { session_assigned: sess, staff_role: role };
+      payload = { sessions_assigned: sessList, staff_role: role };
 
       const createLogin = document.getElementById('create-login-cb').checked;
       if (createLogin) {
@@ -449,10 +474,10 @@
         payload.portal_role   = prole;
       }
     } else {
-      const sess   = document.getElementById('approve-session').value;
-      const status = document.getElementById('approve-member-status').value;
-      if (!sess) { showToast('Please select a session first.', true); return; }
-      payload = { session_assigned: sess, initial_status: status || 'Active' };
+      const sessList = getChipGroup('approve-sessions');          // v12.51
+      const status   = document.getElementById('approve-member-status').value;
+      if (!sessList.length) { showToast('Please select at least one session.', true); return; }
+      payload = { sessions_assigned: sessList, initial_status: status || 'Active' };
     }
 
     btn.disabled = true;
