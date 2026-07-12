@@ -190,7 +190,10 @@
 
       <div class="form-group">
         <label>Session</label>
-        {% if not current_session %}
+        {# v12.54: scoped test = session_names, not current_session — an admin
+           with a persisted register session was getting mailshots silently
+           locked to that one session. #}
+        {% if not session_names %}
         <select id="s-session" onchange="previewRecipients()">
           <option value="all">All sessions</option>
           {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }} only</option>{% endfor %}

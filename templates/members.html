@@ -50,7 +50,10 @@
     <!-- Session -->
     <div class="filter-group">
       <span class="filter-label">Session</span>
-      {% if not current_session %}
+      {# v12.54: branch on whether the user is SCOPED (session_names), not on
+         current_session — the register picker persists active_session even for
+         admins (v12.41), which was collapsing this dropdown to one session. #}
+      {% if not session_names %}
       <select class="session-select" id="session-filter" onchange="filterMembers()">
         <option value="all">All Sessions</option>
         {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>{% endfor %}
