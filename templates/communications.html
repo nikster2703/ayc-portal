@@ -17,6 +17,26 @@
      TAB: Send Mailshot
      ═════════════════════════════════════════════════════ -->
 <div id="tab-send">
+
+  <!-- ── v12.56: incident notification mode banner ─────────────────── -->
+  <div id="incident-banner" style="display:none;margin-bottom:14px;
+       background:var(--amber-bg);border:1.5px solid color-mix(in srgb, var(--amber) 40%, transparent);
+       border-radius:12px;padding:12px 16px;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:15px">🚨</span>
+    <span id="incident-banner-text" style="font-size:13.5px;font-weight:700;color:var(--amber);flex:1;min-width:200px"></span>
+    <button class="btn btn-ghost btn-sm" onclick="exitIncidentMode()">✕ Cancel — back to normal mailshot</button>
+  </div>
+
+  <!-- ── v12.56: recent session incidents panel ────────────────────── -->
+  <div id="incidents-panel" class="comms-panel" style="display:none;min-height:0;margin-bottom:16px">
+    <div class="comms-panel-header" style="cursor:pointer" onclick="toggleIncidentsPanel()">
+      <span class="comms-panel-title"><i data-lucide="alert-triangle"></i><span class="ico-emoji">🚨 </span>
+        Session Incidents <span id="incidents-count" style="font-weight:600;opacity:.7"></span></span>
+      <span id="incidents-chevron" style="font-size:12px;color:var(--muted)">▾</span>
+    </div>
+    <div id="incidents-body" class="comms-panel-body" style="display:none;max-height:280px;overflow-y:auto"></div>
+  </div>
+
   <div class="comms-grid">
 
     <!-- ── Compose panel ─────────────────────────────── -->
@@ -832,7 +852,128 @@
       loadSenderProfiles(),
     ]);
     previewRecipients();
+    loadIncidents();
+    // v12.56: deep link from the register — /communications?incident=<note_id>
+    const _inc = new URLSearchParams(location.search).get('incident');
+    if (_inc) {
+      try {
+        const rows = await apiFetch(`/api/comms/incidents?note_id=${encodeURIComponent(_inc)}`);
+        if (rows.length) enterIncidentMode(rows[0]);
+        else showToast('Incident note not found (or outside your sessions).', true);
+      } catch (e) { showToast(e.message, true); }
+    }
   })();
+
+  /* ════════════════════════════════════════════════════
+     v12.56 — INCIDENT NOTIFICATIONS
+     A member-linked register note can be emailed to the
+     member's parent/guardian. Incident mode pre-fills the
+     compose panel and pins the recipient list to that
+     member's contacts; sending stamps the note.
+     ════════════════════════════════════════════════════ */
+  let _incidentNote  = null;
+  let _incidentRows  = [];
+
+  async function loadIncidents() {
+    try {
+      _incidentRows = await apiFetch('/api/comms/incidents?days=30');
+    } catch (_) { _incidentRows = []; }
+    const panel = document.getElementById('incidents-panel');
+    const body  = document.getElementById('incidents-body');
+    const count = document.getElementById('incidents-count');
+    if (!_incidentRows.length) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+    const pending = _incidentRows.filter(r => !r.notified_at).length;
+    count.textContent = pending ? `(${pending} not yet notified)` : `(all notified)`;
+    body.innerHTML = _incidentRows.map(r => {
+      const status = r.notified_at
+        ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;
+                 background:var(--green-bg);color:var(--green)">✓ Notified ${esc((r.notified_at||'').slice(0,10))}${r.notified_by_name ? ' by ' + esc(r.notified_by_name) : ''}</span>`
+        : `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;
+                 background:var(--amber-bg);color:var(--amber)">Not notified</span>`;
+      const noEmail = !r.contacts.length;
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;flex-wrap:wrap;
+             border-bottom:1px solid var(--border)">
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:13.5px;font-weight:700">${esc(r.member_name)}
+              <span style="font-weight:600;color:var(--muted)">· ${esc(r.note_type)} · ${esc(r.session_type)} ${esc(r.session_date)}</span></div>
+            ${r.title ? `<div style="font-size:12.5px;color:var(--muted)">${esc(r.title)}</div>` : ''}
+          </div>
+          ${status}
+          ${noEmail
+            ? `<span style="font-size:11.5px;color:var(--red);font-weight:700">No contact email on file</span>`
+            : `<button class="btn btn-ghost btn-sm" onclick='enterIncidentMode(${JSON.stringify(r.id)})'>✉️ ${r.notified_at ? 'Send again' : 'Notify parent/guardian'}</button>`}
+        </div>`;
+    }).join('');
+  }
+
+  function toggleIncidentsPanel() {
+    const body = document.getElementById('incidents-body');
+    const open = body.style.display === 'none';
+    body.style.display = open ? '' : 'none';
+    document.getElementById('incidents-chevron').textContent = open ? '▴' : '▾';
+  }
+
+  function enterIncidentMode(noteOrId) {
+    const note = typeof noteOrId === 'object'
+      ? noteOrId
+      : _incidentRows.find(r => r.id === noteOrId);
+    if (!note) return;
+    if (!note.contacts.length) {
+      showToast('No parent/guardian email on file for this member.', true);
+      return;
+    }
+    _incidentNote = note;
+
+    // Banner
+    const banner = document.getElementById('incident-banner');
+    banner.style.display = 'flex';
+    document.getElementById('incident-banner-text').textContent =
+      `Notifying parent/guardian of ${note.member_name} — ${note.note_type} on ` +
+      `${note.session_date} (${note.session_type} session). Review the message, then send.`;
+
+    // Subject + body pre-fill (full details per design decision — staff edit before sending)
+    document.getElementById('s-subject').value =
+      `${note.note_type} report — ${note.member_name} — ${fmtNiceDate(note.session_date)}`;
+    rteSetHTML('s-editor',
+      `<p>Dear Parent/Guardian,</p>` +
+      `<p>We are writing to let you know about a ${esc(note.note_type.toLowerCase())} record involving ` +
+      `<strong>${esc(note.member_name)}</strong> during the ${esc(note.session_type)} session on ` +
+      `<strong>${esc(fmtNiceDate(note.session_date))}</strong>.</p>` +
+      (note.title   ? `<p><strong>${esc(note.title)}</strong></p>` : '') +
+      (note.details ? `<p>${esc(note.details).replace(/\n/g, '<br>')}</p>` : '') +
+      `<p>If you would like to discuss this, please contact us — we are happy to talk it through.</p>` +
+      `<p>Kind regards,<br>{{ club_name }}</p>`);
+
+    // Pin the recipient list to this member's contacts
+    const listEl = document.getElementById('recipient-list');
+    listEl.innerHTML = note.contacts.map((c, i) => `
+      <label class="recip-row" for="inc-chk-${i}">
+        <input type="checkbox" class="recip-chk" id="inc-chk-${i}"
+               data-email="${esc(c.email)}" data-name="${esc(c.name)}"
+               checked onchange="updateCount()">
+        <span class="recip-name">${esc(c.name)}</span>
+        <span class="recip-email">${esc(c.email)}</span>
+      </label>`).join('');
+    updateCount();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function exitIncidentMode() {
+    _incidentNote = null;
+    document.getElementById('incident-banner').style.display = 'none';
+    document.getElementById('s-subject').value = '';
+    rteSetHTML('s-editor', '');
+    previewRecipients();   // restore the filter-driven recipient list
+  }
+
+  function fmtNiceDate(iso) {
+    try {
+      const d = new Date(iso + 'T00:00:00');
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    } catch (_) { return iso; }
+  }
 
   async function loadStatusFilter() {
     try {
@@ -922,6 +1063,7 @@
   function deselectAll() { document.querySelectorAll('.recip-chk').forEach(c => c.checked=false); updateCount(); }
 
   async function previewRecipients() {
+    if (_incidentNote) return;   // v12.56: incident mode pins the recipient list
     const memberType = document.getElementById('s-member-type').value;
     const sess       = document.getElementById('s-session').value;
     const status     = document.getElementById('s-status').value;
@@ -989,11 +1131,16 @@
           document_ids: selectedDocs.map(d=>d.id),
           template_id: tmplId ? parseInt(tmplId) : null,
           smtp_profile_id: profileId,
+          incident_note_id: _incidentNote ? _incidentNote.id : null,   // v12.56
         }),
       });
       let msg = `✅ Sent to ${res.sent} recipient${res.sent!==1?'s':''}.`;
       if (res.errors?.length) msg += ` (${res.errors.length} failed)`;
       showToast(msg);
+      if (_incidentNote && res.sent > 0) {   // v12.56: receipt stamped server-side
+        exitIncidentMode();
+        loadIncidents();
+      }
     } catch (e) {
       showToast(e.message, true);
     } finally {

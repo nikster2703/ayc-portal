@@ -576,11 +576,14 @@ def api_notes_get(session_type, date):
 
     rows = db.execute('''
         SELECT  sn.id, sn.note_type, sn.title, sn.details, sn.created_at,
+                sn.member_id, sn.notified_at,
                 u.username   AS added_by_name,
+                un.username  AS notified_by_name,
                 m.first_name AS member_first, m.surname AS member_surname
         FROM    session_notes sn
-        LEFT JOIN users   u ON u.id = sn.added_by
-        LEFT JOIN members m ON m.id = sn.member_id
+        LEFT JOIN users   u  ON u.id  = sn.added_by
+        LEFT JOIN users   un ON un.id = sn.notified_by
+        LEFT JOIN members m  ON m.id  = sn.member_id
         WHERE   sn.session_date = ? AND sn.session_type = ?
         ORDER   BY sn.created_at
     ''', (date, session_type)).fetchall()

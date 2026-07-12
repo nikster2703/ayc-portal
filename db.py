@@ -199,7 +199,9 @@ def ensure_tables():
             title        TEXT,
             details      TEXT,
             added_by     INTEGER REFERENCES users(id),
-            created_at   TEXT    DEFAULT (datetime('now'))
+            created_at   TEXT    DEFAULT (datetime('now')),
+            notified_at  TEXT,                              -- v12.56: incident→comms send receipt
+            notified_by  INTEGER REFERENCES users(id)
         );
         CREATE INDEX IF NOT EXISTS idx_session_notes_date_type ON session_notes(session_date, session_type);
         CREATE INDEX IF NOT EXISTS idx_session_notes_member    ON session_notes(member_id);
@@ -493,6 +495,10 @@ def ensure_tables():
         # whole-club payment covering every session — the meaning of all rows
         # recorded before this migration, so nobody's paid status changes.
         "ALTER TABLE member_payments ADD COLUMN session_type_id INTEGER REFERENCES session_types(id)",
+        # v12.56 (incident→comms): record when/by whom a session note was
+        # emailed to the member's parent/guardian via the Comms section.
+        "ALTER TABLE session_notes ADD COLUMN notified_at TEXT",
+        "ALTER TABLE session_notes ADD COLUMN notified_by INTEGER REFERENCES users(id)",
     ]
     for stmt in alter_stmts:
         try:

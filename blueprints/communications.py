@@ -397,9 +397,28 @@ def api_mailshots_send():
     explicit_recip = data.get('recipients')        # list of {email, name} from frontend checklist
     document_ids   = data.get('document_ids', [])  # list of document IDs to attach
     profile_id     = data.get('smtp_profile_id')   # optional — falls back to default profile
+    incident_note_id = data.get('incident_note_id')  # v12.56: stamps the session note on success
 
     if not subject or not body:
         return jsonify({'error': 'Subject and body are required'}), 400
+
+    # v12.56: validate the incident note up front so a bad id fails before
+    # any email goes out.
+    _incident_note = None
+    if incident_note_id:
+        try:
+            incident_note_id = int(incident_note_id)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid incident note id'}), 400
+        _incident_note = get_db().execute(
+            'SELECT * FROM session_notes WHERE id = ? AND member_id IS NOT NULL',
+            (incident_note_id,)
+        ).fetchone()
+        if not _incident_note:
+            return jsonify({'error': 'Incident note not found or not linked to a member'}), 404
+        _scoped = _assigned_session()
+        if _scoped is not None and _incident_note['session_type'] not in (_scoped or []):
+            return jsonify({'error': 'Forbidden'}), 403
 
     # ── Resolve SMTP credentials ──────────────────────────────────────────────
     # Prefer DB profile; fall back to .env values for backwards compatibility.
@@ -533,12 +552,28 @@ def api_mailshots_send():
         current_app.logger.error(f'Mailshot SMTP error: {e}')
         return jsonify({'error': f'Failed to connect to the mail server: {e}'}), 503
 
+    # v12.56: stamp the session note once at least one email actually went out
+    if _incident_note is not None and emails_sent > 0:
+        db.execute(
+            "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ? WHERE id = ?",
+            (session['user_id'], incident_note_id)
+        )
+        log_action('incident_notified', 'session_notes', incident_note_id, {
+            'member_id':    _incident_note['member_id'],
+            'note_type':    _incident_note['note_type'],
+            'session_type': _incident_note['session_type'],
+            'session_date': _incident_note['session_date'],
+            'recipients':   [r['email'] for r in recipients],
+            'sent':         emails_sent,
+        })
+
     # Log mailshot — store document IDs and profile used in filter_criteria for audit trail
     log_meta = {
         'recipients':       len(recipients),
         'manual_selection': bool(explicit_recip),
         'document_ids':     list(document_ids) if document_ids else [],
         'smtp_profile_id':  profile_id or (_prof['id'] if _prof else None),
+        'incident_note_id': incident_note_id if _incident_note is not None else None,
     }
     db.execute(
         'INSERT INTO mailshot_log (template_id, subject, sent_by, recipient_count, filter_criteria, notes)'
@@ -558,6 +593,78 @@ def api_mailshots_send():
         'attachments': len(attachments),
     })
     return jsonify({'success': True, 'sent': emails_sent, 'errors': errors})
+
+
+# ── Incident notifications (v12.56) ───────────────────────────────────────────
+
+@bp.route('/api/comms/incidents')
+@permission_required('mailshots.send')
+def api_comms_incidents():
+    """Member-linked session notes for the incidents panel, newest first.
+
+    ?days=N   window (default 30, clamped 1–365)
+    ?note_id= fetch one specific note regardless of the window (deep links
+              from the register may reference an older note)
+
+    Each row carries the member's parent/guardian contacts (email holders
+    only) and the notified_at/notified_by receipt. Session-scoped users only
+    see notes from their own sessions."""
+    db = get_db()
+    try:
+        days = max(1, min(365, int(request.args.get('days', 30))))
+    except (ValueError, TypeError):
+        days = 30
+    note_id = request.args.get('note_id')
+
+    conditions = ['sn.member_id IS NOT NULL']
+    params     = []
+    if note_id:
+        try:
+            conditions.append('sn.id = ?')
+            params.append(int(note_id))
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid note id'}), 400
+    else:
+        conditions.append("sn.created_at >= datetime('now', ?)")
+        params.append(f'-{days} days')
+
+    scoped = _assigned_session()
+    if scoped is not None:
+        if not scoped:
+            return jsonify([])
+        ph = ','.join('?' * len(scoped))
+        conditions.append(f'sn.session_type IN ({ph})')
+        params.extend(scoped)
+
+    rows = db.execute(f'''
+        SELECT  sn.id, sn.session_date, sn.session_type, sn.note_type,
+                sn.title, sn.details, sn.created_at,
+                sn.notified_at, sn.member_id,
+                u.username  AS added_by_name,
+                un.username AS notified_by_name,
+                m.first_name || ' ' || m.surname AS member_name
+        FROM    session_notes sn
+        JOIN    members m  ON m.id  = sn.member_id
+        LEFT JOIN users u  ON u.id  = sn.added_by
+        LEFT JOIN users un ON un.id = sn.notified_by
+        WHERE   {' AND '.join(conditions)}
+        ORDER   BY sn.created_at DESC
+        LIMIT   100
+    ''', params).fetchall()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        contacts = db.execute(
+            'SELECT contact_name, contact_email FROM member_contacts '
+            'WHERE member_id = ? ORDER BY contact_order',
+            (r['member_id'],)
+        ).fetchall()
+        d['contacts'] = [{'name': c['contact_name'] or d['member_name'],
+                          'email': c['contact_email'].strip()}
+                         for c in contacts if (c['contact_email'] or '').strip()]
+        out.append(d)
+    return jsonify(out)
 
 
 @bp.route('/api/mailshots')
