@@ -328,6 +328,7 @@ def ensure_tables():
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id       INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
             payment_type_id INTEGER NOT NULL REFERENCES payment_types(id),
+            session_type_id INTEGER REFERENCES session_types(id),  -- v12.53: NULL = whole-club payment
             period          TEXT    NOT NULL,
             payment_date    TEXT,
             amount          REAL,
@@ -488,6 +489,10 @@ def ensure_tables():
         # v12.41: flag the membership payment type so queries stop matching on
         # name = 'Membership' (which broke silently if the type was renamed)
         "ALTER TABLE payment_types ADD COLUMN is_membership INTEGER NOT NULL DEFAULT 0",
+        # v12.53 (multi-session Phase C): per-session payments. NULL means a
+        # whole-club payment covering every session — the meaning of all rows
+        # recorded before this migration, so nobody's paid status changes.
+        "ALTER TABLE member_payments ADD COLUMN session_type_id INTEGER REFERENCES session_types(id)",
     ]
     for stmt in alter_stmts:
         try:

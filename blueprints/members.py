@@ -71,11 +71,8 @@ def api_members():
         conditions.append(_MS_EXISTS.format(ph=','.join('?' * len(scoped))))
         params.extend(scoped)
 
-    # Paid filter — uses the paid_sub LEFT JOIN below
-    if paid_filter == '1':
-        conditions.append('paid_sub.member_id IS NOT NULL')
-    elif paid_filter == '0':
-        conditions.append("paid_sub.member_id IS NULL AND mt.registration_style != 'staff'")
+    # v12.53: the paid filter is applied in Python after per-session coverage
+    # is computed (see below) — SQL no longer joins a paid subquery.
 
     # v12.42: rule_id is now a bound parameter (was interpolated — safe since it
     # was int()-cast, but parameterised for consistency with everything else).
@@ -97,7 +94,6 @@ def api_members():
     rows = db.execute(f'''
         SELECT  DISTINCT m.*,
                 mt.registration_style,
-                CASE WHEN paid_sub.member_id IS NOT NULL THEN 1 ELSE 0 END AS paid_current,
                 c1.contact_name  AS contact1_name,
                 c1.contact_phone AS contact1_phone,
                 c1.contact_email AS contact1_email,
@@ -106,14 +102,6 @@ def api_members():
                 c2.contact_email AS contact2_email
         FROM    members m
         LEFT JOIN member_types mt ON mt.slug = m.member_type
-        LEFT JOIN (
-            SELECT DISTINCT mp2.member_id
-            FROM   member_payments mp2
-            JOIN   payment_types pt2 ON pt2.id = mp2.payment_type_id
-            WHERE  pt2.is_membership = 1
-              AND  mp2.period = ?
-              AND  mp2.voided_at IS NULL
-        ) paid_sub ON paid_sub.member_id = m.id
         {flag_join}
         LEFT JOIN member_contacts c1
                ON c1.member_id = m.id AND c1.contact_order = 1
@@ -121,12 +109,31 @@ def api_members():
                ON c2.member_id = m.id AND c2.contact_order = 2
         WHERE   {where}
         ORDER   BY m.first_name, m.surname
-    ''', [current_period] + flag_params + params).fetchall()
+    ''', flag_params + params).fetchall()
 
     member_ids        = [r['id'] for r in rows]
     custom_fields_map = {}
     flags_map         = {}
     sessions_map      = get_sessions_for_members(member_ids)   # v12.50: N sessions per member
+
+    # v12.53: per-session paid coverage for the current period. One batch query;
+    # a NULL session_type_id payment (whole club) covers all assigned sessions.
+    whole_club_paid = set()      # member_ids with a whole-club current payment
+    session_paid    = {}         # member_id -> {covered session names}
+    if member_ids and current_period:
+        _ph = ','.join('?' * len(member_ids))
+        for pr in db.execute(f'''
+            SELECT mp.member_id, mp.session_type_id, st.name AS session_name
+            FROM   member_payments mp
+            JOIN   payment_types pt ON pt.id = mp.payment_type_id
+            LEFT JOIN session_types st ON st.id = mp.session_type_id
+            WHERE  pt.is_membership = 1 AND mp.period = ? AND mp.voided_at IS NULL
+              AND  mp.member_id IN ({_ph})
+        ''', [current_period] + member_ids).fetchall():
+            if pr['session_type_id'] is None:
+                whole_club_paid.add(pr['member_id'])
+            elif pr['session_name']:
+                session_paid.setdefault(pr['member_id'], set()).add(pr['session_name'])
 
     if member_ids:
         placeholders = ','.join('?' * len(member_ids))
@@ -165,7 +172,25 @@ def api_members():
         # v12.50: authoritative session list; falls back to the echo column so a
         # member missed by the reconcile still renders somewhere sensible.
         d['sessions']      = sessions_map.get(r['id']) or ([d['session']] if d.get('session') else [])
+        # v12.53: paid_sessions = sessions covered this period; paid_current =
+        # fully covered (whole-club payment, or every assigned session covered).
+        if r['id'] in whole_club_paid:
+            d['paid_sessions'] = list(d['sessions'])
+            d['paid_current']  = 1
+        else:
+            covered = session_paid.get(r['id'], set())
+            d['paid_sessions'] = [s for s in d['sessions'] if s in covered]
+            d['paid_current']  = 1 if (d['sessions'] and len(d['paid_sessions']) == len(d['sessions'])) else 0
         result.append(d)
+
+    # v12.53: paid filter applied post-coverage ('1' = fully paid; '0' = not
+    # fully paid, staff excluded — same semantics as the old SQL filter).
+    if paid_filter == '1':
+        result = [d for d in result if d['paid_current'] == 1]
+    elif paid_filter == '0':
+        result = [d for d in result
+                  if d['paid_current'] != 1 and (d.get('registration_style') or '') != 'staff']
+
     return jsonify(result)
 
 

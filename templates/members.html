@@ -347,11 +347,20 @@
       </div>
     </div>
 
-    <div class="form-group" style="margin-bottom:12px">
-      <label class="form-label">Payment Method</label>
-      <select id="pm-method" class="form-input">
-        <option value="">— not specified —</option>
-      </select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group">
+        <label class="form-label">Payment Method</label>
+        <select id="pm-method" class="form-input">
+          <option value="">— not specified —</option>
+        </select>
+      </div>
+      <!-- v12.53: per-session payments — which session(s) does this cover? -->
+      <div class="form-group">
+        <label class="form-label">Covers</label>
+        <select id="pm-session" class="form-input">
+          <option value="">Whole club (all sessions)</option>
+        </select>
+      </div>
     </div>
 
     <div class="form-group" style="margin-bottom:4px">
@@ -397,6 +406,7 @@
   /* ── Permission awareness (v6.0) ──────────────────── */
   const USER_ROLE    = "{{ current_role }}";  // kept for any legacy checks
   const USER_PERMS   = new Set({{ user_permissions | tojson }});
+  const ALL_SESSION_TYPES = {{ session_types | tojson }};   // v12.53: [{id, name, …}]
   const CAN_EDIT     = USER_PERMS.has('members.edit');
   const IS_ADMIN     = USER_PERMS.has('members.hard_delete');
 
@@ -527,6 +537,39 @@
   loadMembers();
   initSortSelect();
 
+  /* ── v12.53: session-aware paid state ─────────────────
+     With a specific session selected, "paid" means covered for THAT session
+     (whole-club payment or a payment for it). On "All Sessions", "paid" means
+     fully covered; partially covered members get an amber badge instead. */
+  function isPaidInContext(m) {
+    const sessionVal = ((document.getElementById('session-filter') || {}).value) || 'all';
+    if (sessionVal !== 'all' && sessionVal !== '__staff__')
+      return (m.paid_sessions || []).includes(sessionVal);
+    return m.paid_current === 1;
+  }
+
+  function paidBadgeHtml(m, formal) {
+    const sessionVal = ((document.getElementById('session-filter') || {}).value) || 'all';
+    const specific   = sessionVal !== 'all' && sessionVal !== '__staff__';
+    const full = formal
+      ? `<span class="badge badge-paid-f"><i data-lucide="credit-card"></i>Paid</span>`
+      : `<span style="display:inline-block;padding:1px 8px;border-radius:20px;
+                      font-size:11px;font-weight:700;
+                      background:#dcfce7;color:#166534;
+                      border:1.5px solid #86efac">💳 Paid</span>`;
+    if (specific) return isPaidInContext(m) ? full : '';
+    if (m.paid_current === 1) return full;
+    const part = m.paid_sessions || [];
+    if (!part.length) return '';
+    const title = 'Paid for: ' + part.join(', ');
+    return formal
+      ? `<span class="badge badge-partpaid-f" title="${esc(title)}"><i data-lucide="credit-card"></i>Paid ${part.length}/${(m.sessions || []).length}</span>`
+      : `<span title="${esc(title)}" style="display:inline-block;padding:1px 8px;border-radius:20px;
+                      font-size:11px;font-weight:700;
+                      background:#fef9c3;color:#854d0e;
+                      border:1.5px solid #fde68a">💳 Paid ${part.length}/${(m.sessions || []).length}</span>`;
+  }
+
   /* ── Filters ───────────────────────────────────────── */
   function getPool() {
     const sessionVal   = document.getElementById('session-filter').value;
@@ -562,10 +605,13 @@
       } else {
         sessOk = !isStaff && sessList.includes(sessionVal);
       }
-      // Paid filter — only applies to non-staff members
+      // Paid filter — only applies to non-staff members.
+      // v12.53: evaluated against the selected session — paid for THAT session
+      // when one is picked, fully paid across all sessions on "All".
       let paidOk = true;
       if (paidFilter !== 'all' && !isStaff) {
-        paidOk = paidFilter === 'paid' ? m.paid_current === 1 : m.paid_current !== 1;
+        const covered = isPaidInContext(m);
+        paidOk = paidFilter === 'paid' ? covered : !covered;
       }
 
       return statusOk && sessOk && paidOk;
@@ -798,13 +844,8 @@
                                 background:${sBadgeCol}22;color:${sBadgeCol};
                                 border:1.5px solid ${sBadgeCol}55">${esc(m.status || 'Active')}</span>`;
 
-    // ── Paid badge (members only, not staff) ─────────────────────────────────────
-    const paidBadge = (!isStaff && m.paid_current === 1)
-      ? `<span style="display:inline-block;padding:1px 8px;border-radius:20px;
-                      font-size:11px;font-weight:700;
-                      background:#dcfce7;color:#166534;
-                      border:1.5px solid #86efac">💳 Paid</span>`
-      : '';
+    // ── Paid badge (members only, not staff) — v12.53 session-aware ─────────────
+    const paidBadge = isStaff ? '' : paidBadgeHtml(m, false);
 
     // ── Alert flag badges ────────────────────────────────────────────────────────
     const activeFlags  = (m.flags || []);
@@ -984,8 +1025,7 @@
 
       const typeBadgeF = showBadge
         ? `<span class="badge badge-type-f">${esc(typeInfo.icon || '')} ${esc(m.staff_role || typeInfo.name || typeSlug)}</span>` : '';
-      const paidBadgeF = (!isStaff && m.paid_current === 1)
-        ? `<span class="badge badge-paid-f"><i data-lucide="credit-card"></i>Paid</span>` : '';
+      const paidBadgeF = isStaff ? '' : paidBadgeHtml(m, true);   // v12.53 session-aware
       const listInfoF = listFields.length
         ? `<div class="meta-line">${listFields.map(f =>
              `<span>${esc(f.label)} <b>${renderFieldVal(f, m)}</b></span>`).join('')}</div>`
@@ -1214,19 +1254,26 @@
       const data = await apiFetch(`/api/members/${memberId}/payments`);
       const payments = data.payments || [];
 
-      // Current period badge
+      // Current period badge — v12.53: partial coverage shows amber with detail
       const period   = data.current_period || '';
       const isPaid   = data.paid_current;
+      const paidSess = data.paid_sessions || [];
+      const allSess  = data.member_sessions || [];
+      const partial  = !isPaid && paidSess.length > 0;
+      const paidLbl  = isPaid ? '✓ Paid'
+                     : partial ? `◐ Paid ${paidSess.length}/${allSess.length} (${paidSess.map(esc).join(', ')})`
+                     : '✗ Unpaid';
+      const paidBg   = isPaid ? '#22c55e20' : partial ? '#f59e0b20' : '#ef444420';
+      const paidCol  = isPaid ? 'var(--green)' : partial ? 'var(--amber)' : 'var(--red)';
+      const paidBrd  = isPaid ? '#22c55e40' : partial ? '#f59e0b40' : '#ef444440';
       if (statusEl && period) {
         statusEl.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;font-weight:700;text-transform:uppercase;
                          letter-spacing:.06em;color:var(--muted)">Current period: ${esc(period)}</span>
             <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;
-                         background:${isPaid ? '#22c55e20' : '#ef444420'};
-                         color:${isPaid ? 'var(--green)' : 'var(--red)'};
-                         border:1px solid ${isPaid ? '#22c55e40' : '#ef444440'}">
-              ${isPaid ? '✓ Paid' : '✗ Unpaid'}
+                         background:${paidBg};color:${paidCol};border:1px solid ${paidBrd}">
+              ${paidLbl}
             </span>
             ${USER_PERMS.has('payments.record') ? `<button class="btn btn-ghost btn-sm"
               style="font-size:12px;padding:3px 10px;margin-left:auto"
@@ -1256,6 +1303,7 @@
               <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Date</th>
               <th style="text-align:right;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Amount</th>
               <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Method</th>
+              <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border)">Covers</th>
             </tr>
           </thead>
           <tbody>
@@ -1271,7 +1319,7 @@
               const cellBorder = hasActions ? 'border-bottom:none' : 'border-bottom:1px solid var(--border)';
               const actionRow = hasActions
                 ? `<tr>
-                     <td colspan="5" style="padding:1px 0 5px 0;border-bottom:1px solid var(--border);text-align:right">
+                     <td colspan="6" style="padding:1px 0 5px 0;border-bottom:1px solid var(--border);text-align:right">
                        ${CAN_RECORD ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px"
                          onclick="event.stopPropagation();openEditPaymentModal(${memberId},${p.id})">Edit</button>` : ''}
                        ${CAN_MANAGE ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 7px;color:var(--red)"
@@ -1286,6 +1334,7 @@
                 <td style="padding:5px 6px 3px;${cellBorder}">${p.payment_date ? fmtDate(p.payment_date) : '—'}</td>
                 <td style="padding:5px 6px 3px;text-align:right;${cellBorder}">${amtStr}</td>
                 <td style="padding:5px 6px 3px;${cellBorder}">${esc(p.payment_method || '—')}</td>
+                <td style="padding:5px 6px 3px;${cellBorder}">${p.session_name ? esc(p.session_name) : 'Whole club'}</td>
               </tr>${actionRow}`;
             }).join('')}
           </tbody>
@@ -1320,6 +1369,14 @@
     methEl.innerHTML = `<option value="">— not specified —</option>` +
       _paymentMethods.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
 
+    // v12.53: populate "Covers" with the member's assigned sessions only
+    const sessEl  = document.getElementById('pm-session');
+    const mRec    = allMembers.find(x => x.id === memberId);
+    const mSess   = (mRec && mRec.sessions) || [];
+    sessEl.innerHTML = `<option value="">Whole club (all sessions)</option>` +
+      ALL_SESSION_TYPES.filter(st => mSess.includes(st.name))
+        .map(st => `<option value="${st.id}">${esc(st.name)} only</option>`).join('');
+
     // Pre-fill period with current
     document.getElementById('pm-period').value  = _currentPeriod || '';
     document.getElementById('pm-date').value    = '';
@@ -1340,6 +1397,7 @@
           document.getElementById('pm-amount').value = pay.amount != null ? pay.amount : '';
           methEl.value  = pay.method_id || '';
           document.getElementById('pm-notes').value  = pay.notes || '';
+          document.getElementById('pm-session').value = pay.session_type_id || '';   // v12.53
         }
       } catch(e) { /* ignore */ }
     } else {
@@ -1372,6 +1430,7 @@
     if (!typeId) { errEl.textContent = 'Please select a payment type.'; errEl.style.display = ''; return; }
     if (!period) { errEl.textContent = 'Period is required.'; errEl.style.display = ''; return; }
 
+    const sessId = document.getElementById('pm-session').value || null;   // v12.53
     const body = {
       payment_type_id: parseInt(typeId),
       period,
@@ -1379,6 +1438,7 @@
       amount:       amount !== '' ? parseFloat(amount) : null,
       method_id:    methId ? parseInt(methId) : null,
       notes,
+      session_type_id: sessId ? parseInt(sessId) : null,
     };
 
     const btn = document.getElementById('payment-modal-save');
@@ -2124,6 +2184,13 @@
     color: var(--green); background: var(--green-bg);
     border: 1px solid color-mix(in srgb, var(--green) 28%, transparent);
   }
+  /* v12.53: partially paid (some sessions covered) — amber */
+  .badge-partpaid-f {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--amber); background: var(--amber-bg);
+    border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  }
+  .badge-partpaid-f .lucide { width: 11px; height: 11px; }
   .badge-paid-f .lucide { width: 11px; height: 11px; }
   .meta-line { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; gap: 10px; flex-wrap: wrap; }
   .meta-line b { color: var(--text); font-weight: 600; }

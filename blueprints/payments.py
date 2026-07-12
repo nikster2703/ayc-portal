@@ -50,6 +50,25 @@ def _member_in_scope(member_id):
     return member_in_scope(member_id)
 
 
+def _validate_payment_session(db, member_id, session_type_id):
+    """v12.53: return an error string if session_type_id is not a valid session
+    the member is assigned to, else None."""
+    try:
+        session_type_id = int(session_type_id)
+    except (ValueError, TypeError):
+        return 'Invalid session'
+    st = db.execute('SELECT id FROM session_types WHERE id = ?', (session_type_id,)).fetchone()
+    if not st:
+        return 'Invalid session'
+    assigned = db.execute(
+        'SELECT 1 FROM member_sessions WHERE member_id = ? AND session_type_id = ?',
+        (member_id, session_type_id)
+    ).fetchone()
+    if not assigned:
+        return 'Member is not assigned to that session'
+    return None
+
+
 # ── Member payment endpoints ──────────────────────────────────────────────────
 
 @bp.route('/api/members/<int:member_id>/payments')
@@ -80,10 +99,13 @@ def api_member_payments_list(member_id):
                 pm.name  AS payment_method,
                 mp.payment_type_id,
                 mp.method_id,
+                mp.session_type_id,
+                st.name AS session_name,       -- v12.53: NULL = whole club
                 u_rec.username  AS recorded_by,
                 u_void.username AS voided_by_user
         FROM    member_payments mp
         JOIN    payment_types pt  ON pt.id = mp.payment_type_id
+        LEFT JOIN session_types st ON st.id = mp.session_type_id
         LEFT JOIN payment_methods pm ON pm.id = mp.method_id
         LEFT JOIN users u_rec  ON u_rec.id = mp.recorded_by
         LEFT JOIN users u_void ON u_void.id = mp.voided_by
@@ -94,20 +116,33 @@ def api_member_payments_list(member_id):
     current = _current_period()
     payments = [_payment_row(r) for r in rows]
 
-    # Determine whether this member has a valid (non-voided) membership payment
-    # for the current period.
+    # v12.53: per-session paid state. A current, non-voided membership payment
+    # with session_type_id NULL covers every session the member is assigned to;
+    # a session-specific one covers only that session.
     # v12.41: match on the is_membership flag, not the type's display name
-    paid_current = any(
-        p for p in payments
-        if p['is_membership']
-        and p['period'] == current
-        and not p['voided_at']
+    from helpers import get_member_session_names
+    member_sessions = get_member_session_names(member_id)
+    current_pays = [p for p in payments
+                    if p['is_membership'] and p['period'] == current and not p['voided_at']]
+    if any(p['session_type_id'] is None for p in current_pays):
+        paid_sessions = list(member_sessions)
+        whole_club    = True
+    else:
+        covered       = {p['session_name'] for p in current_pays if p['session_name']}
+        paid_sessions = [s for s in member_sessions if s in covered]
+        whole_club    = False
+    # paid_current keeps its boolean shape: fully covered (all sessions, or a
+    # whole-club payment — which also covers members with no sessions assigned).
+    paid_current = bool(current_pays) and (
+        whole_club or (bool(member_sessions) and len(paid_sessions) == len(member_sessions))
     )
 
     return jsonify({
-        'payments':       payments,
-        'current_period': current,
-        'paid_current':   paid_current,
+        'payments':        payments,
+        'current_period':  current,
+        'paid_current':    paid_current,
+        'paid_sessions':   paid_sessions,   # v12.53
+        'member_sessions': member_sessions, # v12.53
     })
 
 
@@ -128,11 +163,19 @@ def api_member_payments_create(member_id):
     amount_raw      = data.get('amount')
     method_id       = data.get('method_id') or None
     notes           = (data.get('notes') or '').strip() or None
+    session_type_id = data.get('session_type_id') or None   # v12.53: NULL = whole club
 
     if not payment_type_id:
         return jsonify({'error': 'payment_type_id is required'}), 400
     if not period:
         return jsonify({'error': 'period is required'}), 400
+
+    # v12.53: a session-specific payment must reference a session the member is
+    # actually assigned to (whole-club NULL always allowed).
+    if session_type_id:
+        err = _validate_payment_session(db, member_id, session_type_id)
+        if err:
+            return jsonify({'error': err}), 400
 
     # Validate amount
     amount = None
@@ -158,15 +201,16 @@ def api_member_payments_create(member_id):
     user_id = session.get('user_id')
     db.execute(
         '''INSERT INTO member_payments
-           (member_id, payment_type_id, period, payment_date, amount, method_id, notes, recorded_by)
-           VALUES (?,?,?,?,?,?,?,?)''',
-        (member_id, payment_type_id, period, payment_date, amount, method_id, notes, user_id)
+           (member_id, payment_type_id, period, payment_date, amount, method_id, notes, recorded_by, session_type_id)
+           VALUES (?,?,?,?,?,?,?,?,?)''',
+        (member_id, payment_type_id, period, payment_date, amount, method_id, notes, user_id, session_type_id)
     )
     db.commit()
 
     log_action('payment_record', 'members', member_id, {
         'payment_type_id': payment_type_id, 'period': period,
         'amount': amount, 'payment_date': payment_date,
+        'session_type_id': session_type_id,
     })
 
     return jsonify({'ok': True})
@@ -203,6 +247,15 @@ def api_payment_update(payment_id):
         notes = (data.get('notes') or '').strip() or None
     else:
         notes = pay['notes']
+    # v12.53: session may be changed (or cleared back to whole-club)
+    if 'session_type_id' in data:
+        session_type_id = data.get('session_type_id') or None
+        if session_type_id:
+            err = _validate_payment_session(db, pay['member_id'], session_type_id)
+            if err:
+                return jsonify({'error': err}), 400
+    else:
+        session_type_id = pay['session_type_id']
 
     amount = pay['amount']
     if amount_raw not in (None, ''):
@@ -227,9 +280,9 @@ def api_payment_update(payment_id):
 
     db.execute(
         '''UPDATE member_payments
-           SET payment_type_id=?, period=?, payment_date=?, amount=?, method_id=?, notes=?
+           SET payment_type_id=?, period=?, payment_date=?, amount=?, method_id=?, notes=?, session_type_id=?
            WHERE id=?''',
-        (payment_type_id, period, payment_date, amount, method_id, notes, payment_id)
+        (payment_type_id, period, payment_date, amount, method_id, notes, session_type_id, payment_id)
     )
     db.commit()
 
