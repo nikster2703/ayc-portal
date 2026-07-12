@@ -14,6 +14,20 @@
   }
   .filter-group .session-select { margin: 0; }
   .filter-sort { margin-left: 0; }
+
+  /* v12.50: session checkbox chips in the edit modal */
+  .sess-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1.5px solid var(--border); border-radius: 99px;
+    padding: 6px 13px; cursor: pointer; user-select: none;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    background: var(--surface); transition: border-color .15s, color .15s, background .15s;
+  }
+  .sess-chip:hover { border-color: var(--accent); }
+  .sess-chip:has(input:checked) {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  .sess-chip input { accent-color: var(--accent); margin: 0; }
 </style>
 
 <div class="toolbar members-toolbar" style="flex-direction:column;align-items:stretch;gap:10px">
@@ -160,12 +174,16 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Session</label>
-        <select id="e-session" class="form-input">
-          <option value="">— not set —</option>
-          {% for st in session_types %}<option value="{{ st.name }}">{{ st.name }}</option>
+        <label class="form-label">Sessions</label>
+        <!-- v12.50: multi-session membership — checkbox chips, one per session type -->
+        <div id="e-sessions" style="display:flex;flex-wrap:wrap;gap:8px">
+          {% for st in session_types %}
+          <label class="sess-chip">
+            <input type="checkbox" value="{{ st.name }}">
+            <span>{{ st.name }}</span>
+          </label>
           {% endfor %}
-        </select>
+        </div>
       </div>
     </div>
 
@@ -517,7 +535,10 @@
     const paidFilter   = ((document.getElementById('paid-filter') || {}).value || 'all');
 
     return allMembers.filter(m => {
-      const sess    = (m.session || '').trim();
+      // v12.50: a member matches the session filter if ANY assigned session matches
+      const sessList = (m.sessions && m.sessions.length)
+        ? m.sessions
+        : ((m.session || '').trim() ? [(m.session || '').trim()] : []);
       const isStaff = m.registration_style === 'staff';
       const ms      = getStatusMeta(m.status);
 
@@ -539,7 +560,7 @@
       } else if (sessionVal === '__staff__') {
         sessOk = isStaff;
       } else {
-        sessOk = !isStaff && sess === sessionVal;
+        sessOk = !isStaff && sessList.includes(sessionVal);
       }
       // Paid filter — only applies to non-staff members
       let paidOk = true;
@@ -767,9 +788,10 @@
       : '';
 
     // ── Session / status subline ─────────────────────────────────────────────────
+    // v12.50: members can belong to several sessions — list them all
     const sessionLabel = isStaff
       ? (esc(v(m.session)) + ' sessions')
-      : esc(v(m.session));
+      : esc((m.sessions && m.sessions.length) ? m.sessions.join(' · ') : v(m.session));
     const sBadgeCol    = statusMs.colour || '#64748b';
     const statusBadge  = `<span style="display:inline-block;padding:1px 9px;border-radius:20px;
                                 font-size:11px;font-weight:700;
@@ -897,7 +919,7 @@
                   display:flex;justify-content:flex-end">
         <button class="btn btn-ghost btn-sm"
                 style="color:var(--red);opacity:.6;font-size:12px"
-                onclick="event.stopPropagation();openPermDeleteModal(${m.id},'${esc(full)}',${m.session ? `'${esc(m.session)}'` : 'null'})">
+                onclick="event.stopPropagation();openPermDeleteModal(${m.id},'${esc(full)}',${(m.sessions && m.sessions.length) ? `'${esc(m.sessions.join(', '))}'` : (m.session ? `'${esc(m.session)}'` : 'null')})">
           🗑 Permanently delete record
         </button>
       </div>` : '';
@@ -1602,7 +1624,10 @@
     document.getElementById('e-member_id').textContent = m.member_id || '—';
     document.getElementById('e-first_name').value      = m.first_name || '';
     document.getElementById('e-surname').value         = m.surname || '';
-    document.getElementById('e-session').value         = m.session || '';
+    // v12.50: multi-session — tick the chip for each assigned session
+    const assigned = new Set(m.sessions || (m.session ? [m.session] : []));
+    document.querySelectorAll('#e-sessions input[type="checkbox"]')
+            .forEach(cb => { cb.checked = assigned.has(cb.value); });
 
     // Status badge (read-only display — changes go through the status modal)
     const smeta = getStatusMeta(m.status);
@@ -1781,7 +1806,7 @@
     const payload = {
       first_name:    document.getElementById('e-first_name').value.trim(),
       surname:       document.getElementById('e-surname').value.trim(),
-      session:       document.getElementById('e-session').value,
+      sessions:      [...document.querySelectorAll('#e-sessions input:checked')].map(cb => cb.value),
       contacts: [
         {
           contact_order: 1,

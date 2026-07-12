@@ -11,6 +11,8 @@ from flask import Blueprint, current_app, jsonify, request, session
 from helpers import (
     get_db, log_action, permission_required,
     _assigned_session, get_session_types, rate_limit_touch, client_ip,
+    get_member_session_names, get_sessions_for_members, set_member_sessions,
+    member_in_scope,
 )
 from config import GETADDRESS_KEY
 
@@ -52,16 +54,21 @@ def api_members():
         conditions.append('m.status = ?')
         params.append(status_filter)
 
+    # v12.50 Phase A: session filter + scope run against the member_sessions
+    # junction table — a member assigned to N sessions matches any of them.
+    _MS_EXISTS = ('EXISTS (SELECT 1 FROM member_sessions ms_f '
+                  'JOIN session_types st_f ON st_f.id = ms_f.session_type_id '
+                  'WHERE ms_f.member_id = m.id AND st_f.name IN ({ph}))')
+
     if session_filter != 'all':
-        conditions.append('m.session = ?')
+        conditions.append(_MS_EXISTS.format(ph='?'))
         params.append(session_filter)
 
     scoped = _assigned_session()  # None (admin) or list of session names
     if scoped is not None:
         if not scoped:
             return jsonify([])
-        placeholders = ','.join('?' * len(scoped))
-        conditions.append(f'm.session IN ({placeholders})')
+        conditions.append(_MS_EXISTS.format(ph=','.join('?' * len(scoped))))
         params.extend(scoped)
 
     # Paid filter — uses the paid_sub LEFT JOIN below
@@ -119,6 +126,7 @@ def api_members():
     member_ids        = [r['id'] for r in rows]
     custom_fields_map = {}
     flags_map         = {}
+    sessions_map      = get_sessions_for_members(member_ids)   # v12.50: N sessions per member
 
     if member_ids:
         placeholders = ','.join('?' * len(member_ids))
@@ -154,6 +162,9 @@ def api_members():
         d = dict(r)
         d['custom_fields'] = custom_fields_map.get(r['id'], {})
         d['flags']         = flags_map.get(r['id'], [])
+        # v12.50: authoritative session list; falls back to the echo column so a
+        # member missed by the reconcile still renders somewhere sensible.
+        d['sessions']      = sessions_map.get(r['id']) or ([d['session']] if d.get('session') else [])
         result.append(d)
     return jsonify(result)
 
@@ -166,8 +177,7 @@ def api_member_detail(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()  # None or list
-    if scoped is not None and (member['session'] or '') not in scoped:
+    if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
     contacts           = db.execute(
@@ -176,6 +186,7 @@ def api_member_detail(member_id):
     ).fetchall()
     result             = dict(member)
     result['contacts'] = [dict(c) for c in contacts]
+    result['sessions'] = get_member_session_names(member_id)
     return jsonify(result)
 
 
@@ -189,8 +200,7 @@ def api_member_viewed(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()  # None or list
-    if scoped is not None and (member['session'] or '') not in scoped:
+    if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
     log_action('view_member', 'members', member_id, {
@@ -277,18 +287,39 @@ def api_member_update(member_id):
     if not before:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()  # None or list
-    if scoped is not None and (before['session'] or '') not in scoped:
+    if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
+    # v12.50: 'session' removed from text_fields — session assignment now goes
+    # through set_member_sessions() below (junction table + echo column).
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
                    'ethnicity_religion', 'medical_sen', 'gp_contact',
-                   'session', 'comments', 'date_registered', 'staff_role']
+                   'comments', 'date_registered', 'staff_role']
     # NOTE: status is intentionally excluded — use POST /api/members/<id>/status
     bool_fields = ['unattended_exit', 'gdpr_consent']
 
     updates, params = [], []
     changes = {}
+
+    # v12.50 Phase A: multi-session assignment. Accepts 'sessions' (list) from
+    # the new UI, or legacy 'session' (single string) from any older caller.
+    if 'sessions' in data or 'session' in data:
+        wanted = data['sessions'] if 'sessions' in data else (
+            [data['session']] if (data.get('session') or '').strip() else []
+        )
+        if not isinstance(wanted, list):
+            return jsonify({'error': 'sessions must be a list of session names'}), 400
+        old_sessions = get_member_session_names(member_id)
+        new_sessions = set_member_sessions(member_id, wanted)
+        if old_sessions != new_sessions:
+            changes['sessions'] = {'from': old_sessions, 'to': new_sessions}
+        # Scoped users must not edit themselves out of reach accidentally —
+        # they may only save a session set that still intersects their scope
+        # (or an empty set, which admins can later reassign).
+        scoped = _assigned_session()
+        if scoped is not None and new_sessions and not (set(new_sessions) & set(scoped)):
+            db.rollback()
+            return jsonify({'error': 'You cannot remove a member from all of your sessions'}), 400
 
     for field in text_fields:
         if field in data:
@@ -388,8 +419,7 @@ def api_member_status_change(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    scoped = _assigned_session()
-    if scoped is not None and (member['session'] or '') not in scoped:
+    if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
     old_status    = member['status']
@@ -446,9 +476,8 @@ def api_member_permanent_delete(member_id):
 
     # v12.42: session-scope check for consistency with every other member
     # endpoint (hard_delete is admin-only by default, but a custom role could
-    # grant it to a scoped user).
-    scoped = _assigned_session()
-    if scoped is not None and (member['session'] or '') not in scoped:
+    # grant it to a scoped user). v12.50: any-session intersection.
+    if not member_in_scope(member_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     expected = f"{member['first_name']} {member['surname']}"
@@ -557,11 +586,10 @@ def api_postcode_lookup(postcode):
 def api_member_activity(member_id):
     """Return audit log entries for a specific member, excluding noisy view events."""
     db     = get_db()
-    scoped = _assigned_session()
-    member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
+    member = db.execute('SELECT id FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Not found'}), 404
-    if scoped is not None and (member['session'] or '') not in scoped:
+    if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
     rows = db.execute('''
@@ -586,11 +614,9 @@ def api_member_tags_get(member_id):
 
     # v12.42: session-scope check — this was the only member read endpoint
     # without one, letting scoped users read tags for out-of-session members.
-    scoped = _assigned_session()
-    if scoped is not None:
-        member = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
-        if not member or (member['session'] or '') not in scoped:
-            return jsonify({'error': 'Forbidden'}), 403
+    # v12.50: any-session intersection.
+    if not member_in_scope(member_id):
+        return jsonify({'error': 'Forbidden'}), 403
 
     rows = db.execute('''
         SELECT  mt.id AS assignment_id, td.id, td.name, td.icon, td.colour, td.category,

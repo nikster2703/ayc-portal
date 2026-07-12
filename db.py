@@ -136,6 +136,19 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_user_sessions_user    ON user_sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_sessions_session ON user_sessions(session_type_id);
+        -- v12.50 Phase A (multi-session membership): member-to-session junction
+        -- table, mirroring user_sessions. members.session remains as a read-only
+        -- echo (first assigned session by sort_order) until Phases B–D convert
+        -- the remaining readers, then it will be dropped from all queries.
+        CREATE TABLE IF NOT EXISTS member_sessions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id       INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+            session_type_id INTEGER NOT NULL REFERENCES session_types(id) ON DELETE CASCADE,
+            created_at      TEXT    DEFAULT (datetime('now')),
+            UNIQUE(member_id, session_type_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_member_sessions_member  ON member_sessions(member_id);
+        CREATE INDEX IF NOT EXISTS idx_member_sessions_session ON member_sessions(session_type_id);
         CREATE TABLE IF NOT EXISTS settings (
             key        TEXT PRIMARY KEY,
             value      TEXT NOT NULL,
@@ -543,6 +556,31 @@ def ensure_tables():
         logger.info('Migration: user_sessions populated from session_assigned (v10.3)')
     except Exception as _e:
         logger.warning('user_sessions data migration skipped: %s', _e)
+
+    # v12.50 Phase A: reconcile member_sessions from members.session.
+    # Set-based INSERT OR IGNORE — idempotent AND self-healing: it runs on every
+    # startup so members created by not-yet-converted write paths (approvals,
+    # import) still get their junction row from the members.session value those
+    # paths write. Members whose session is blank or doesn't match a session
+    # type are counted and logged rather than silently skipped.
+    try:
+        db.execute('''
+            INSERT OR IGNORE INTO member_sessions (member_id, session_type_id)
+            SELECT m.id, st.id
+            FROM   members m
+            JOIN   session_types st ON st.name = m.session
+            WHERE  m.session IS NOT NULL AND m.session != ''
+        ''')
+        _orphans = db.execute('''
+            SELECT COUNT(*) FROM members m
+            WHERE  NOT EXISTS (SELECT 1 FROM member_sessions ms WHERE ms.member_id = m.id)
+        ''').fetchone()[0]
+        db.commit()
+        if _orphans:
+            logger.warning('member_sessions reconcile: %d member(s) have no session '
+                           'assignment (blank or unknown session value)', _orphans)
+    except Exception as _e:
+        logger.warning('member_sessions reconcile skipped: %s', _e)
 
     # v8.3: unique guard on attendance
     try:

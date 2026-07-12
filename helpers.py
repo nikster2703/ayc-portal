@@ -465,6 +465,101 @@ def session_to_weekday_map():
     return {s['name']: s['weekday'] for s in get_session_types() if s['weekday'] is not None}
 
 
+# ── Multi-session membership helpers (v12.50 Phase A) ─────────────────────────
+# A member belongs to N sessions via the member_sessions junction table.
+# members.session is kept as a read-only echo (first assigned session by
+# sort_order) so not-yet-converted readers keep working; never treat it as
+# authoritative in new code.
+
+def get_member_session_names(member_id):
+    """Return the member's assigned session names, ordered by session sort order."""
+    db   = get_db()
+    rows = db.execute(
+        'SELECT st.name FROM member_sessions ms '
+        'JOIN session_types st ON st.id = ms.session_type_id '
+        'WHERE ms.member_id = ? ORDER BY st.sort_order, st.name',
+        (member_id,)
+    ).fetchall()
+    return [r['name'] for r in rows]
+
+
+def get_sessions_for_members(member_ids):
+    """Batch version: {member_id: [session names…]} for a list of member ids."""
+    if not member_ids:
+        return {}
+    db = get_db()
+    ph = ','.join('?' * len(member_ids))
+    rows = db.execute(
+        f'SELECT ms.member_id, st.name FROM member_sessions ms '
+        f'JOIN session_types st ON st.id = ms.session_type_id '
+        f'WHERE ms.member_id IN ({ph}) ORDER BY st.sort_order, st.name',
+        list(member_ids)
+    ).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r['member_id'], []).append(r['name'])
+    return out
+
+
+def set_member_sessions(member_id, names):
+    """Replace a member's session assignments with the given session names.
+
+    Validates names against session_types (unknown names are dropped), rewrites
+    member_sessions, and keeps the members.session echo column in sync (first
+    assigned session by sort_order; empty string when none). Caller commits.
+    Returns the cleaned, ordered list actually stored.
+    """
+    db    = get_db()
+    types = {s['name']: s['id'] for s in get_session_types()}
+    clean = [n for n in dict.fromkeys(names or []) if n in types]   # dedupe, validate
+    clean.sort(key=lambda n: next(i for i, s in enumerate(get_session_types()) if s['name'] == n))
+
+    db.execute('DELETE FROM member_sessions WHERE member_id = ?', (member_id,))
+    for n in clean:
+        db.execute(
+            'INSERT OR IGNORE INTO member_sessions (member_id, session_type_id) VALUES (?,?)',
+            (member_id, types[n])
+        )
+    db.execute('UPDATE members SET session = ? WHERE id = ?',
+               (clean[0] if clean else '', member_id))
+    return clean
+
+
+def member_in_scope(member_id, scoped=None):
+    """True if the user may access this member: any of the member's sessions
+    intersects the user's session scope. Admins (scoped None) always pass.
+
+    Falls back to the members.session echo when the member has no junction rows
+    (defensive — the startup reconcile should prevent this)."""
+    if scoped is None:
+        scoped = _assigned_session()
+    if scoped is None:            # unscoped admin
+        return True
+    if not scoped:                # scoped user with no sessions
+        return False
+    db = get_db()
+    ph = ','.join('?' * len(scoped))
+    hit = db.execute(
+        f'SELECT 1 FROM member_sessions ms '
+        f'JOIN session_types st ON st.id = ms.session_type_id '
+        f'WHERE ms.member_id = ? AND st.name IN ({ph}) LIMIT 1',
+        [member_id] + list(scoped)
+    ).fetchone()
+    if hit:
+        return True
+    row = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
+    return bool(row) and (row['session'] or '') in scoped
+
+
+def member_session_filter_sql(alias='m'):
+    """SQL EXISTS fragment matching members assigned to any of N session names.
+    Usage: cond, params = member_session_filter_sql(); cond needs the name list
+    appended to params by the caller via the returned placeholder count."""
+    return (f'EXISTS (SELECT 1 FROM member_sessions ms_f '
+            f'JOIN session_types st_f ON st_f.id = ms_f.session_type_id '
+            f'WHERE ms_f.member_id = {alias}.id AND st_f.name IN ({{ph}}))')
+
+
 # ── Register helpers ───────────────────────────────────────────────────────────
 
 def _is_register_locked(sess_type, sess_date):
