@@ -188,12 +188,42 @@
     <!-- Options -->
     <div style="background:var(--surface-2);border:1.5px solid var(--border);border-radius:10px;
                 padding:14px 16px;margin-bottom:18px">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+
+      <!-- Match-fields picker: defines "the same person" for both options below -->
+      <div style="margin-bottom:4px">
+        <div style="font-weight:600;font-size:14px;color:var(--navy)">Match duplicates on</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:10px">
+          Choose which fields identify the same person. Used both to skip existing
+          members and to combine multi-session rows.
+        </div>
+        <div id="match-fields-group" style="display:flex;flex-wrap:wrap;gap:8px 16px"></div>
+        <div id="match-fields-empty" style="display:none;font-size:12px;color:var(--amber);margin-top:8px">
+          Select at least one field.
+        </div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;
+                    margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
         <input type="checkbox" id="chk-skip-dupes" checked style="width:16px;height:16px">
         <div>
           <div style="font-weight:600;font-size:14px;color:var(--navy)">Skip duplicates</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">
-            Rows where First Name + Surname + Postcode already exist in the portal will be skipped.
+            Rows matching an existing portal member on the selected fields
+            (<span id="dupe-fields-echo">First Name + Surname + Postcode</span>) will be skipped.
+          </div>
+        </div>
+      </label>
+
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;
+                    margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <input type="checkbox" id="chk-multi-session" style="width:16px;height:16px">
+        <div>
+          <div style="font-weight:600;font-size:14px;color:var(--navy)">Multi-session register</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">
+            The file has one row per session, so a member appears on several rows.
+            Rows matching on the selected fields
+            (<span id="merge-fields-echo">First Name + Surname + Postcode</span>)
+            are combined into a single member with all their sessions.
           </div>
         </div>
       </label>
@@ -237,6 +267,14 @@
           <div style="font-size:13px;color:var(--amber)">Rows skipped (blank or duplicate)</div>
         </div>
       </div>
+      <div id="res-merged-card" style="display:none;align-items:center;gap:14px;padding:14px 16px;
+                  background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px">
+        <span style="font-size:24px">🔗</span>
+        <div>
+          <div style="font-weight:700;font-size:20px;color:var(--accent)" id="res-merged">0</div>
+          <div style="font-size:13px;color:var(--accent)">Extra rows combined into existing members</div>
+        </div>
+      </div>
       <div id="res-errors-card" style="display:flex;align-items:center;gap:14px;padding:14px 16px;
                   background:var(--red-bg);border:1.5px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:10px">
         <span style="font-size:24px">❌</span>
@@ -255,6 +293,15 @@
       <div style="background:var(--red-bg);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:8px;
                   padding:10px 12px;font-size:12px;font-family:monospace;
                   max-height:200px;overflow-y:auto" id="error-list"></div>
+    </div>
+
+    <!-- Merge warnings (multi-session: conflicting details on combined rows) -->
+    <div id="warning-detail" style="display:none;margin-bottom:20px">
+      <div style="font-weight:600;font-size:13px;color:var(--amber);margin-bottom:8px">
+        Combined-row warnings (review these members):
+      </div>
+      <div style="background:var(--amber-bg);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:8px;
+                  padding:10px 12px;font-size:12px;max-height:200px;overflow-y:auto" id="warning-list"></div>
     </div>
 
     <!-- Download report (shown when some rows were not imported) -->
@@ -568,7 +615,64 @@ function doPreview() {
   }
 
   buildPreviewTable();
+  renderMatchFields();
   goStep(3);
+}
+
+// ── Configurable duplicate-match fields ───────────────────────────────────────
+const MATCH_FIELD_CANDIDATES = [
+  { key: 'first_name',    label: 'First Name' },
+  { key: 'surname',       label: 'Surname' },
+  { key: 'date_of_birth', label: 'Date of Birth' },
+  { key: 'postcode',      label: 'Postcode' },
+  { key: 'mobile',        label: 'Mobile' },
+  { key: 'email',         label: 'Email' },
+];
+const MATCH_FIELDS_LS = 'ayc-import-match-fields';
+
+function renderMatchFields() {
+  const mapped    = new Set(Object.values(state.mapping).filter(v => v !== '_skip'));
+  const available = MATCH_FIELD_CANDIDATES.filter(c => mapped.has(c.key));
+
+  // Remembered choice (browser), else legacy default; intersect with available.
+  let remembered;
+  try { remembered = JSON.parse(localStorage.getItem(MATCH_FIELDS_LS) || 'null'); }
+  catch (_) { remembered = null; }
+  const desired = Array.isArray(remembered) && remembered.length
+    ? remembered : ['first_name', 'surname', 'postcode'];
+  const checked = new Set(available.filter(c => desired.includes(c.key)).map(c => c.key));
+  // Never render with nothing checked if fields are available.
+  if (!checked.size && available.length) {
+    available.filter(c => ['first_name', 'surname'].includes(c.key))
+             .forEach(c => checked.add(c.key));
+  }
+
+  const box = document.getElementById('match-fields-group');
+  box.innerHTML = available.map(c => `
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text)">
+      <input type="checkbox" class="match-field-cb" value="${c.key}"
+             ${checked.has(c.key) ? 'checked' : ''}
+             onchange="onMatchFieldsChange()" style="width:15px;height:15px">
+      ${esc(c.label)}
+    </label>`).join('') ||
+    `<div style="font-size:12px;color:var(--muted)">No matchable fields are mapped.</div>`;
+  onMatchFieldsChange();
+}
+
+function getMatchFields() {
+  return Array.from(document.querySelectorAll('.match-field-cb:checked')).map(cb => cb.value);
+}
+
+function onMatchFieldsChange() {
+  const fields = getMatchFields();
+  const labelFor = k => (MATCH_FIELD_CANDIDATES.find(c => c.key === k) || {}).label || k;
+  const echo = fields.length ? fields.map(labelFor).join(' + ') : '—';
+  const de = document.getElementById('dupe-fields-echo');
+  const me = document.getElementById('merge-fields-echo');
+  if (de) de.textContent = echo;
+  if (me) me.textContent = echo;
+  document.getElementById('match-fields-empty').style.display = fields.length ? 'none' : 'block';
+  try { localStorage.setItem(MATCH_FIELDS_LS, JSON.stringify(fields)); } catch (_) {}
 }
 
 function buildPreviewTable() {
@@ -631,6 +735,15 @@ function stat(color, text) {
 
 // ── Step 3 → 4: Import ────────────────────────────────────────────────────────
 async function doImport() {
+  const matchFields = getMatchFields();
+  const skipDupes   = document.getElementById('chk-skip-dupes').checked;
+  const multiSess   = document.getElementById('chk-multi-session').checked;
+  if ((skipDupes || multiSess) && !matchFields.length) {
+    showToast('Select at least one field to match duplicates on', 'error');
+    document.getElementById('match-fields-empty').style.display = 'block';
+    return;
+  }
+
   const btn = document.getElementById('btn-import');
   btn.disabled    = true;
   btn.textContent = 'Importing…';
@@ -643,7 +756,9 @@ async function doImport() {
     mapping:         Object.fromEntries(
                        Object.entries(state.mapping).map(([k,v]) => [k, v])
                      ),
-    skip_duplicates: document.getElementById('chk-skip-dupes').checked,
+    skip_duplicates: skipDupes,
+    multi_session:   multiSess,
+    match_fields:    matchFields,
   };
 
   try {
@@ -656,6 +771,21 @@ async function doImport() {
     document.getElementById('res-imported').textContent = data.imported.toLocaleString();
     document.getElementById('res-skipped').textContent  = data.skipped.toLocaleString();
     document.getElementById('res-errors').textContent   = data.errors.length.toLocaleString();
+
+    // Merged (multi-session) count
+    const mergedCount = data.merged || 0;
+    if (mergedCount > 0) {
+      document.getElementById('res-merged').textContent      = mergedCount.toLocaleString();
+      document.getElementById('res-merged-card').style.display = 'flex';
+    }
+
+    // Merge warnings (conflicting phone etc.)
+    const warns = data.warnings || [];
+    if (warns.length) {
+      document.getElementById('warning-detail').style.display = 'block';
+      document.getElementById('warning-list').innerHTML =
+        warns.map(w => `Row ${w.row} — ${esc(w.name)}: ${esc(w.warning)}`).join('<br>');
+    }
 
     if (!data.errors.length) {
       document.getElementById('res-errors-card').style.display = 'none';

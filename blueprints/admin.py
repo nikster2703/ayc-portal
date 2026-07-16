@@ -2087,6 +2087,21 @@ def api_import_run():
     type_id    = data.get('member_type_id')
     mapping    = data.get('mapping', {})
     skip_dupes = data.get('skip_duplicates', True)
+    # v12.58: multi-session register mode. When on, rows that repeat the same
+    # member (per the configurable match_fields) are folded into ONE member and
+    # their sessions unioned, instead of creating a duplicate member per row.
+    multi_session = bool(data.get('multi_session', False))
+
+    # v12.58: configurable duplicate identity. The chosen fields define "the same
+    # person" for BOTH the skip-duplicate check and the multi-session merge.
+    # Whitelisted against real member columns to keep the dynamic WHERE injection-safe.
+    _MATCH_FIELD_WHITELIST = {
+        'first_name', 'surname', 'date_of_birth', 'postcode', 'mobile', 'email',
+    }
+    match_fields = [f for f in (data.get('match_fields') or [])
+                    if f in _MATCH_FIELD_WHITELIST]
+    if not match_fields:   # back-compat default = legacy behaviour
+        match_fields = ['first_name', 'surname', 'postcode']
 
     if not all([file_id, file_ext, type_id, mapping]):
         return jsonify({'error': 'Missing required parameters'}), 400
@@ -2144,9 +2159,12 @@ def api_import_run():
 
     imported          = 0
     skipped           = 0
+    merged            = 0           # v12.58: extra rows folded into an existing member
     errors            = []
+    warnings          = []          # v12.58: non-fatal merge notes (e.g. phone clash)
     not_imported      = []
     imported_ids_used = []
+    run_member_ids    = {}          # v12.58: name_key -> member DB id seen this run
 
     for row_num, row in enumerate(data_rows, start=2):
         try:
@@ -2208,6 +2226,36 @@ def api_import_run():
                                      'reason': 'Blank row — no name data found'})
                 continue
 
+            # v12.58: build this row's identity from the configurable match fields.
+            _match_vals = {}
+            for f in match_fields:
+                if f == 'mobile':
+                    _match_vals[f] = (mobile_val or '')
+                elif f == 'email':
+                    _match_vals[f] = (email_val or '')
+                else:
+                    _match_vals[f] = (core.get(f) or '')
+            match_key = tuple((_match_vals.get(f) or '').strip().lower()
+                              for f in match_fields)
+            _has_identity = any(v for v in match_key)
+
+            # v12.58: multi-session — fold repeat members into one, unioning sessions.
+            if multi_session and _has_identity:
+                target_id = run_member_ids.get(match_key)
+                # Match an existing portal member too, but only when the user has
+                # asked to treat matches as the same person (skip-duplicates on).
+                if target_id is None and skip_dupes:
+                    target_id = _find_existing_member(db, match_fields, _match_vals)
+                if target_id is not None:
+                    _w = _merge_member_row(db, target_id, core.get('session') or '',
+                                           mobile_val, email_val, contacts)
+                    db.commit()
+                    run_member_ids[match_key] = target_id
+                    merged += 1
+                    if _w:
+                        warnings.append({'row': row_num, 'name': _row_name(), 'warning': _w})
+                    continue
+
             if provided_id and db.execute(
                 'SELECT id FROM members WHERE member_id = ?', (provided_id,)
             ).fetchone():
@@ -2216,13 +2264,16 @@ def api_import_run():
                                      'reason': f'Member ID {provided_id} already exists in the portal'})
                 continue
 
-            if skip_dupes and not provided_id and db.execute(
-                'SELECT id FROM members WHERE first_name=? AND surname=? AND postcode=?',
-                (core.get('first_name', ''), core.get('surname', ''), core.get('postcode', ''))
-            ).fetchone():
+            # v12.58: duplicate check runs against the configurable match fields
+            # (case-insensitive, NULL treated as blank). In multi-session mode an
+            # existing match was already merged above, so this only fires for
+            # single-session imports.
+            if skip_dupes and not provided_id and not multi_session and \
+                    _find_existing_member(db, match_fields, _match_vals) is not None:
                 skipped += 1
+                _flds = ' + '.join(f.replace('_', ' ').title() for f in match_fields)
                 not_imported.append({'row': row_num, 'name': _row_name(),
-                                     'reason': 'Duplicate — already exists in the portal (same name + postcode)'})
+                                     'reason': f'Duplicate — already exists in the portal (matched on {_flds})'})
                 continue
 
             member_id = provided_id if provided_id else _next_member_id(db)
@@ -2303,6 +2354,7 @@ def api_import_run():
 
             db.commit()
             imported += 1
+            run_member_ids[match_key] = new_id   # v12.58: later repeats merge here
             if provided_id:
                 imported_ids_used.append(member_id)
 
@@ -2336,12 +2388,15 @@ def api_import_run():
                 writer.writerow([rec['row'], rec['name'], rec['reason']])
 
     log_action('import.run', 'members', None, {
-        'imported': imported, 'skipped': skipped,
+        'imported': imported, 'skipped': skipped, 'merged': merged,
         'errors':   len(errors), 'member_type': mt['slug'],
+        'multi_session': multi_session, 'match_fields': match_fields,
     })
     return jsonify({
         'imported':  imported,
         'skipped':   skipped,
+        'merged':    merged,
+        'warnings':  warnings,
         'errors':    errors,
         'report_id': report_id,
     })
@@ -2434,6 +2489,70 @@ def _apply_member_sessions(db, member_db_id, raw_session_value):
     db.execute('UPDATE members SET session = ? WHERE id = ?',
                (valid[0] if valid else '', member_db_id))
     return valid, invalid
+
+
+def _find_existing_member(db, match_fields, vals):
+    """v12.58: find a member already in the portal matching on the configurable
+    identity fields. Comparison is case-insensitive and treats NULL as blank, so
+    an empty postcode/DOB still matches a blank. match_fields is pre-whitelisted
+    to real column names by the caller. Returns a member id, or None. A match key
+    with every value blank never matches (avoids collapsing all no-data rows)."""
+    if not any((vals.get(f) or '').strip() for f in match_fields):
+        return None
+    clauses, params = [], []
+    for f in match_fields:
+        clauses.append(f"lower(COALESCE({f},'')) = ?")
+        params.append((vals.get(f) or '').strip().lower())
+    row = db.execute(
+        f'SELECT id FROM members WHERE {" AND ".join(clauses)} ORDER BY id LIMIT 1',
+        params).fetchone()
+    return row['id'] if row else None
+
+
+def _merge_member_row(db, target_id, raw_session, mobile_val, email_val, contacts):
+    """v12.58 multi-session import: fold a repeat register row into an existing
+    member. Unions the row's session onto the member, backfills a blank
+    mobile/email/contact from the extra row, and flags (does not overwrite) a
+    non-empty phone that disagrees. Returns a warning string, or None."""
+    warn = []
+
+    # Union the extra session onto whatever the member already has.
+    existing = [r['name'] for r in db.execute(
+        '''SELECT st.name FROM member_sessions ms
+           JOIN session_types st ON st.id = ms.session_type_id
+           WHERE ms.member_id = ?''', (target_id,)).fetchall()]
+    combined = ';'.join(existing + ([raw_session] if raw_session else []))
+    _apply_member_sessions(db, target_id, combined)
+
+    # Backfill blank member-level fields; flag a genuine phone clash.
+    row = db.execute('SELECT mobile, email FROM members WHERE id = ?',
+                     (target_id,)).fetchone()
+    if mobile_val:
+        cur = (row['mobile'] or '').strip()
+        if not cur:
+            db.execute('UPDATE members SET mobile = ? WHERE id = ?', (mobile_val, target_id))
+        elif cur != mobile_val.strip():
+            warn.append(f'phone {mobile_val} differs from existing {cur}')
+    if email_val and not (row['email'] or '').strip():
+        db.execute('UPDATE members SET email = ? WHERE id = ?', (email_val, target_id))
+
+    # Backfill an emergency contact slot only when the member has none there.
+    for order, prefix in ((1, 'contact1'), (2, 'contact2')):
+        name  = contacts.get(f'{prefix}_name',  '').strip()
+        phone = contacts.get(f'{prefix}_phone', '').strip()
+        email = contacts.get(f'{prefix}_email', '').strip()
+        if not (name or phone or email):
+            continue
+        if not db.execute(
+            'SELECT 1 FROM member_contacts WHERE member_id = ? AND contact_order = ?',
+            (target_id, order)).fetchone():
+            db.execute(
+                '''INSERT INTO member_contacts
+                       (member_id, contact_order, contact_name, contact_phone, contact_email)
+                   VALUES (?,?,?,?,?)''',
+                (target_id, order, name or None, phone or None, email or None))
+
+    return '; '.join(warn) if warn else None
 
 
 # ── AYC round-trip import ──────────────────────────────────────────────────────
