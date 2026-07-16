@@ -638,11 +638,14 @@ def api_comms_incidents():
     conditions = ['sn.member_id IS NOT NULL']
     params     = []
     if note_id:
+        # v12.68: cast before touching the conditions list (hygiene — the old
+        # order appended the clause before the int() could raise).
         try:
-            conditions.append('sn.id = ?')
-            params.append(int(note_id))
+            note_id = int(note_id)
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid note id'}), 400
+        conditions.append('sn.id = ?')
+        params.append(note_id)
     else:
         conditions.append("sn.created_at >= datetime('now', ?)")
         params.append(f'-{days} days')
@@ -671,17 +674,25 @@ def api_comms_incidents():
         LIMIT   100
     ''', params).fetchall()
 
+    # v12.68: batch the contact lookups (was one query per note row — N+1).
+    contacts_map = {}
+    member_ids = list({r['member_id'] for r in rows})
+    if member_ids:
+        ph = ','.join('?' * len(member_ids))
+        for c in db.execute(
+            f'SELECT member_id, contact_name, contact_email FROM member_contacts '
+            f'WHERE member_id IN ({ph}) ORDER BY member_id, contact_order',
+            member_ids
+        ).fetchall():
+            if (c['contact_email'] or '').strip():
+                contacts_map.setdefault(c['member_id'], []).append(c)
+
     out = []
     for r in rows:
         d = dict(r)
-        contacts = db.execute(
-            'SELECT contact_name, contact_email FROM member_contacts '
-            'WHERE member_id = ? ORDER BY contact_order',
-            (r['member_id'],)
-        ).fetchall()
         d['contacts'] = [{'name': c['contact_name'] or d['member_name'],
                           'email': c['contact_email'].strip()}
-                         for c in contacts if (c['contact_email'] or '').strip()]
+                         for c in contacts_map.get(r['member_id'], [])]
         out.append(d)
     return jsonify(out)
 

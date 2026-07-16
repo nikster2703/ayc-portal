@@ -248,9 +248,12 @@ def api_calendar_list():
 
     if dfrom and dto:
         try:
-            dt_date.fromisoformat(dfrom); dt_date.fromisoformat(dto)
+            _d1 = dt_date.fromisoformat(dfrom); _d2 = dt_date.fromisoformat(dto)
         except (TypeError, ValueError):
             return jsonify({'error': 'from/to must be ISO dates (YYYY-MM-DD)'}), 400
+        # v12.68: clamp the range, symmetrical with the 365-day bulk-create cap
+        if _d2 < _d1 or (_d2 - _d1).days > 366:
+            return jsonify({'error': 'from/to range must be ascending and at most a year'}), 400
         query += ' AND session_date BETWEEN ? AND ?'
         params.extend([dfrom, dto])
     elif year and month:

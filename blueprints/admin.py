@@ -2268,7 +2268,9 @@ def api_import_run():
                     _match_vals[f] = (email_val or '')
                 else:
                     _match_vals[f] = (core.get(f) or '')
-            match_key = tuple((_match_vals.get(f) or '').strip().lower()
+            # v12.68: normalised key — postcodes space-insensitive, DOB parsed to
+            # ISO — so in-run repeats match even when the file mixes formats.
+            match_key = tuple(_norm_match_val(f, _match_vals.get(f))
                               for f in match_fields)
             _has_identity = any(v for v in match_key)
 
@@ -2559,12 +2561,46 @@ def _apply_member_sessions(db, member_db_id, raw_session_value):
     return valid, invalid
 
 
+def _norm_dob(value):
+    """v12.68: parse the common UK date formats to ISO for duplicate matching.
+    Returns 'YYYY-MM-DD', '' for blank, or None when unparseable (caller falls
+    back to the raw lowered string). Any time component is dropped first
+    (spreadsheet date cells often stringify as 'YYYY-MM-DD 00:00:00')."""
+    v = (value or '').strip()
+    if not v:
+        return ''
+    v = v.split(' ')[0].split('T')[0]
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%d/%m/%y'):
+        try:
+            return datetime.strptime(v, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    return None
+
+
+def _norm_match_val(field, value):
+    """v12.68: normalise one identity value for duplicate matching — lowercase +
+    trim everywhere; postcodes also drop internal spaces ('AB1 2CD' == 'ab12cd');
+    dates of birth are parsed to ISO where possible ('01/06/2015' == '2015-06-01')."""
+    v = (value or '').strip().lower()
+    if field == 'postcode':
+        return v.replace(' ', '')
+    if field == 'date_of_birth':
+        return _norm_dob(v) or v
+    return v
+
+
 def _find_existing_member(db, match_fields, vals):
     """v12.58: find a member already in the portal matching on the configurable
     identity fields. Comparison is case-insensitive and treats NULL as blank, so
     an empty postcode/DOB still matches a blank. match_fields is pre-whitelisted
     to real column names by the caller. A match key with every value blank never
     matches (avoids collapsing all no-data rows).
+
+    v12.68: postcode matching ignores internal spaces on both sides, and DOB is
+    compared date-normalised — the DB side via SQLite date() when the stored
+    value is ISO (falling back to the raw lowered string), the incoming side via
+    _norm_dob — so '01/06/2015' in the file matches a stored '2015-06-01'.
 
     v12.66 (audit fix #3): returns the matched row (id, status, status_behaviour)
     instead of a bare id, and:
@@ -2581,8 +2617,24 @@ def _find_existing_member(db, match_fields, vals):
         return None
     clauses, params = [], []
     for f in match_fields:
-        clauses.append(f"lower(COALESCE(m.{f},'')) = ?")
-        params.append((vals.get(f) or '').strip().lower())
+        v = _norm_match_val(f, vals.get(f))
+        if f == 'postcode':
+            clauses.append("replace(lower(COALESCE(m.postcode,'')),' ','') = ?")
+            params.append(v)
+        elif f == 'date_of_birth':
+            raw      = (vals.get(f) or '').strip().lower()
+            norm_sql = "COALESCE(date(m.date_of_birth), lower(trim(COALESCE(m.date_of_birth,''))))"
+            if v and v != raw:
+                # incoming value parsed to ISO — accept a DB value stored either
+                # ISO (date() normalises it) or in the file's original format
+                clauses.append(f'({norm_sql} = ? OR {norm_sql} = ?)')
+                params.extend([v, raw])
+            else:
+                clauses.append(f'{norm_sql} = ?')
+                params.append(v)
+        else:
+            clauses.append(f"lower(COALESCE(m.{f},'')) = ?")
+            params.append(v)
     return db.execute(f'''
         SELECT m.id, m.status, COALESCE(ms.behaviour, '') AS status_behaviour
         FROM   members m

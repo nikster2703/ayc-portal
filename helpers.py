@@ -599,15 +599,6 @@ def member_in_scope(member_id, scoped=None):
     return bool(row) and (row['session'] or '') in scoped
 
 
-def member_session_filter_sql(alias='m'):
-    """SQL EXISTS fragment matching members assigned to any of N session names.
-    Usage: cond, params = member_session_filter_sql(); cond needs the name list
-    appended to params by the caller via the returned placeholder count."""
-    return (f'EXISTS (SELECT 1 FROM member_sessions ms_f '
-            f'JOIN session_types st_f ON st_f.id = ms_f.session_type_id '
-            f'WHERE ms_f.member_id = {alias}.id AND st_f.name IN ({{ph}}))')
-
-
 # ── Register helpers ───────────────────────────────────────────────────────────
 
 def _is_register_locked(sess_type, sess_date):
