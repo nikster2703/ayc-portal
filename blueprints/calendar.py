@@ -163,11 +163,23 @@ def api_admin_session_types_delete(st_id):
     if not row:
         return jsonify({'error': 'Session type not found'}), 404
 
+    # v12.65: count assignments via the member_sessions junction, not the echo
+    # column. members.session only holds the FIRST assigned session, so a type
+    # that was anyone's second/third assignment reported 0 members here and its
+    # junction rows were then silently removed by ON DELETE CASCADE — silent
+    # data loss for multi-session members. Echo kept as a defensive OR for any
+    # member the startup reconcile hasn't seen yet.
     member_count = db.execute(
-        'SELECT COUNT(*) FROM members WHERE session = ?', (row['name'],)
+        '''SELECT COUNT(*) FROM members m
+           WHERE EXISTS (SELECT 1 FROM member_sessions ms
+                         WHERE ms.member_id = m.id AND ms.session_type_id = ?)
+              OR m.session = ?''',
+        (st_id, row['name'])
     ).fetchone()[0]
     if member_count:
-        return jsonify({'error': f'Cannot delete — {member_count} member(s) are assigned to this session'}), 400
+        return jsonify({'error': f'Cannot delete — {member_count} member(s) are assigned to this session '
+                                 f'(including members for whom it is not their first session). '
+                                 f'Reassign them first.'}), 400
 
     active_count = db.execute(
         'SELECT COUNT(*) FROM session_types WHERE active = 1 AND id != ?', (st_id,)
