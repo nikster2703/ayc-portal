@@ -773,6 +773,16 @@
   let cardIdx = 0;
 
   function renderFieldVal(field, member) {
+    // v12.60: the 'session' system field must reflect ALL assigned sessions
+    // (member_sessions junction), not the single members.session echo column —
+    // otherwise a multi-session member shows only one session wherever 'session'
+    // is enabled as a show-on-list / show-on-card field.
+    if (field.system_field && field.column_name === 'session') {
+      const list = (member.sessions && member.sessions.length)
+        ? member.sessions
+        : ((member.session || '').trim() ? [(member.session || '').trim()] : []);
+      return list.length ? esc(list.join(' · ')) : '—';
+    }
     let val;
     if (field.system_field) {
       val = member[field.column_name];
