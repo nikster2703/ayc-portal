@@ -469,6 +469,25 @@ def api_mailshots_send():
     if not recipients:
         return jsonify({'error': 'No recipients selected'}), 400
 
+    # v12.67 (audit fix #6): an incident notification must go to THAT member's
+    # contacts. The UI pins the checklist correctly, but the API accepted any
+    # in-scope recipient set alongside incident_note_id — stamping the note
+    # "notified" while the email went to a different family.
+    if _incident_note is not None:
+        _member_emails = {
+            (r['contact_email'] or '').strip().lower()
+            for r in db.execute(
+                'SELECT contact_email FROM member_contacts WHERE member_id = ?',
+                (_incident_note['member_id'],)
+            ).fetchall()
+            if (r['contact_email'] or '').strip()
+        }
+        _bad = [r['email'] for r in recipients
+                if r['email'].lower() not in _member_emails]
+        if _bad:
+            return jsonify({'error': 'Incident notifications can only be sent to the '
+                                     "member's own parent/guardian contacts"}), 400
+
     # Resolve and validate attachments from the document repository
     attachments = []   # list of {filename, mime_type, data (bytes)}
     if document_ids:

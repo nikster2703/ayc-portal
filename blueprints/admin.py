@@ -2292,6 +2292,25 @@ def api_import_run():
                 if target_id is not None:
                     _w = _merge_member_row(db, target_id, core.get('session') or '',
                                            mobile_val, email_val, contacts)
+                    # v12.67 (audit fix #4): a merged row can carry the paid marker —
+                    # previously it was dropped (the payment block below is only
+                    # reached by first-occurrence rows). Record a whole-club
+                    # membership payment on the target member unless they already
+                    # have a non-voided one for the current period.
+                    if _bool_val(core.get('_payment_paid', 0)) and _membership_type and _import_period:
+                        _has_pay = db.execute(
+                            'SELECT 1 FROM member_payments mp '
+                            'JOIN payment_types pt ON pt.id = mp.payment_type_id '
+                            'WHERE mp.member_id = ? AND mp.period = ? '
+                            '  AND pt.is_membership = 1 AND mp.voided_at IS NULL LIMIT 1',
+                            (target_id, _import_period)
+                        ).fetchone()
+                        if not _has_pay:
+                            db.execute(
+                                'INSERT INTO member_payments '
+                                '(member_id, payment_type_id, period, recorded_by) VALUES (?,?,?,?)',
+                                (target_id, _membership_type['id'], _import_period, None)
+                            )
                     db.commit()
                     run_member_ids[match_key] = target_id
                     merged += 1

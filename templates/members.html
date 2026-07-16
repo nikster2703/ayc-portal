@@ -410,6 +410,7 @@
   const USER_ROLE    = "{{ current_role }}";  // kept for any legacy checks
   const USER_PERMS   = new Set({{ user_permissions | tojson }});
   const ALL_SESSION_TYPES = {{ session_types | tojson }};   // v12.53: [{id, name, …}]
+  const SESSION_NAMES     = {{ (session_names or []) | tojson }};   // v12.67: [] = unscoped
   const CAN_EDIT     = USER_PERMS.has('members.edit');
   const IS_ADMIN     = USER_PERMS.has('members.hard_delete');
 
@@ -1235,6 +1236,11 @@
         return;
       }
 
+      /* v12.67 (audit fix #7): the endpoint returns up to 104 rows PER session
+         since v12.62 (for the formal skin's per-session grid) — the casual flat
+         table must not render them all. Cap at the 20 most recent (rows arrive
+         newest-first) with a count note, matching the old LIMIT 20 behaviour. */
+      const casualRows = rows.slice(0, 20);
       el.innerHTML = `
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
@@ -1246,7 +1252,7 @@
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => `
+            ${casualRows.map(r => `
               <tr>
                 <td style="padding:5px 8px 5px 0;border-bottom:1px solid var(--border)">${fmtDate(r.session_date)}</td>
                 <td style="padding:5px 8px;border-bottom:1px solid var(--border)">${esc(r.session_type)}</td>
@@ -1254,7 +1260,10 @@
                 <td style="padding:5px 0 5px 8px;border-bottom:1px solid var(--border)">${r.signed_out_at || '—'}</td>
               </tr>`).join('')}
           </tbody>
-        </table>`;
+        </table>
+        ${rows.length > casualRows.length
+          ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">Showing the ${casualRows.length} most recent of ${rows.length} recorded sessions.</div>`
+          : ''}`;
     } catch (e) {
       el.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load attendance.</span>`;
     }
@@ -1721,10 +1730,24 @@
     document.getElementById('e-member_id').textContent = m.member_id || '—';
     document.getElementById('e-first_name').value      = m.first_name || '';
     document.getElementById('e-surname').value         = m.surname || '';
-    // v12.50: multi-session — tick the chip for each assigned session
+    // v12.50: multi-session — tick the chip for each assigned session.
+    // v12.67 (audit fix #5): scoped users may only change assignments within
+    // their own sessions — lock (don't hide) out-of-scope chips so an existing
+    // out-of-scope assignment stays visible, stays in the save payload
+    // (disabled inputs still match :checked), and can't be toggled.
     const assigned = new Set(m.sessions || (m.session ? [m.session] : []));
     document.querySelectorAll('#e-sessions input[type="checkbox"]')
-            .forEach(cb => { cb.checked = assigned.has(cb.value); });
+            .forEach(cb => {
+              cb.checked = assigned.has(cb.value);
+              const locked = SESSION_NAMES.length && !SESSION_NAMES.includes(cb.value);
+              cb.disabled = !!locked;
+              const chip = cb.closest('.sess-chip');
+              if (chip) {
+                chip.style.opacity = locked ? '.45' : '';
+                chip.style.cursor  = locked ? 'not-allowed' : '';
+                chip.title = locked ? 'Outside your assigned sessions' : '';
+              }
+            });
 
     // Status badge (read-only display — changes go through the status modal)
     const smeta = getStatusMeta(m.status);
