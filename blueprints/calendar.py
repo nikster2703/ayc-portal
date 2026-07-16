@@ -353,29 +353,34 @@ def api_calendar_bulk():
         return jsonify({'error': 'Date range cannot exceed 365 days'}), 400
 
     s2w = session_to_weekday_map()
+    # v12.64: several session types can share the same weekday (e.g. multiple
+    # Saturday groups). Map each weekday → LIST of session names so we create
+    # EVERY matching session on that date. The previous dict keyed by weekday
+    # overwrote same-day sessions, so only the last one per weekday was created.
     target_weekdays = {}
     for d in days:
         if d in s2w:
-            target_weekdays[s2w[d]] = d
+            target_weekdays.setdefault(s2w[d], []).append(d)
 
     created, skipped = 0, 0
     db      = get_db()
     current = start
     while current <= end:
-        if current.weekday() in target_weekdays:
-            date_str     = current.isoformat()
-            session_type = target_weekdays[current.weekday()]
+        wd = current.weekday()
+        if wd in target_weekdays:
+            date_str = current.isoformat()
             if date_str not in exclude_dates:
-                try:
-                    db.execute(
-                        '''INSERT INTO term_sessions
-                               (session_date, session_type, term_name, status, created_by)
-                           VALUES (?,?,?,?,?)''',
-                        (date_str, session_type, term_name, 'planned', session.get('user_id'))
-                    )
-                    created += 1
-                except sqlite3.IntegrityError:
-                    skipped += 1
+                for session_type in target_weekdays[wd]:
+                    try:
+                        db.execute(
+                            '''INSERT INTO term_sessions
+                                   (session_date, session_type, term_name, status, created_by)
+                               VALUES (?,?,?,?,?)''',
+                            (date_str, session_type, term_name, 'planned', session.get('user_id'))
+                        )
+                        created += 1
+                    except sqlite3.IntegrityError:
+                        skipped += 1
         current += dt_timedelta(days=1)
 
     db.commit()
