@@ -1069,7 +1069,16 @@
       const detailPairs = typeConf.attendance
         .filter(f => !SKIP_CARD_KEYS.has(f.key))
         .map(f => {
-          const val = _cardFieldVal(f, m);
+          // v12.61: the 'session' field on a register must show the session this
+          // register is FOR (sess), not the member's echo column — a multi-session
+          // member (e.g. Ballet + Saturday) otherwise shows the same session on
+          // every register they appear in.
+          let val;
+          if (f.system_field && f.column_name === 'session') {
+            val = sess ? esc(sess) : null;
+          } else {
+            val = _cardFieldVal(f, m);
+          }
           if (!val) return null;
           return `<span style="color:var(--muted)">${esc(f.label)}:</span> ${val}`;
         })

@@ -238,7 +238,13 @@ def print_register_xlsx():
             m['custom_fields'] = {}
 
     def _field_value(field, member):
-        if field['system_field']:
+        # v12.61: the 'session' field on a register reflects the session this
+        # register is FOR (session_type), not the member's single echo column —
+        # a multi-session member would otherwise show the same session on every
+        # register they appear on.
+        if field['system_field'] and field['column_name'] == 'session':
+            val = session_type
+        elif field['system_field']:
             val = member.get(field['column_name'])
         else:
             val = (member.get('custom_fields') or {}).get(field['key'])

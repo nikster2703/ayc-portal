@@ -223,7 +223,12 @@
 
 {# ── Jinja macro: render a single field value for a member ───── #}
 {% macro field_val(field, member) -%}
-  {%- if field.system_field -%}
+  {#- v12.61: the 'session' field on a register shows the session this register is
+      FOR (session_type), not the member's echo column — a multi-session member
+      would otherwise show the same session on every register they print on. -#}
+  {%- if field.system_field and field.column_name == 'session' -%}
+    {%- set val = session_type -%}
+  {%- elif field.system_field -%}
     {%- set val = member.get(field.column_name) -%}
   {%- else -%}
     {%- set val = (member.get('custom_fields') or {}).get(field.key) -%}
