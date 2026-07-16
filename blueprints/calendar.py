@@ -11,12 +11,14 @@ from flask import Blueprint, jsonify, request, session
 from helpers import (
     get_db, log_action, login_required, permission_required,
     _assigned_session, get_session_types, get_valid_session_names,
-    session_to_weekday_map,
+    session_to_weekday_map, default_session_colour, _validate_hex_colour,
 )
 
 bp = Blueprint('calendar', __name__)
 
-VALID_STATUSES = ('planned', 'cancelled', 'extra')
+# v12.63: 'special' replaces the old 'extra' (the UI always called it Special).
+# Legacy 'extra' rows are migrated to 'special' at startup (db.py).
+VALID_STATUSES = ('planned', 'cancelled', 'special')
 
 
 # ── Session types list (authenticated read) ───────────────────────────────────
@@ -34,9 +36,18 @@ def api_session_types_list():
 def api_admin_session_types_get():
     db   = get_db()
     rows = db.execute(
-        'SELECT id, name, weekday, active, sort_order FROM session_types ORDER BY sort_order, name'
+        'SELECT id, name, weekday, description, colour, active, sort_order '
+        'FROM session_types ORDER BY sort_order, name'
     ).fetchall()
-    return jsonify([dict(r) for r in rows])
+    out = []
+    for r in rows:
+        d = dict(r)
+        # Report the effective colour (admin-set, or the palette fallback) so the
+        # admin swatch matches what the calendar shows.
+        d['colour'] = (d.get('colour') or '').strip() or default_session_colour(d['id'])
+        d['colour_set'] = bool((r['colour'] or '').strip())   # was it explicitly chosen?
+        out.append(d)
+    return jsonify(out)
 
 
 @bp.route('/api/admin/session-types', methods=['POST'])
@@ -54,12 +65,17 @@ def api_admin_session_types_create():
     if weekday is not None and (not isinstance(weekday, int) or weekday < 0 or weekday > 6):
         return jsonify({'error': 'weekday must be an integer 0–6 (Mon=0), or omit for no fixed day'}), 400
 
+    # v12.63: optional calendar colour (hex). Blank = use the palette fallback.
+    colour, col_err = _validate_hex_colour(data.get('colour', ''), None)
+    if col_err:
+        return jsonify({'error': col_err}), 400
+
     db        = get_db()
     max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM session_types').fetchone()[0]
     try:
         cur = db.execute(
-            'INSERT INTO session_types (name, weekday, description, active, sort_order) VALUES (?,?,?,1,?)',
-            (name, weekday, description, max_order + 1)
+            'INSERT INTO session_types (name, weekday, description, colour, active, sort_order) VALUES (?,?,?,?,1,?)',
+            (name, weekday, description, colour, max_order + 1)
         )
         db.commit()
         log_action('create_session_type', 'session_types', cur.lastrowid,
@@ -89,6 +105,15 @@ def api_admin_session_types_update(st_id):
     else:
         weekday = current['weekday']
 
+    # v12.63: colour — key present means set/clear (blank → NULL = palette fallback);
+    # omitting the key keeps the current value.
+    if 'colour' in data:
+        colour, col_err = _validate_hex_colour(data.get('colour', ''), None)
+        if col_err:
+            return jsonify({'error': col_err}), 400
+    else:
+        colour = current['colour']
+
     if not name:
         return jsonify({'error': 'name is required'}), 400
     if weekday is not None and (not isinstance(weekday, int) or weekday < 0 or weekday > 6):
@@ -104,8 +129,8 @@ def api_admin_session_types_update(st_id):
     old_name = current['name']
     try:
         db.execute(
-            'UPDATE session_types SET name = ?, weekday = ?, description = ?, active = ? WHERE id = ?',
-            (name, weekday, description, active, st_id)
+            'UPDATE session_types SET name = ?, weekday = ?, description = ?, colour = ?, active = ? WHERE id = ?',
+            (name, weekday, description, colour, active, st_id)
         )
         # Cascade the name change to every table that stores session name as text
         if name != old_name:
@@ -203,11 +228,20 @@ def api_calendar_list():
     year  = request.args.get('year')
     month = request.args.get('month')
     term  = request.args.get('term')
+    dfrom = request.args.get('from')   # v12.63: ISO date range for week/day views
+    dto   = request.args.get('to')
 
     query  = 'SELECT * FROM term_sessions WHERE 1=1'
     params = []
 
-    if year and month:
+    if dfrom and dto:
+        try:
+            dt_date.fromisoformat(dfrom); dt_date.fromisoformat(dto)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'from/to must be ISO dates (YYYY-MM-DD)'}), 400
+        query += ' AND session_date BETWEEN ? AND ?'
+        params.extend([dfrom, dto])
+    elif year and month:
         try:
             prefix = f"{int(year):04d}-{int(month):02d}-"
         except (TypeError, ValueError):
@@ -258,9 +292,12 @@ def api_calendar_add():
         d            = dt_date.fromisoformat(session_date)
         wday_map     = session_to_weekday_map()
         expected_day = wday_map.get(session_type)
-        # Only validate weekday if this session type has one configured
-        if expected_day is not None and d.weekday() != expected_day:
-            return jsonify({'error': f'{session_date} is not a {session_type}'}), 400
+        # Only validate weekday if this session type has one configured AND this
+        # isn't a Special (v12.63) — the whole point of a special session is that
+        # it runs on an off-schedule day, so it must bypass the weekday check.
+        if status != 'special' and expected_day is not None and d.weekday() != expected_day:
+            return jsonify({'error': f'{session_date} is not a {session_type} '
+                                     f'(tip: mark it as "Special" to add an off-day session)'}), 400
     except ValueError:
         return jsonify({'error': 'Invalid date format'}), 400
 

@@ -124,6 +124,7 @@ def ensure_tables():
             name        TEXT    NOT NULL UNIQUE,
             weekday     INTEGER,
             description TEXT,
+            colour      TEXT,                       -- v12.63: calendar colour (hex, e.g. #3b82f6)
             active      INTEGER NOT NULL DEFAULT 1,
             sort_order  INTEGER NOT NULL DEFAULT 0
         );
@@ -499,6 +500,8 @@ def ensure_tables():
         # emailed to the member's parent/guardian via the Comms section.
         "ALTER TABLE session_notes ADD COLUMN notified_at TEXT",
         "ALTER TABLE session_notes ADD COLUMN notified_by INTEGER REFERENCES users(id)",
+        # v12.63: per-session-type calendar colour
+        "ALTER TABLE session_types ADD COLUMN colour TEXT",
     ]
     for stmt in alter_stmts:
         try:
@@ -515,6 +518,15 @@ def ensure_tables():
 
     db.commit()
 
+    # v12.63: the calendar's "Special" status was stored as 'extra' in older code
+    # while the UI always sent 'special' (so specials could never be created and
+    # any legacy 'extra' rows rendered unstyled). Normalise both directions.
+    try:
+        db.execute("UPDATE term_sessions SET status = 'special' WHERE status = 'extra'")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # term_sessions not created yet on a fresh DB — nothing to migrate
+
     # v10.3 Phase A: make session_types.weekday nullable (was NOT NULL in older schemas).
     # SQLite can't ALTER COLUMN, so we rebuild the table if the schema still has the constraint.
     try:
@@ -529,11 +541,12 @@ def ensure_tables():
                     name        TEXT    NOT NULL UNIQUE,
                     weekday     INTEGER,
                     description TEXT,
+                    colour      TEXT,
                     active      INTEGER NOT NULL DEFAULT 1,
                     sort_order  INTEGER NOT NULL DEFAULT 0
                 );
-                INSERT OR IGNORE INTO session_types_v2 (id, name, weekday, active, sort_order)
-                    SELECT id, name, weekday, active, sort_order FROM session_types;
+                INSERT OR IGNORE INTO session_types_v2 (id, name, weekday, description, colour, active, sort_order)
+                    SELECT id, name, weekday, description, colour, active, sort_order FROM session_types;
                 DROP TABLE session_types;
                 ALTER TABLE session_types_v2 RENAME TO session_types;
             ''')

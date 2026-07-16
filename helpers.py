@@ -427,15 +427,38 @@ def get_setting(key, default=None):
 
 # ── Session types ──────────────────────────────────────────────────────────────
 
+# v12.63: default calendar palette — deterministic per session type by id so
+# every screen shows the same colour before an admin picks one explicitly.
+SESSION_COLOUR_PALETTE = (
+    '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#f59e0b',
+    '#10b981', '#14b8a6', '#06b6d4', '#6366f1', '#84cc16', '#a855f7',
+)
+
+
+def default_session_colour(session_id):
+    """Deterministic fallback colour for a session type with no explicit colour."""
+    try:
+        return SESSION_COLOUR_PALETTE[int(session_id) % len(SESSION_COLOUR_PALETTE)]
+    except (TypeError, ValueError):
+        return SESSION_COLOUR_PALETTE[0]
+
+
 def get_session_types():
-    """Return active session types from the DB, cached per request in Flask g."""
+    """Return active session types from the DB, cached per request in Flask g.
+    Each row carries a 'colour' — the admin-set hex, or a deterministic palette
+    fallback (v12.63) so the calendar/legend always have a stable colour."""
     if 'session_types' not in g:
         db   = get_db()
         rows = db.execute(
-            'SELECT id, name, weekday, description FROM session_types '
+            'SELECT id, name, weekday, description, colour FROM session_types '
             'WHERE active = 1 ORDER BY sort_order, name'
         ).fetchall()
-        g.session_types = [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['colour'] = (d.get('colour') or '').strip() or default_session_colour(d['id'])
+            result.append(d)
+        g.session_types = result
     return g.session_types
 
 

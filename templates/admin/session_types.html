@@ -12,6 +12,10 @@
     border-bottom: 1px solid var(--border);
   }
   .st-row:last-child { border-bottom: none; }
+  .st-swatch { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0;
+               border: 1px solid rgba(0,0,0,.15); box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+  .st-colour-input { width: 52px; height: 34px; padding: 2px; border: 1.5px solid var(--border);
+                     border-radius: 8px; background: var(--surface); cursor: pointer; }
   .st-row-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
   .st-row-meta { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
   .st-row-meta [data-lucide] { width: 12px; height: 12px; flex-shrink: 0; }
@@ -91,6 +95,13 @@
       <label class="form-label" style="margin-bottom:4px">Description (optional)</label>
       <input id="st-description" class="form-input" placeholder="e.g. For members aged 10–14, Tuesday evenings">
     </div>
+    <div style="margin-bottom:16px">
+      <label class="form-label" style="margin-bottom:4px">Calendar colour</label>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input id="st-colour" type="color" value="#3b82f6" class="st-colour-input">
+        <span style="font-size:12px;color:var(--muted)">Used to colour this session on the calendar.</span>
+      </div>
+    </div>
     <button class="btn btn-primary btn-sm" onclick="addSessionType()">+ Add Session Type</button>
   </div>
 </div>
@@ -121,6 +132,13 @@
     <label class="form-label" style="margin-bottom:4px">Description (optional)</label>
     <input id="edit-description" class="form-input">
   </div>
+  <div style="margin-bottom:16px">
+    <label class="form-label" style="margin-bottom:4px">Calendar colour</label>
+    <div style="display:flex;align-items:center;gap:10px">
+      <input id="edit-colour" type="color" class="st-colour-input">
+      <span style="font-size:12px;color:var(--muted)">Used to colour this session on the calendar.</span>
+    </div>
+  </div>
   <div style="display:flex;gap:8px">
     <button class="btn btn-primary btn-sm" onclick="saveEdit()">Save Changes</button>
     <button class="btn btn-ghost btn-sm" onclick="cancelEdit()">Cancel</button>
@@ -143,7 +161,9 @@
       }
       el.innerHTML = types.map(st => `
         <div id="st-row-${st.id}" class="st-row">
-          <div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="st-swatch" style="background:${esc(st.colour || '#3b82f6')}" title="Calendar colour"></span>
+            <div>
             <div class="st-row-name">${esc(st.name)}</div>
             <div class="st-row-meta">
               <i data-lucide="calendar"></i>
@@ -151,6 +171,7 @@
                 ? WDAY_NAMES[st.weekday]
                 : 'No fixed day'}
               ${st.description ? '&nbsp;·&nbsp;' + esc(st.description) : ''}
+            </div>
             </div>
           </div>
           <div class="st-row-actions">
@@ -177,17 +198,19 @@
     const name        = document.getElementById('st-name').value.trim();
     const weekdayRaw  = document.getElementById('st-weekday').value;
     const description = document.getElementById('st-description').value.trim() || null;
+    const colour      = document.getElementById('st-colour').value;
     const weekday     = weekdayRaw !== '' ? parseInt(weekdayRaw) : null;
 
     if (!name) { showToast('Please enter a session name.', true); return; }
     try {
       await apiFetch('/api/admin/session-types', {
         method: 'POST',
-        body:   JSON.stringify({ name, weekday, description }),
+        body:   JSON.stringify({ name, weekday, description, colour }),
       });
       document.getElementById('st-name').value        = '';
       document.getElementById('st-weekday').value     = '';
       document.getElementById('st-description').value = '';
+      document.getElementById('st-colour').value      = '#3b82f6';
       showToast(`"${name}" added.`);
       loadSessionTypes();
     } catch (e) {
@@ -200,6 +223,7 @@
     document.getElementById('edit-name').value        = st.name;
     document.getElementById('edit-weekday').value     = st.weekday !== null && st.weekday !== undefined ? String(st.weekday) : '';
     document.getElementById('edit-description').value = st.description || '';
+    document.getElementById('edit-colour').value      = st.colour || '#3b82f6';
     document.getElementById('st-edit-panel').style.display = '';
     document.getElementById('edit-name').focus();
     document.getElementById('st-edit-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -215,13 +239,14 @@
     const name        = document.getElementById('edit-name').value.trim();
     const weekdayRaw  = document.getElementById('edit-weekday').value;
     const description = document.getElementById('edit-description').value.trim() || null;
+    const colour      = document.getElementById('edit-colour').value;
     const weekday     = weekdayRaw !== '' ? parseInt(weekdayRaw) : null;
 
     if (!name) { showToast('Name is required.', true); return; }
     try {
       await apiFetch(`/api/admin/session-types/${_editingId}`, {
         method: 'PUT',
-        body:   JSON.stringify({ name, weekday, description }),
+        body:   JSON.stringify({ name, weekday, description, colour }),
       });
       cancelEdit();
       showToast('Session type updated.');

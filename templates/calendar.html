@@ -17,39 +17,31 @@
 
   <!-- Left: calendar -->
   <div>
-    <!-- Month header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <button class="btn btn-ghost btn-sm" onclick="prevMonth()">◀ Prev</button>
-      <h2 id="month-heading" style="font-size:22px;font-weight:900;color:var(--navy)"></h2>
-      <button class="btn btn-ghost btn-sm" onclick="nextMonth()">Next ▶</button>
+    <!-- View + navigation toolbar -->
+    <div class="cal-toolbar">
+      <div class="cal-viewswitch">
+        <button class="cal-vbtn" data-view="month" onclick="setView('month')">Month</button>
+        <button class="cal-vbtn" data-view="week"  onclick="setView('week')">Week</button>
+        <button class="cal-vbtn" data-view="day"   onclick="setView('day')">Day</button>
+      </div>
+      <h2 id="cal-heading" style="font-size:20px;font-weight:900;color:var(--navy);margin:0;flex:1;text-align:center"></h2>
+      <div class="cal-nav">
+        <button class="btn btn-ghost btn-sm" onclick="navPrev()" title="Previous">◀</button>
+        <button class="btn btn-ghost btn-sm" onclick="goToday()">Today</button>
+        <button class="btn btn-ghost btn-sm" onclick="navNext()" title="Next">▶</button>
+      </div>
     </div>
 
-    <!-- Calendar grid -->
-    <div class="cal-grid" id="cal-grid">
-      <!-- Day-of-week headers -->
-      <div class="cal-dow">Mon</div>
-      <div class="cal-dow">Tue</div>
-      <div class="cal-dow">Wed</div>
-      <div class="cal-dow">Thu</div>
-      <div class="cal-dow">Fri</div>
-      <div class="cal-dow">Sat</div>
-      <div class="cal-dow">Sun</div>
-      <!-- Days populated by JS -->
-    </div>
+    <!-- Calendar viewport — month / week / day rendered by JS -->
+    <div id="cal-viewport"></div>
 
-    <!-- Legend -->
-    <div style="display:flex;gap:20px;margin-top:16px;flex-wrap:wrap">
-      <span class="cal-legend planned">● Planned</span>
-      <span class="cal-legend special">● Special</span>
-      <span class="cal-legend cancelled">● Cancelled</span>
-      {% for st in session_types %}<span class="cal-legend {{ st.name | lower | replace(' ', '-') }}">● {{ st.name }}</span>
-      {% endfor %}
-    </div>
+    <!-- Legend (session-type colours + status styles) -->
+    <div id="cal-legend" class="cal-legend-wrap" style="margin-top:16px"></div>
   </div>
 
   <!-- Right: session list for month -->
   <div>
-    <div style="font-size:12px;font-weight:800;text-transform:uppercase;
+    <div id="sidebar-heading" style="font-size:12px;font-weight:800;text-transform:uppercase;
                 letter-spacing:.07em;color:var(--accent);margin-bottom:12px">
       Sessions this month
     </div>
@@ -195,11 +187,50 @@
 </div>
 
 <style>
+  /* v12.63: view toolbar + switcher */
+  .cal-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .cal-viewswitch { display: inline-flex; border: 1.5px solid var(--border); border-radius: 9px; overflow: hidden; flex-shrink: 0; }
+  .cal-vbtn { border: none; background: var(--surface); color: var(--muted); font-weight: 800;
+              font-size: 13px; padding: 7px 14px; cursor: pointer; transition: background .15s, color .15s; }
+  .cal-vbtn + .cal-vbtn { border-left: 1.5px solid var(--border); }
+  .cal-vbtn:hover { color: var(--navy); }
+  .cal-vbtn.active { background: var(--accent); color: #fff; }
+  .cal-nav { display: inline-flex; gap: 6px; flex-shrink: 0; }
+
   .cal-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: 4px;
   }
+  /* Week view — taller day columns under the DOW header row */
+  .cal-grid.cal-week .cal-week-day { min-height: 220px; max-height: none; display: flex;
+                                     flex-direction: column; gap: 3px; }
+  .cal-grid.cal-week .cal-week-day .cal-pill2 { white-space: normal; }
+  .cal-empty { color: var(--muted); opacity: .4; font-size: 12px; }
+
+  /* Day view — agenda list */
+  .cal-day-agenda { display: flex; flex-direction: column; gap: 10px; }
+  .agenda-item { border: 1.5px solid var(--border); border-left-width: 4px; border-radius: 10px;
+                 background: var(--surface); padding: 12px 14px; cursor: pointer; transition: border-color .15s; }
+  .agenda-item:hover { border-color: var(--accent); }
+  .agenda-type { font-size: 15px; font-weight: 900; }
+  .agenda-meta { font-size: 12px; color: var(--muted); font-weight: 700; margin-top: 2px; text-transform: capitalize; }
+  .agenda-notes { font-size: 12.5px; color: var(--accent); font-weight: 700; margin-top: 5px; }
+  .cal-empty-lg { color: var(--muted); font-size: 14px; padding: 24px 0; text-align: center; }
+
+  /* Coloured pill (fill = session-type colour; status via inline styling) */
+  .cal-pill2 { display: block; border-radius: 6px; padding: 2px 6px; font-size: 10px; font-weight: 800;
+               margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+
+  /* Legend */
+  .cal-legend-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .cal-legend-wrap .leg-row { display: flex; gap: 14px 18px; flex-wrap: wrap; align-items: center;
+                              font-size: 12px; font-weight: 700; color: var(--muted); }
+  .cal-legend-wrap .leg-type { display: inline-flex; align-items: center; gap: 6px; color: var(--navy); }
+  .cal-legend-wrap .leg-dot { width: 12px; height: 12px; border-radius: 4px; display: inline-block;
+                              border: 1px solid rgba(0,0,0,.12); }
+  .cal-legend-wrap .leg-statusrow b { color: var(--navy); }
+  .cal-legend-wrap .leg-statusrow s { opacity: .7; }
   .cal-dow {
     text-align: center;
     font-size: 11px;
@@ -345,31 +376,34 @@
                     'July','August','September','October','November','December'];
   const DAYS_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-  let viewYear, viewMonth;   // currently displayed month
-  let sessionCache  = {};    // keyed by "YYYY-MM" → array of sessions
-  let exclusionDates = [];   // for bulk modal
+  let currentView   = 'month';       // 'month' | 'week' | 'day'
+  let anchor        = new Date();     // reference date driving every view
+  let exclusionDates = [];            // for bulk modal
+
+  // v12.63: session-type → colour map for calendar tinting
+  const SESSION_COLOUR = {};
+  SESSION_TYPES.forEach(s => { if (s && s.name) SESSION_COLOUR[s.name] = s.colour || '#3b82f6'; });
+  function colourFor(name) { return SESSION_COLOUR[name] || '#64748b'; }
+  function cap(s) { return (s || '').charAt(0).toUpperCase() + (s || '').slice(1); }
+
+  /* date helpers */
+  function ymd(dt) { return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; }
+  function addDays(dt, n) { const d = new Date(dt); d.setDate(d.getDate() + n); return d; }
+  function startOfWeek(dt) { const d = new Date(dt); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); d.setHours(0,0,0,0); return d; }
 
   /* ── Initialise ─────────────────────────────────────── */
   (function init() {
-    const now  = new Date();
-    viewYear   = now.getFullYear();
-    viewMonth  = now.getMonth() + 1;  // 1-based
-    loadMonth();
     if (CAN_EDIT) loadTermSuggestions();
 
     // Restrict session type selectors for scoped (non-admin) users
     if (IS_SCOPED) {
       const isSingle = SESSION_NAMES.length === 1;
-      // Add modal — pre-fill with active session; lock if single-session
       const addType = document.getElementById('add-type');
       if (USER_SESSION) addType.value = USER_SESSION;
       addType.disabled = isSingle;
-      // Hide session options not in this user's allowed list
       addType.querySelectorAll('option').forEach(opt => {
         if (!SESSION_NAMES.includes(opt.value)) opt.style.display = 'none';
       });
-
-      // Bulk modal — check allowed sessions, disable others
       document.querySelectorAll('.bulk-day-chk').forEach(chk => {
         if (SESSION_NAMES.includes(chk.value)) {
           chk.checked  = (chk.value === USER_SESSION);
@@ -382,97 +416,154 @@
         }
       });
     }
+    setView('month');
   })();
 
-  /* ── Month navigation ────────────────────────────────── */
-  function prevMonth() {
-    if (--viewMonth < 1) { viewMonth = 12; viewYear--; }
-    loadMonth();
+  /* ── View + navigation ───────────────────────────────── */
+  function setView(v) {
+    currentView = v;
+    document.querySelectorAll('.cal-vbtn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+    load();
   }
-  function nextMonth() {
-    if (++viewMonth > 12) { viewMonth = 1; viewYear++; }
-    loadMonth();
+  function goToday() { anchor = new Date(); load(); }
+  function navPrev() { shiftAnchor(-1); }
+  function navNext() { shiftAnchor(1); }
+  function shiftAnchor(dir) {
+    if (currentView === 'month') { anchor.setDate(1); anchor.setMonth(anchor.getMonth() + dir); }
+    else if (currentView === 'week') { anchor = addDays(anchor, 7 * dir); }
+    else { anchor = addDays(anchor, dir); }
+    load();
   }
 
-  async function loadMonth() {
-    const key = `${viewYear}-${String(viewMonth).padStart(2,'0')}`;
-    document.getElementById('month-heading').textContent =
-      `${MONTHS[viewMonth - 1]} ${viewYear}`;
+  function currentRange() {
+    if (currentView === 'month') {
+      return [new Date(anchor.getFullYear(), anchor.getMonth(), 1),
+              new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)];
+    }
+    if (currentView === 'week') { const s = startOfWeek(anchor); return [s, addDays(s, 6)]; }
+    const d = new Date(anchor); d.setHours(0,0,0,0); return [d, d];
+  }
 
+  async function load() {
+    const [from, to] = currentRange();
+    updateHeadings(from, to);
     try {
-      const sessions = await apiFetch(`/api/calendar?year=${viewYear}&month=${viewMonth}`);
-      sessionCache[key] = sessions;
-      renderCalendar(sessions);
+      const sessions = await apiFetch(`/api/calendar?from=${ymd(from)}&to=${ymd(to)}`);
+      renderView(sessions);
       renderSessionList(sessions);
+      renderLegend();
     } catch (e) {
       showToast('Could not load calendar data.', true);
     }
   }
 
-  /* ── Render calendar grid ────────────────────────────── */
-  function renderCalendar(sessions) {
-    // Build a map: date string → [session, ...]
+  function updateHeadings(from, to) {
+    const h = document.getElementById('cal-heading');
+    const sb = document.getElementById('sidebar-heading');
+    if (currentView === 'month') {
+      h.textContent  = `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`;
+      if (sb) sb.textContent = 'Sessions this month';
+    } else if (currentView === 'week') {
+      h.textContent  = `${from.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${to.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`;
+      if (sb) sb.textContent = 'Sessions this week';
+    } else {
+      h.textContent  = anchor.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+      if (sb) sb.textContent = 'Sessions this day';
+    }
+  }
+
+  /* ── Coloured pill (fill = type colour; status via styling) ── */
+  function pillMarkup(s) {
+    const col = colourFor(s.session_type);
+    const cancelled = s.status === 'cancelled', special = s.status === 'special';
+    let style = cancelled
+      ? 'background:var(--surface-2);color:var(--muted);border:1.5px solid var(--border);text-decoration:line-through;opacity:.75'
+      : `background:${col}22;color:${col};border:1.5px solid ${col}${special ? '' : '55'}`;
+    if (special && !cancelled) style += `;box-shadow:0 0 0 2px ${col}33;font-weight:900`;
+    const tip = (s.notes ? `${s.session_type} · ${s.notes}` : s.session_type) + ` — ${cap(s.status)}`;
+    const click = CAN_EDIT ? `onclick="openEditModal(${JSON.stringify(s).replace(/"/g,'&quot;')})"` : '';
+    return `<span class="cal-pill2" style="${style}" data-id="${s.id}" ${click}
+             title="${esc(tip)}">${special && !cancelled ? '★ ' : ''}${esc(s.session_type)}</span>`;
+  }
+
+  /* ── Render the active view ─────────────────────────── */
+  function renderView(sessions) {
     const byDate = {};
-    sessions.forEach(s => {
-      if (!byDate[s.session_date]) byDate[s.session_date] = [];
-      byDate[s.session_date].push(s);
-    });
+    sessions.forEach(s => { (byDate[s.session_date] = byDate[s.session_date] || []).push(s); });
+    const vp = document.getElementById('cal-viewport');
+    if (currentView === 'month')      vp.innerHTML = monthHtml(byDate);
+    else if (currentView === 'week')  vp.innerHTML = weekHtml(byDate);
+    else                              vp.innerHTML = dayHtml(byDate);
+    refreshIcons();
+  }
 
-    const today    = new Date().toISOString().slice(0, 10);
-    const firstDay = new Date(viewYear, viewMonth - 1, 1);
-    const lastDay  = new Date(viewYear, viewMonth, 0);
+  function dowHeaders() { return DAYS_SHORT.map(d => `<div class="cal-dow">${d}</div>`).join(''); }
 
-    // Monday-based: getDay() returns 0=Sun,1=Mon…
-    // We want Mon=0, so offset = (getDay() + 6) % 7
-    const startOffset = (firstDay.getDay() + 6) % 7;
-    const daysInMonth = lastDay.getDate();
-
-    // Days from previous month to fill start
-    const prevMonthLast = new Date(viewYear, viewMonth - 1, 0).getDate();
-
-    const grid = document.getElementById('cal-grid');
-    // Remove existing day cells (keep the 7 header cells)
-    while (grid.children.length > 7) grid.removeChild(grid.lastChild);
-
-    // Previous month padding
-    for (let i = startOffset - 1; i >= 0; i--) {
-      const cell = document.createElement('div');
-      cell.className = 'cal-day other-month';
-      cell.innerHTML = `<div class="cal-day-num">${prevMonthLast - i}</div>`;
-      grid.appendChild(cell);
-    }
-
-    // Current month days
+  function monthHtml(byDate) {
+    const y = anchor.getFullYear(), m = anchor.getMonth();
+    const today = ymd(new Date());
+    const first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
+    const startOffset = (first.getDay() + 6) % 7;
+    const daysInMonth = last.getDate();
+    const prevLast = new Date(y, m, 0).getDate();
+    let cells = '';
+    for (let i = startOffset - 1; i >= 0; i--)
+      cells += `<div class="cal-day other-month"><div class="cal-day-num">${prevLast - i}</div></div>`;
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${viewYear}-${String(viewMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const cell    = document.createElement('div');
-      const isToday = dateStr === today;
-      const daySess = byDate[dateStr] || [];
-
-      cell.className = `cal-day${isToday ? ' today' : ''}${daySess.length ? ' has-session' : ''}`;
-      cell.dataset.date = dateStr;
-
-      let html = `<div class="cal-day-num">${d}</div>`;
-      daySess.forEach(s => {
-        const typeClass = s.session_type.toLowerCase();
-        const tooltip   = s.notes ? `${s.session_type} · ${s.notes}` : s.session_type;
-        html += `<span class="cal-pill ${s.status} ${typeClass}"
-                       onclick="openEditModal(${JSON.stringify(s).replace(/"/g,'&quot;')})"
-                       data-id="${s.id}" title="${esc(tooltip)}">${esc(s.session_type)}</span>`;
-      });
-      cell.innerHTML = html;
-      grid.appendChild(cell);
+      const ds = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const sess = byDate[ds] || [];
+      const isToday = ds === today;
+      cells += `<div class="cal-day${isToday ? ' today' : ''}${sess.length ? ' has-session' : ''}" data-date="${ds}">
+        <div class="cal-day-num">${d}</div>${sess.map(pillMarkup).join('')}</div>`;
     }
+    const total = startOffset + daysInMonth;
+    const rem = total % 7 === 0 ? 0 : 7 - (total % 7);
+    for (let i = 1; i <= rem; i++)
+      cells += `<div class="cal-day other-month"><div class="cal-day-num">${i}</div></div>`;
+    return `<div class="cal-grid">${dowHeaders()}${cells}</div>`;
+  }
 
-    // Next month padding (fill to complete last row)
-    const totalCells = startOffset + daysInMonth;
-    const remainder  = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
-    for (let i = 1; i <= remainder; i++) {
-      const cell = document.createElement('div');
-      cell.className = 'cal-day other-month';
-      cell.innerHTML = `<div class="cal-day-num">${i}</div>`;
-      grid.appendChild(cell);
+  function weekHtml(byDate) {
+    const s = startOfWeek(anchor);
+    const today = ymd(new Date());
+    let head = '', body = '';
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(s, i), ds = ymd(d);
+      head += `<div class="cal-dow">${DAYS_SHORT[i]} <span style="opacity:.6">${d.getDate()}/${d.getMonth()+1}</span></div>`;
+      const sess = byDate[ds] || [];
+      body += `<div class="cal-day cal-week-day${ds === today ? ' today' : ''}${sess.length ? ' has-session' : ''}" data-date="${ds}">
+        ${sess.map(pillMarkup).join('') || '<span class="cal-empty">—</span>'}</div>`;
     }
+    return `<div class="cal-grid cal-week">${head}${body}</div>`;
+  }
+
+  function dayHtml(byDate) {
+    const ds = ymd(anchor);
+    const sess = byDate[ds] || [];
+    if (!sess.length) return `<div class="cal-day-agenda"><p class="cal-empty-lg">No sessions on this day.</p></div>`;
+    return `<div class="cal-day-agenda">${sess.map(agendaItem).join('')}</div>`;
+  }
+
+  function agendaItem(s) {
+    const col = colourFor(s.session_type);
+    const cancelled = s.status === 'cancelled', special = s.status === 'special';
+    const click = CAN_EDIT ? `onclick="openEditModal(${JSON.stringify(s).replace(/"/g,'&quot;')})"` : '';
+    return `<div class="agenda-item" style="border-left-color:${cancelled ? 'var(--border)' : col}" ${click}>
+      <div class="agenda-type" style="${cancelled ? 'text-decoration:line-through;opacity:.6' : `color:${col}`}">${special ? '★ ' : ''}${esc(s.session_type)}</div>
+      <div class="agenda-meta">${esc(cap(s.status))}${s.term_name ? ' · ' + esc(s.term_name) : ''}</div>
+      ${s.notes ? `<div class="agenda-notes"><span class="ico-emoji">📝 </span>${esc(s.notes)}</div>` : ''}
+    </div>`;
+  }
+
+  function renderLegend() {
+    const el = document.getElementById('cal-legend');
+    if (!el) return;
+    const types = SESSION_TYPES.map(s =>
+      `<span class="leg-type"><span class="leg-dot" style="background:${s.colour || '#3b82f6'}"></span>${esc(s.name)}</span>`
+    ).join('');
+    el.innerHTML = `
+      <div class="leg-row">${types || '<span style="opacity:.6">No session types defined</span>'}</div>
+      <div class="leg-row leg-statusrow"><span>Status:</span> Planned · <b>★ Special</b> · <s>Cancelled</s></div>`;
   }
 
   /* ── Render sidebar session list ─────────────────────── */
@@ -480,7 +571,7 @@
     const el = document.getElementById('session-list');
     if (!sessions.length) {
       el.innerHTML = `<p style="color:var(--muted);font-size:13px">
-        No sessions planned for this month.</p>`;
+        No sessions in this view.</p>`;
       return;
     }
     el.innerHTML = sessions.map(s => {
@@ -512,7 +603,9 @@
 
   /* ── Add session modal ───────────────────────────────── */
   function openAddModal(dateStr) {
-    document.getElementById('add-date').value   = dateStr || '';
+    // Default to the day currently in view (v12.63) when opened from the toolbar.
+    dateStr = dateStr || ymd(anchor);
+    document.getElementById('add-date').value   = dateStr;
     document.getElementById('add-status').value = 'planned';
     document.getElementById('add-term').value   = '';
     document.getElementById('add-notes').value  = '';
@@ -552,7 +645,7 @@
       });
       showToast('Session added.');
       closeAddModal();
-      loadMonth();
+      load();
       loadTermSuggestions();
     } catch (e) {
       showToast(e.message, true);
@@ -593,7 +686,7 @@
       });
       showToast('Session updated.');
       closeEditModal();
-      loadMonth();
+      load();
     } catch (e) {
       showToast(e.message, true);
     } finally {
@@ -608,7 +701,7 @@
       await apiFetch(`/api/calendar/${id}`, { method: 'DELETE' });
       showToast('Session deleted.');
       closeEditModal();
-      loadMonth();
+      load();
     } catch (e) {
       showToast(e.message, true);
     }
@@ -711,7 +804,7 @@
       });
       showToast(`Done — ${res.created} session${res.created !== 1 ? 's' : ''} created${res.skipped ? ` (${res.skipped} already existed)` : ''}.`);
       closeBulkModal();
-      loadMonth();
+      load();
       loadTermSuggestions();
     } catch (e) {
       showToast(e.message, true);
