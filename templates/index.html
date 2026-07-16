@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_short_name }} Portal — Sign In</title>
+  <script>
+    /* v12.69: honour the saved dark-mode preference (same pre-paint snippet as
+       base.html — this page is standalone and never got the theme hookup, so
+       dark mode applied everywhere except the login screen). */
+    (function () {
+      try {
+        if (localStorage.getItem('ayc-theme') === 'dark')
+          document.documentElement.dataset.theme = 'dark';
+      } catch (_) {}
+    })();
+  </script>
   <link rel="stylesheet" href="/static/vendor/fonts.css">
   <link rel="stylesheet" href="/static/css/shared.css">
   {% if brand %}
@@ -117,6 +128,18 @@
     @media (max-width: 480px) {
       .login-card { padding: 36px 24px 28px; }
     }
+
+    /* v12.69: dark-mode fixes. In dark, --navy is re-pointed to a near-white
+       TEXT colour, so the navy Sign In button would render white-on-white —
+       use the accent instead. Inputs get an explicit dark surface (the UA
+       default is white regardless of theme). */
+    html[data-theme="dark"] .login-btn        { background: var(--accent); }
+    html[data-theme="dark"] .login-btn:hover  { background: var(--accent-dark); }
+    html[data-theme="dark"] .form-group input {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    html[data-theme="dark"] .club-badge .version { color: var(--muted); opacity: .7; }
   </style>
 </head>
 <body>
