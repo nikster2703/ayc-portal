@@ -2274,17 +2274,28 @@ def api_import_run():
 
             # v12.58: multi-session — fold repeat members into one, unioning sessions.
             if multi_session and _has_identity:
-                target_id = run_member_ids.get(match_key)
+                target_id    = run_member_ids.get(match_key)
+                _status_warn = None
                 # Match an existing portal member too, but only when the user has
                 # asked to treat matches as the same person (skip-duplicates on).
                 if target_id is None and skip_dupes:
-                    target_id = _find_existing_member(db, match_fields, _match_vals)
+                    _existing = _find_existing_member(db, match_fields, _match_vals)
+                    if _existing is not None:
+                        target_id = _existing['id']
+                        # v12.66 (audit fix #3): merging onto an archived/left record
+                        # "succeeds" but the member stays invisible on every register —
+                        # surface it for review instead of folding the row in silently.
+                        if _existing['status_behaviour'] != 'active':
+                            _status_warn = (f"combined into an existing member whose status is "
+                                            f"'{_existing['status']}' — they will not appear on any "
+                                            f"register until their status is changed")
                 if target_id is not None:
                     _w = _merge_member_row(db, target_id, core.get('session') or '',
                                            mobile_val, email_val, contacts)
                     db.commit()
                     run_member_ids[match_key] = target_id
                     merged += 1
+                    _w = '; '.join(x for x in (_w, _status_warn) if x)
                     if _w:
                         warnings.append({'row': row_num, 'name': _row_name(), 'warning': _w})
                     continue
@@ -2300,14 +2311,19 @@ def api_import_run():
             # v12.58: duplicate check runs against the configurable match fields
             # (case-insensitive, NULL treated as blank). In multi-session mode an
             # existing match was already merged above, so this only fires for
-            # single-session imports.
-            if skip_dupes and not provided_id and not multi_session and \
-                    _find_existing_member(db, match_fields, _match_vals) is not None:
-                skipped += 1
-                _flds = ' + '.join(f.replace('_', ' ').title() for f in match_fields)
-                not_imported.append({'row': row_num, 'name': _row_name(),
-                                     'reason': f'Duplicate — already exists in the portal (matched on {_flds})'})
-                continue
+            # single-session imports. v12.66: staff records are excluded from the
+            # match; a non-active-status match names the status so the results
+            # screen shows why the "duplicate" isn't on any register.
+            if skip_dupes and not provided_id and not multi_session:
+                _existing = _find_existing_member(db, match_fields, _match_vals)
+                if _existing is not None:
+                    skipped += 1
+                    _flds = ' + '.join(f.replace('_', ' ').title() for f in match_fields)
+                    _note = ('' if _existing['status_behaviour'] == 'active' else
+                             f" — note: the existing record's status is '{_existing['status']}'")
+                    not_imported.append({'row': row_num, 'name': _row_name(),
+                                         'reason': f'Duplicate — already exists in the portal (matched on {_flds}){_note}'})
+                    continue
 
             member_id = provided_id if provided_id else _next_member_id(db)
             db.execute('''
@@ -2528,18 +2544,35 @@ def _find_existing_member(db, match_fields, vals):
     """v12.58: find a member already in the portal matching on the configurable
     identity fields. Comparison is case-insensitive and treats NULL as blank, so
     an empty postcode/DOB still matches a blank. match_fields is pre-whitelisted
-    to real column names by the caller. Returns a member id, or None. A match key
-    with every value blank never matches (avoids collapsing all no-data rows)."""
+    to real column names by the caller. A match key with every value blank never
+    matches (avoids collapsing all no-data rows).
+
+    v12.66 (audit fix #3): returns the matched row (id, status, status_behaviour)
+    instead of a bare id, and:
+    - STAFF records are never matched — a register row whose match fields
+      collide with a staff member must not merge sessions/contacts into (or be
+      skipped against) the staff record;
+    - among non-staff matches, a member whose status behaviour is 'active' is
+      preferred, so a returning member matches their live record ahead of an
+      archived duplicate; callers warn when the only match is non-active
+      (merged rows would otherwise stay invisible on every register while the
+      import reports success).
+    Returns the row, or None."""
     if not any((vals.get(f) or '').strip() for f in match_fields):
         return None
     clauses, params = [], []
     for f in match_fields:
-        clauses.append(f"lower(COALESCE({f},'')) = ?")
+        clauses.append(f"lower(COALESCE(m.{f},'')) = ?")
         params.append((vals.get(f) or '').strip().lower())
-    row = db.execute(
-        f'SELECT id FROM members WHERE {" AND ".join(clauses)} ORDER BY id LIMIT 1',
-        params).fetchone()
-    return row['id'] if row else None
+    return db.execute(f'''
+        SELECT m.id, m.status, COALESCE(ms.behaviour, '') AS status_behaviour
+        FROM   members m
+        LEFT JOIN member_types    mt ON mt.slug = m.member_type
+        LEFT JOIN member_statuses ms ON ms.name = m.status
+        WHERE  {' AND '.join(clauses)}
+          AND  COALESCE(mt.registration_style, '') != 'staff'
+        ORDER  BY CASE WHEN ms.behaviour = 'active' THEN 0 ELSE 1 END, m.id
+        LIMIT  1''', params).fetchone()
 
 
 def _merge_member_row(db, target_id, raw_session, mobile_val, email_val, contacts):
