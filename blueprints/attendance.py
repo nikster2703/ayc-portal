@@ -397,10 +397,16 @@ def api_attendance_history(member_id):
     if not member_in_scope(member_id):   # v12.51: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
+    # v12.62: the member card now shows attendance as one row PER session, so a
+    # global LIMIT 20 (which a multi-session member burns through in a couple of
+    # sessions) is no longer enough. Keep the most recent ~2 years per session via
+    # a window function — bounded payload, plenty to scroll through per session.
     rows = db.execute(
-        'SELECT session_date, session_type, signed_in_at, signed_out_at'
-        ' FROM attendance WHERE member_id = ?'
-        ' ORDER BY session_date DESC LIMIT 20',
+        'SELECT session_date, session_type, signed_in_at, signed_out_at FROM ('
+        '  SELECT session_date, session_type, signed_in_at, signed_out_at,'
+        '         ROW_NUMBER() OVER (PARTITION BY session_type ORDER BY session_date DESC) AS rn'
+        '  FROM attendance WHERE member_id = ?'
+        ') WHERE rn <= 104 ORDER BY session_date DESC',
         (member_id,)
     ).fetchall()
     result = []

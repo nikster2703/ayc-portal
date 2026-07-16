@@ -1183,30 +1183,54 @@
         return;
       }
 
-      /* Formal: dot strip with short d/m dates above each slot (per mockup) */
+      /* Formal: one row PER SESSION so a multi-session member's registers are
+         kept separate (v12.62). Each session row is a horizontally-scrollable
+         dot strip — the grid grows down with sessions and scrolls sideways as
+         each session's history grows. */
       if (isFormalSkin()) {
-        const recent = [...rows]
-          .sort((a, b) => (a.session_date || '').localeCompare(b.session_date || ''))
-          .slice(-12);
-        let present = 0;
-        const dots = recent.map(r => {
-          const d   = new Date(r.session_date + 'T00:00:00');
-          const lbl = d.getDate() + '/' + (d.getMonth() + 1);
-          const inAt = r.signed_in_at;
-          if (inAt) present++;
-          const tip = `${fmtDate(r.session_date)} — ${esc(r.session_type)}${inAt ? ` · in ${inAt}${r.signed_out_at ? ', out ' + r.signed_out_at : ''}` : ' · absent'}`;
-          return `<span class="att-col" title="${tip}">
-            <span class="att-date">${lbl}</span>
-            <span class="att-dot ${inAt ? 'p' : 'a'}"><i data-lucide="${inAt ? 'check' : 'x'}"></i></span>
-          </span>`;
+        const bySession = {};
+        rows.forEach(r => {
+          const s = r.session_type || '—';
+          (bySession[s] = bySession[s] || []).push(r);
+        });
+        const sessionNames = Object.keys(bySession).sort((a, b) => a.localeCompare(b));
+        let totalPresent = 0, totalCount = 0;
+
+        const rowsHtml = sessionNames.map(sname => {
+          const recs = bySession[sname]
+            .sort((a, b) => (a.session_date || '').localeCompare(b.session_date || ''));
+          let present = 0;
+          const dots = recs.map(r => {
+            const d    = new Date(r.session_date + 'T00:00:00');
+            const lbl  = d.getDate() + '/' + (d.getMonth() + 1);
+            const inAt = r.signed_in_at;
+            if (inAt) present++;
+            const tip = `${fmtDate(r.session_date)} — ${esc(sname)}${inAt ? ` · in ${inAt}${r.signed_out_at ? ', out ' + r.signed_out_at : ''}` : ' · absent'}`;
+            return `<span class="att-col" title="${tip}">
+              <span class="att-date">${lbl}</span>
+              <span class="att-dot ${inAt ? 'p' : 'a'}"><i data-lucide="${inAt ? 'check' : 'x'}"></i></span>
+            </span>`;
+          }).join('');
+          totalPresent += present; totalCount += recs.length;
+          return `
+            <div class="att-row">
+              <div class="att-row-label">
+                <span class="att-row-name">${esc(sname)}</span>
+                <span class="att-row-count">${present}/${recs.length} present</span>
+              </div>
+              <div class="att-row-scroll"><div class="att-strip att-strip-row">${dots}</div></div>
+            </div>`;
         }).join('');
+
         el.innerHTML = `
-          <div class="att-strip">${dots}</div>
+          <div class="att-grid">${rowsHtml}</div>
           <div class="att-legend">
-            <span><i class="lg p"></i>Present (${present})</span>
-            <span><i class="lg a"></i>Absent (${recent.length - present})</span>
-            ${rows.length > 12 ? `<span style="opacity:.7">Showing last 12 of ${rows.length}</span>` : ''}
+            <span><i class="lg p"></i>Present (${totalPresent})</span>
+            <span><i class="lg a"></i>Absent (${totalCount - totalPresent})</span>
+            <span style="opacity:.7">${sessionNames.length} session${sessionNames.length !== 1 ? 's' : ''}</span>
           </div>`;
+        // Start each strip scrolled to the most recent (right-hand) entry.
+        el.querySelectorAll('.att-row-scroll').forEach(s => { s.scrollLeft = s.scrollWidth; });
         refreshIcons();
         return;
       }
@@ -2246,6 +2270,19 @@
 
   /* Attendance dot strip (Formal only) */
   .att-strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
+  /* v12.62: per-session attendance grid (modern skin) */
+  .att-grid { display: flex; flex-direction: column; gap: 10px; }
+  .att-row { display: flex; align-items: stretch; gap: 10px; }
+  .att-row-label { flex: 0 0 auto; width: 140px; display: flex; flex-direction: column;
+                   justify-content: center; gap: 2px; padding-right: 10px;
+                   border-right: 1px solid var(--border); }
+  .att-row-name { font-size: 12px; font-weight: 700; color: var(--navy);
+                  line-height: 1.2; overflow-wrap: anywhere; }
+  .att-row-count { font-size: 10.5px; font-weight: 600; color: var(--muted);
+                   font-variant-numeric: tabular-nums; }
+  .att-row-scroll { flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden;
+                    padding-bottom: 4px; }
+  .att-strip-row { flex-wrap: nowrap; }
   .att-col { display: flex; flex-direction: column; align-items: center; gap: 3px; }
   .att-date { font-size: 9.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .att-dot { width: 26px; height: 24px; border-radius: 7px; display: grid; place-items: center; }
