@@ -1743,8 +1743,39 @@ def api_maintenance_clear_members():
     n_attendance  = db.execute('SELECT COUNT(*) FROM attendance').fetchone()[0]
     n_dofe        = db.execute('SELECT COUNT(*) FROM dofe_participants').fetchone()[0]
 
-    db.execute('DELETE FROM attendance')
-    db.execute('DELETE FROM dofe_participants')
+    # v12.59: every table hanging off members must be cleared BEFORE the members
+    # rows, or the DELETE aborts on a foreign-key constraint. session_notes.member_id
+    # in particular has no ON DELETE action (and most child FKs are CASCADE only when
+    # the pragma is on). We discover member-child tables dynamically (so any future
+    # member-linked table is covered) and union a known list in case one lacks a
+    # formal FK (e.g. member_contacts). session_notes is special-cased: only the
+    # member-linked rows are removed, so general/club session notes are preserved.
+    existing = {r['name'] for r in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    child_tables = set()
+    for tname in existing:
+        try:
+            for fk in db.execute(f'PRAGMA foreign_key_list("{tname}")').fetchall():
+                if fk['table'] == 'members':
+                    child_tables.add(tname)
+                    break
+        except Exception:
+            pass
+    child_tables |= {
+        'attendance', 'dofe_participants', 'member_sessions', 'member_contacts',
+        'member_tags', 'member_field_values', 'member_flags', 'member_payments',
+        'session_notes',
+    }
+
+    n_notes = db.execute(
+        'SELECT COUNT(*) FROM session_notes WHERE member_id IS NOT NULL'
+    ).fetchone()[0] if 'session_notes' in existing else 0
+
+    # Detach member-linked notes only, then full-wipe the strictly per-member tables.
+    if 'session_notes' in existing:
+        db.execute('DELETE FROM session_notes WHERE member_id IS NOT NULL')
+    for t in sorted((child_tables & existing) - {'session_notes'}):
+        db.execute(f'DELETE FROM "{t}"')
     db.execute('DELETE FROM members')
     db.commit()
 
@@ -1752,6 +1783,8 @@ def api_maintenance_clear_members():
         'members_deleted':    n_members,
         'attendance_deleted': n_attendance,
         'dofe_deleted':       n_dofe,
+        'member_notes_deleted': n_notes,
+        'child_tables_cleared': sorted((child_tables & existing) - {'session_notes'}),
         'by':                 session['username'],
     })
     return jsonify({
