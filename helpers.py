@@ -20,7 +20,7 @@ from flask import g, has_request_context, jsonify, redirect, request, session, u
 
 from config import (
     DATABASE, UPLOAD_DIR, ALLOWED_EXTENSIONS,
-    BRAND_KEYS, CLUB_NAME, CLUB_SHORT_NAME,
+    BRAND_KEYS, BRAND_FONT_STACKS, CLUB_NAME, CLUB_SHORT_NAME,
     ROLE_ADMIN, ROLE_DISPLAY_NAMES,
     LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
 )
@@ -378,6 +378,12 @@ def get_brand_settings():
     result['_nav_text']   = nav_text
     result['_nav_border'] = nav_border
     result['_logo_url']   = f'/branding/logo?v={int(time.time())}' if result['brand_logo_file'] else ''
+    # v12.70 Branding v2 derived values
+    result['_favicon_url']     = (f'/branding/favicon?v={int(time.time())}'
+                                  if result['brand_favicon_file'] else '')
+    result['_login_image_url'] = (f'/branding/login-image?v={int(time.time())}'
+                                  if result['brand_login_image_file'] else '')
+    result['_font_stack']      = BRAND_FONT_STACKS.get(result['brand_font'], '')
 
     _brand_cache = result
     return result

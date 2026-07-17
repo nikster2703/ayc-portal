@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.69'  # Login screen dark mode. Release notes live in CHANGELOG.md.
+APP_VERSION = 'v12.70'  # Branding v2 — dark-mode accent, theme colours, font, default theme, favicon, login background, email branding, reset. See CHANGELOG.md.
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
@@ -41,12 +41,35 @@ SMTP_FROM = os.environ.get('MAIL_FROM',     SMTP_USER)
 GETADDRESS_KEY = os.environ.get('GETADDRESS_KEY', '')
 
 # ── Branding defaults ──────────────────────────────────────────────────────────
+# Colour/enum values: '' means "use the theme default" throughout.
 BRAND_KEYS = {
     'brand_accent':      '#0096b4',
     'brand_nav_style':   'dark',    # 'dark' | 'accent' | 'white'
     'brand_logo_file':   '',
     'brand_club_name':   '',
     'brand_short_name':  '',
+    # v12.70 Branding v2
+    'brand_accent_dark':      '',       # separate accent for dark mode ('' = use brand_accent)
+    'brand_bg_light':         '',       # page background (light theme)
+    'brand_surface_light':    '',       # card surface (light theme)
+    'brand_heading_light':    '',       # heading colour / --navy (light theme)
+    'brand_bg_dark':          '',
+    'brand_surface_dark':     '',
+    'brand_heading_dark':     '',
+    'brand_font':             '',       # '' = skin default | key of BRAND_FONT_STACKS
+    'brand_default_theme':    'light',  # 'light' | 'dark' | 'system' — for users with no saved choice
+    'brand_login_image_file': '',       # login page background image
+    'brand_favicon_file':     '',
+    'brand_email_branding':   '0',      # '1' = wrap mailshots in a branded header/footer
+}
+
+# Curated font stacks — all either vendored (fonts.css) or system fonts, so no
+# CDN/CSP implications. '' (skin default) keeps Inter/Nunito per skin.
+BRAND_FONT_STACKS = {
+    'inter':   "'Inter', system-ui, sans-serif",
+    'nunito':  "'Nunito', system-ui, sans-serif",
+    'system':  "system-ui, -apple-system, 'Segoe UI', sans-serif",
+    'georgia': "Georgia, 'Times New Roman', serif",
 }
 
 # ── Role slug constants ────────────────────────────────────────────────────────

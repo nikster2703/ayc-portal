@@ -49,6 +49,54 @@
     text-transform: uppercase;
   }
 
+  /* v12.70: light/dark live preview panes */
+  .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+    gap: 14px;
+  }
+  .pv-pane {
+    border-radius: 12px;
+    border: 2px solid var(--border);
+    overflow: hidden;
+  }
+  .pv-tag {
+    font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em;
+    padding: 5px 12px; opacity: .75;
+  }
+  /* v12.70: per-theme colour override rows */
+  .ov-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr));
+    gap: 18px;
+  }
+  .ov-col-title {
+    font-size: 12px; font-weight: 900; color: var(--navy);
+    margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ov-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0; border-bottom: 1px solid var(--border);
+  }
+  .ov-row:last-child { border-bottom: none; }
+  .ov-row label.ov-name { flex: 1; font-size: 13px; font-weight: 700; color: var(--text); }
+  .ov-row input[type="color"] {
+    width: 40px; height: 30px; padding: 1px; border: 1.5px solid var(--border);
+    border-radius: 7px; background: var(--surface); cursor: pointer;
+  }
+  .ov-row input[type="color"]:disabled { opacity: .35; cursor: not-allowed; }
+  .ov-default {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer;
+  }
+  .contrast-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 700; color: var(--amber);
+    background: var(--amber-bg);
+    border: 1.5px solid color-mix(in srgb, var(--amber) 35%, transparent);
+    border-radius: 8px; padding: 5px 10px; margin: 4px 6px 0 0;
+  }
+
   /* Nav style cards */
   .nav-style-grid {
     display: grid;
@@ -87,7 +135,27 @@
     text-align: center;
   }
 
-  /* Logo dropzone */
+  /* v12.70: appearance pickers */
+  .appearance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+    gap: 18px;
+  }
+  .pill-radio-group { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill-radio {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1.5px solid var(--border); border-radius: 99px;
+    padding: 7px 15px; cursor: pointer; user-select: none;
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    background: var(--surface); transition: border-color .15s, color .15s, background .15s;
+  }
+  .pill-radio:hover { border-color: var(--accent); }
+  .pill-radio:has(input:checked) {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  .pill-radio input { display: none; }
+
+  /* Logo / asset dropzones */
   .logo-drop {
     border: 2px dashed var(--border);
     border-radius: 12px;
@@ -101,27 +169,20 @@
     background: var(--accent-soft);
   }
   .logo-drop input { display: none; }
-
-  /* Live preview bar */
-  #preview-bar {
-    border-radius: 10px;
-    padding: 0 20px;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 15px;
-    font-weight: 900;
-    margin-bottom: 20px;
-    transition: background .25s, color .25s;
+  .asset-current {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 14px;
+    background: var(--surface-2); border-radius: 10px; padding: 12px 16px;
   }
-  #preview-bar img { height: 28px; width: auto; max-width: 130px; object-fit: contain; }
 </style>
 
-<!-- Live preview bar -->
-<div id="preview-bar" style="background:#1b2d4f;color:#ffffff">
-  <span id="preview-icon">🏅</span>
-  <span id="preview-name">{{ club_name }}</span>
+<!-- ── Live preview (light + dark) ─────────────────────────────────── -->
+<div class="brand-section" style="padding-bottom:18px">
+  <div class="brand-section-title">Live Preview — Light &amp; Dark</div>
+  <div class="preview-grid">
+    <div class="pv-pane" id="pv-light"></div>
+    <div class="pv-pane" id="pv-dark"></div>
+  </div>
+  <div id="contrast-warnings" style="margin-top:6px"></div>
 </div>
 
 <!-- ── Accent colour ──────────────────────────────────────────────── -->
@@ -152,6 +213,75 @@
               onmouseover="this.style.transform='scale(1.15)'"
               onmouseout="this.style.transform='scale(1)'"></button>
       {% endfor %}
+    </div>
+  </div>
+
+  <!-- v12.70: separate dark-mode accent -->
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <label class="ov-default" style="font-size:13px">
+      <input type="checkbox" id="accent-dark-enabled"
+             {% if brand.brand_accent_dark %}checked{% endif %}
+             onchange="onAccentDarkToggle(this.checked)">
+      Use a different accent in dark mode
+    </label>
+    <div class="colour-row" style="margin-top:10px">
+      <input type="color" id="accent-dark-picker" class="colour-swatch"
+             value="{{ brand.brand_accent_dark or brand.brand_accent or '#0096b4' }}"
+             {% if not brand.brand_accent_dark %}disabled{% endif %}
+             oninput="onAccentDarkChange(this.value)">
+      <span style="font-size:12.5px;color:var(--muted);max-width:460px;line-height:1.5">
+        Colours tuned for white backgrounds can look muddy on dark surfaces —
+        a slightly brighter version usually works best. Leave off to use the
+        same accent everywhere.
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Theme colours (v12.70) ─────────────────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Theme Colours</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+    Optional overrides for each theme's page background, card surface and heading colour.
+    "Default" keeps the built-in theme value. The preview above warns if a combination
+    is hard to read.
+  </p>
+  <div class="ov-grid">
+    <div>
+      <div class="ov-col-title">☀️ Light theme</div>
+      <div class="ov-row" data-key="bg_light">
+        <label class="ov-name">Page background</label>
+        <label class="ov-default"><input type="checkbox" class="ov-def-cb" onchange="onOvDefault(this)"> Default</label>
+        <input type="color" class="ov-picker" oninput="onOvChange(this)">
+      </div>
+      <div class="ov-row" data-key="surface_light">
+        <label class="ov-name">Card surface</label>
+        <label class="ov-default"><input type="checkbox" class="ov-def-cb" onchange="onOvDefault(this)"> Default</label>
+        <input type="color" class="ov-picker" oninput="onOvChange(this)">
+      </div>
+      <div class="ov-row" data-key="heading_light">
+        <label class="ov-name">Headings</label>
+        <label class="ov-default"><input type="checkbox" class="ov-def-cb" onchange="onOvDefault(this)"> Default</label>
+        <input type="color" class="ov-picker" oninput="onOvChange(this)">
+      </div>
+    </div>
+    <div>
+      <div class="ov-col-title">🌙 Dark theme</div>
+      <div class="ov-row" data-key="bg_dark">
+        <label class="ov-name">Page background</label>
+        <label class="ov-default"><input type="checkbox" class="ov-def-cb" onchange="onOvDefault(this)"> Default</label>
+        <input type="color" class="ov-picker" oninput="onOvChange(this)">
+      </div>
+      <div class="ov-row" data-key="surface_dark">
+        <label class="ov-name">Card surface</label>
+        <label class="ov-default"><input type="checkbox" class="ov-def-cb" onchange="onOvDefault(this)"> Default</label>
+        <input type="color" class="ov-picker" oninput="onOvChange(this)">
+      </div>
+      <div class="ov-row" data-key="heading_dark">
+        <label class="ov-name">Headings</label>
+        <label class="ov-default"><input type="checkbox" class="ov-def-cb" onchange="onOvDefault(this)"> Default</label>
+        <input type="color" class="ov-picker" oninput="onOvChange(this)">
+      </div>
     </div>
   </div>
 </div>
@@ -198,6 +328,49 @@
   </div>
 </div>
 
+<!-- ── Appearance (v12.70): default theme + font ──────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Appearance</div>
+  <div class="appearance-grid">
+    <div>
+      <label style="display:block;font-size:12px;font-weight:800;color:var(--navy);margin-bottom:8px">
+        Default theme for new visitors
+      </label>
+      <div class="pill-radio-group" id="default-theme-group">
+        <label class="pill-radio"><input type="radio" name="default_theme" value="light"
+          {% if brand.brand_default_theme in ('', 'light', None) %}checked{% endif %}
+          onchange="_cur.default_theme='light';renderPreviews()">☀️ Light</label>
+        <label class="pill-radio"><input type="radio" name="default_theme" value="dark"
+          {% if brand.brand_default_theme == 'dark' %}checked{% endif %}
+          onchange="_cur.default_theme='dark';renderPreviews()">🌙 Dark</label>
+        <label class="pill-radio"><input type="radio" name="default_theme" value="system"
+          {% if brand.brand_default_theme == 'system' %}checked{% endif %}
+          onchange="_cur.default_theme='system';renderPreviews()">🖥️ Follow system</label>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5">
+        Applies to anyone who hasn't chosen a theme with the sun/moon toggle —
+        a person's own choice always wins.
+      </p>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;font-weight:800;color:var(--navy);margin-bottom:8px">
+        Portal font
+      </label>
+      <select id="font-select" class="form-input" style="max-width:280px"
+              onchange="_cur.font=this.value;applyFontPreview();renderPreviews()">
+        <option value=""        {% if not brand.brand_font %}selected{% endif %}>Skin default (Inter / Nunito)</option>
+        <option value="inter"   {% if brand.brand_font == 'inter' %}selected{% endif %}>Inter — clean &amp; formal</option>
+        <option value="nunito"  {% if brand.brand_font == 'nunito' %}selected{% endif %}>Nunito — rounded &amp; friendly</option>
+        <option value="system"  {% if brand.brand_font == 'system' %}selected{% endif %}>System font</option>
+        <option value="georgia" {% if brand.brand_font == 'georgia' %}selected{% endif %}>Georgia — serif</option>
+      </select>
+      <p id="font-sample" style="font-size:15px;margin-top:10px;color:var(--text)">
+        The quick brown fox jumps over the lazy dog — 0123456789
+      </p>
+    </div>
+  </div>
+</div>
+
 <!-- ── Club name override ─────────────────────────────────────────── -->
 <div class="brand-section">
   <div class="brand-section-title">Club Name Override</div>
@@ -228,14 +401,13 @@
   </p>
 
   {% if brand.brand_logo_file %}
-  <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;
-              background:var(--surface-2);border-radius:10px;padding:14px 18px">
+  <div class="asset-current">
     <img src="{{ brand._logo_url }}" alt="Logo" style="height:40px;width:auto;max-width:140px;object-fit:contain">
     <div style="flex:1">
       <div style="font-weight:800;font-size:14px;color:var(--navy)">{{ brand.brand_logo_file }}</div>
       <div style="font-size:12px;color:var(--muted)">Current logo</div>
     </div>
-    <button class="btn btn-danger btn-sm" onclick="deleteLogo()">Remove</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteAsset('logo', 'Remove the organisation logo?')">Remove</button>
   </div>
   {% endif %}
 
@@ -243,21 +415,95 @@
        onclick="document.getElementById('logo-file').click()"
        ondragover="event.preventDefault();this.classList.add('drag-over')"
        ondragleave="this.classList.remove('drag-over')"
-       ondrop="onLogoDrop(event)">
+       ondrop="onAssetDrop(event, 'logo', 'logo', 5)">
     <input type="file" id="logo-file" accept=".png,.jpg,.jpeg,.svg,.webp,.gif"
-           onchange="uploadLogo(this.files[0])">
+           onchange="uploadAsset('logo', 'logo', this.files[0], 5)">
     <div style="font-size:32px;margin-bottom:8px">🖼️</div>
     <div style="font-weight:800;color:var(--navy);font-size:14px">Click to upload or drag &amp; drop</div>
     <div style="font-size:12px;color:var(--muted);margin-top:4px">PNG, SVG, JPG, WebP · Max 5 MB</div>
   </div>
+</div>
 
-  <div id="logo-upload-progress" style="display:none;margin-top:10px">
-    <div style="font-size:13px;color:var(--muted)">Uploading…</div>
+<!-- ── Favicon + login background (v12.70) ────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Browser Icon &amp; Login Screen</div>
+  <div class="ov-grid">
+    <div>
+      <div class="ov-col-title">Favicon (browser tab icon)</div>
+      {% if brand.brand_favicon_file %}
+      <div class="asset-current">
+        <img src="{{ brand._favicon_url }}" alt="Favicon" style="height:24px;width:24px;object-fit:contain">
+        <div style="flex:1">
+          <div style="font-weight:800;font-size:13px;color:var(--navy)">{{ brand.brand_favicon_file }}</div>
+          <div style="font-size:12px;color:var(--muted)">Current favicon</div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deleteAsset('favicon', 'Remove the custom favicon?')">Remove</button>
+      </div>
+      {% endif %}
+      <div class="logo-drop" style="padding:18px"
+           onclick="document.getElementById('favicon-file').click()"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="onAssetDrop(event, 'favicon', 'favicon', 1)">
+        <input type="file" id="favicon-file" accept=".ico,.png,.svg"
+               onchange="uploadAsset('favicon', 'favicon', this.files[0], 1)">
+        <div style="font-weight:800;color:var(--navy);font-size:13px">Upload favicon</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">ICO, PNG or SVG · square works best · Max 1 MB</div>
+      </div>
+    </div>
+    <div>
+      <div class="ov-col-title">Login screen background</div>
+      {% if brand.brand_login_image_file %}
+      <div class="asset-current">
+        <img src="{{ brand._login_image_url }}" alt="Login background"
+             style="height:40px;width:64px;object-fit:cover;border-radius:6px">
+        <div style="flex:1">
+          <div style="font-weight:800;font-size:13px;color:var(--navy)">{{ brand.brand_login_image_file }}</div>
+          <div style="font-size:12px;color:var(--muted)">Shown behind the sign-in card (with a dark tint for legibility)</div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deleteAsset('login-image', 'Remove the login background image?')">Remove</button>
+      </div>
+      {% endif %}
+      <div class="logo-drop" style="padding:18px"
+           onclick="document.getElementById('loginbg-file').click()"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="onAssetDrop(event, 'login-image', 'image', 8)">
+        <input type="file" id="loginbg-file" accept=".png,.jpg,.jpeg,.webp"
+               onchange="uploadAsset('login-image', 'image', this.files[0], 8)">
+        <div style="font-weight:800;color:var(--navy);font-size:13px">Upload background image</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">JPG, PNG or WebP · e.g. a photo of your club · Max 8 MB</div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5">
+        Without an image, the login screen uses a gradient built from your accent and nav colours.
+      </p>
+    </div>
   </div>
 </div>
 
+<!-- ── Email branding (v12.70) ────────────────────────────────────── -->
+<div class="brand-section">
+  <div class="brand-section-title">Email Branding</div>
+  <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer">
+    <input type="checkbox" id="email-branding-cb" style="width:16px;height:16px;margin-top:2px"
+           {% if brand.brand_email_branding == '1' %}checked{% endif %}>
+    <div>
+      <div style="font-weight:700;font-size:14px;color:var(--navy)">Add a branded header &amp; footer to mailshots</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5">
+        Wraps every mailshot in an accent-coloured header with your logo (or club name)
+        and a footer naming the club. Applies to emails sent from the Comms section,
+        including incident notifications.
+      </div>
+    </div>
+  </label>
+</div>
+
 <!-- ── Actions ───────────────────────────────────────────────────── -->
-<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+<div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+  <button class="btn btn-ghost" style="color:var(--red)" onclick="resetBranding()">
+    ↺ Reset to defaults
+  </button>
+  <div style="flex:1"></div>
   <a href="/admin/settings" class="btn btn-ghost">Cancel</a>
   <button class="btn btn-teal" onclick="saveSettings()">
     <i data-lucide="save"></i><span class="ico-emoji">💾</span> Save Branding
@@ -269,8 +515,34 @@
 
 {% block scripts %}
 <script>
-  let _currentAccent  = '{{ brand.brand_accent or "#0096b4" }}';
-  let _currentNavStyle = '{{ brand.brand_nav_style or "dark" }}';
+  /* ── Current state (v12.70: one object for everything saved) ─────── */
+  const _cur = {
+    accent:        '{{ brand.brand_accent or "#0096b4" }}',
+    nav_style:     '{{ brand.brand_nav_style or "dark" }}',
+    accent_dark:   '{{ brand.brand_accent_dark or "" }}',
+    bg_light:      '{{ brand.brand_bg_light or "" }}',
+    surface_light: '{{ brand.brand_surface_light or "" }}',
+    heading_light: '{{ brand.brand_heading_light or "" }}',
+    bg_dark:       '{{ brand.brand_bg_dark or "" }}',
+    surface_dark:  '{{ brand.brand_surface_dark or "" }}',
+    heading_dark:  '{{ brand.brand_heading_dark or "" }}',
+    font:          '{{ brand.brand_font or "" }}',
+    default_theme: '{{ brand.brand_default_theme or "light" }}',
+  };
+
+  /* Built-in theme values (mirror shared.css) — used for previews,
+     picker defaults and contrast checks. */
+  const THEME_DEFAULTS = {
+    light: { bg: '#f6f7f9', surface: '#ffffff', heading: '#1b2d4f', text: '#16213a', muted: '#5b6579' },
+    dark:  { bg: '#0e1320', surface: '#161d2e', heading: '#dbe4f3', text: '#e8edf6', muted: '#8c97ad' },
+  };
+  const FONT_STACKS = {
+    '':        '',
+    'inter':   "'Inter', system-ui, sans-serif",
+    'nunito':  "'Nunito', system-ui, sans-serif",
+    'system':  "system-ui, -apple-system, 'Segoe UI', sans-serif",
+    'georgia': "Georgia, 'Times New Roman', serif",
+  };
 
   /* ── Utilities ───────────────────────────────────────────────────── */
   function showToastLocal(msg, err) {
@@ -328,13 +600,102 @@
     return l > 0.55;
   }
 
-  /* ── Update CSS vars in real-time ────────────────────────────────── */
+  /* WCAG relative luminance + contrast ratio (v12.70 contrast guard) */
+  function relLum(hex) {
+    const c = [1, 3, 5].map(i => {
+      let v = parseInt(hex.slice(i, i+2), 16) / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2];
+  }
+  function contrast(a, b) {
+    const la = relLum(a), lb = relLum(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  /* Effective colours for a theme, applying overrides */
+  function effTheme(theme) {
+    const d = THEME_DEFAULTS[theme];
+    const ov = k => _cur[k + '_' + theme] || d[{bg:'bg', surface:'surface', heading:'heading'}[k]];
+    return {
+      bg:      _cur['bg_' + theme]      || d.bg,
+      surface: _cur['surface_' + theme] || d.surface,
+      heading: _cur['heading_' + theme] || d.heading,
+      text:    d.text,
+      muted:   d.muted,
+      accent:  theme === 'dark' ? (_cur.accent_dark || _cur.accent) : _cur.accent,
+    };
+  }
+
+  /* ── Live previews + contrast warnings ───────────────────────────── */
+  function previewPane(theme) {
+    const t = effTheme(theme);
+    const navBg   = theme === 'dark' ? t.surface
+                  : _cur.nav_style === 'accent' ? t.accent
+                  : _cur.nav_style === 'white'  ? '#ffffff' : '#1b2d4f';
+    const navText = theme === 'dark' ? t.text
+                  : _cur.nav_style === 'accent' ? (isLightColour(t.accent) ? '#1a202c' : '#ffffff')
+                  : _cur.nav_style === 'white'  ? '#1b2d4f' : '#ffffff';
+    const font = FONT_STACKS[_cur.font] || 'inherit';
+    return `
+      <div class="pv-tag" style="background:${t.bg};color:${t.muted}">${theme === 'dark' ? '🌙 Dark' : '☀️ Light'}${_cur.default_theme === theme ? ' · default' : (_cur.default_theme === 'system' ? ' · follows system' : '')}</div>
+      <div style="background:${t.bg};padding:0 0 16px;font-family:${font}">
+        <div style="background:${navBg};color:${navText};display:flex;align-items:center;gap:8px;
+                    padding:9px 14px;font-size:12px;font-weight:800">
+          <span>🏅</span> {{ club_short_name }} Portal
+          <span style="margin-left:auto;font-size:10px;background:${t.accent};color:${isLightColour(t.accent) ? '#1a202c' : '#fff'};
+                       padding:2px 9px;border-radius:20px">Members</span>
+        </div>
+        <div style="background:${t.surface};margin:12px 14px 0;border-radius:10px;padding:14px 16px;
+                    border:1px solid ${theme === 'dark' ? '#273249' : '#e3e8f0'}">
+          <div style="color:${t.heading};font-weight:900;font-size:14.5px">Member Overview</div>
+          <div style="color:${t.text};font-size:12px;margin-top:5px">Jess Smith · Tuesday &amp; Thursday</div>
+          <div style="color:${t.muted};font-size:11px;margin-top:2px">Last attended 14 July 2026</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+            <span style="background:${t.accent};color:${isLightColour(t.accent) ? '#1a202c' : '#fff'};font-size:11px;
+                         font-weight:800;padding:5px 12px;border-radius:8px">Sign In</span>
+            <span style="color:${t.accent};border:1.5px solid ${t.accent};font-size:11px;
+                         font-weight:800;padding:4px 11px;border-radius:8px">View</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderPreviews() {
+    document.getElementById('pv-light').innerHTML = previewPane('light');
+    document.getElementById('pv-dark').innerHTML  = previewPane('dark');
+    renderContrastWarnings();
+  }
+
+  function renderContrastWarnings() {
+    const warnings = [];
+    for (const theme of ['light', 'dark']) {
+      const t = effTheme(theme);
+      const label = theme === 'dark' ? 'Dark' : 'Light';
+      const checks = [
+        [t.heading, t.surface, 4.5, `${label}: headings are hard to read on cards`],
+        [t.text,    t.surface, 4.5, `${label}: body text is hard to read on cards`],
+        [t.text,    t.bg,      4.5, `${label}: body text is hard to read on the page background`],
+        [t.accent,  t.surface, 3.0, `${label}: the accent colour is hard to see on cards`],
+        [isLightColour(t.accent) ? '#1a202c' : '#ffffff', t.accent, 4.5,
+                                   `${label}: button text is hard to read on the accent colour`],
+      ];
+      for (const [fg, bg, min, msg] of checks) {
+        const r = contrast(fg, bg);
+        if (r < min) warnings.push(`${msg} (contrast ${r.toFixed(1)}:1 — aim for ${min}:1)`);
+      }
+    }
+    document.getElementById('contrast-warnings').innerHTML = warnings.length
+      ? warnings.map(w => `<span class="contrast-chip">⚠️ ${w}</span>`).join('')
+      : `<span style="font-size:12px;color:var(--green);font-weight:700">✓ All colour combinations pass readability checks</span>`;
+  }
+
+  /* ── Update CSS vars in real-time (light accent on this page) ────── */
   function applyAccentToPage(hex) {
     const {accent, dark, light} = deriveAccentVars(hex);
     document.documentElement.style.setProperty('--accent',       accent);
     document.documentElement.style.setProperty('--accent-dark',  dark);
     document.documentElement.style.setProperty('--accent-light', light);
-    // Also update accent nav card preview
     document.getElementById('nav-preview-accent').style.background = hex;
     document.getElementById('nav-preview-accent').style.color =
       isLightColour(hex) ? '#1a202c' : '#ffffff';
@@ -343,9 +704,9 @@
   function applyNavStyleToPage(style) {
     let bg, text, border;
     if (style === 'accent') {
-      bg = _currentAccent;
-      text = isLightColour(_currentAccent) ? '#1a202c' : '#ffffff';
-      border = deriveAccentVars(_currentAccent).dark;
+      bg = _cur.accent;
+      text = isLightColour(_cur.accent) ? '#1a202c' : '#ffffff';
+      border = deriveAccentVars(_cur.accent).dark;
     } else if (style === 'white') {
       bg = '#ffffff'; text = '#1b2d4f'; border = '#dce3ef';
     } else {
@@ -354,19 +715,23 @@
     document.documentElement.style.setProperty('--nav-effective-bg',     bg);
     document.documentElement.style.setProperty('--nav-effective-text',   text);
     document.documentElement.style.setProperty('--nav-effective-border', border);
-    // Update the preview bar too
-    const bar = document.getElementById('preview-bar');
-    bar.style.background = bg;
-    bar.style.color = text;
+  }
+
+  function applyFontPreview() {
+    const stack = FONT_STACKS[_cur.font];
+    document.getElementById('font-sample').style.fontFamily = stack || '';
   }
 
   /* ── Accent colour events ────────────────────────────────────────── */
   function onAccentChange(hex) {
-    _currentAccent = hex;
+    _cur.accent = hex;
     document.getElementById('accent-picker').value = hex;
     document.getElementById('accent-hex-input').value = hex.toUpperCase();
     applyAccentToPage(hex);
-    if (_currentNavStyle === 'accent') applyNavStyleToPage('accent');
+    if (_cur.nav_style === 'accent') applyNavStyleToPage('accent');
+    if (!document.getElementById('accent-dark-enabled').checked)
+      document.getElementById('accent-dark-picker').value = hex;
+    renderPreviews();
   }
 
   function onHexInput(val) {
@@ -375,83 +740,129 @@
     if (/^#[0-9a-fA-F]{6}$/.test(val)) onAccentChange(val);
   }
 
+  function onAccentDarkToggle(on) {
+    const picker = document.getElementById('accent-dark-picker');
+    picker.disabled = !on;
+    _cur.accent_dark = on ? picker.value : '';
+    renderPreviews();
+  }
+  function onAccentDarkChange(hex) {
+    _cur.accent_dark = hex;
+    renderPreviews();
+  }
+
+  /* ── Theme-colour override rows ──────────────────────────────────── */
+  function initOvRows() {
+    document.querySelectorAll('.ov-row').forEach(row => {
+      const key    = row.dataset.key;
+      const theme  = key.endsWith('dark') ? 'dark' : 'light';
+      const kind   = key.startsWith('bg') ? 'bg' : key.startsWith('surface') ? 'surface' : 'heading';
+      const picker = row.querySelector('.ov-picker');
+      const defCb  = row.querySelector('.ov-def-cb');
+      const isSet  = !!_cur[key];
+      defCb.checked   = !isSet;
+      picker.value    = _cur[key] || THEME_DEFAULTS[theme][kind];
+      picker.disabled = !isSet;
+    });
+  }
+  function onOvDefault(cb) {
+    const row    = cb.closest('.ov-row');
+    const key    = row.dataset.key;
+    const picker = row.querySelector('.ov-picker');
+    picker.disabled = cb.checked;
+    _cur[key] = cb.checked ? '' : picker.value;
+    renderPreviews();
+  }
+  function onOvChange(picker) {
+    const row = picker.closest('.ov-row');
+    _cur[row.dataset.key] = picker.value;
+    renderPreviews();
+  }
+
   /* ── Nav style ───────────────────────────────────────────────────── */
   function selectNavStyle(style) {
-    _currentNavStyle = style;
+    _cur.nav_style = style;
     document.querySelectorAll('.nav-style-card').forEach(c => c.classList.remove('selected'));
-    // Find the card with the matching radio value
     const radio = document.querySelector(`input[name=nav_style][value="${style}"]`);
     if (radio) {
       radio.checked = true;
       radio.closest('.nav-style-card').classList.add('selected');
     }
     applyNavStyleToPage(style);
+    renderPreviews();
   }
 
-  /* ── Logo upload ─────────────────────────────────────────────────── */
-  function onLogoDrop(e) {
+  /* ── Asset uploads (logo / favicon / login background) ───────────── */
+  function onAssetDrop(e, asset, field, maxMB) {
     e.preventDefault();
-    document.getElementById('logo-drop').classList.remove('drag-over');
+    e.currentTarget.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];
-    if (file) uploadLogo(file);
+    if (file) uploadAsset(asset, field, file, maxMB);
   }
 
-  async function uploadLogo(file) {
+  async function uploadAsset(asset, field, file, maxMB) {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      showToastLocal('Logo must be under 5 MB.', true); return;
+    if (file.size > maxMB * 1024 * 1024) {
+      showToastLocal(`File must be under ${maxMB} MB.`, true); return;
     }
-    const progress = document.getElementById('logo-upload-progress');
-    progress.style.display = 'block';
     const fd = new FormData();
-    fd.append('logo', file);
+    fd.append(field, file);
     try {
-      const res = await fetch('/api/admin/branding/logo', {
+      const res = await fetch(`/api/admin/branding/${asset}`, {
         method: 'POST',
         headers: { 'X-CSRFToken': document.querySelector('meta[name=csrf-token]').content },
         body: fd,
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Upload failed');
-      showToastLocal('Logo uploaded — page will reload…');
+      showToastLocal('Uploaded — page will reload…');
       setTimeout(() => location.reload(), 1200);
     } catch (e) {
       showToastLocal(e.message, true);
-    } finally {
-      progress.style.display = 'none';
     }
   }
 
-  async function deleteLogo() {
-    if (!confirm('Remove the organisation logo?')) return;
+  async function deleteAsset(asset, confirmMsg) {
+    if (!confirm(confirmMsg)) return;
     try {
-      const res = await fetch('/api/admin/branding/logo', {
+      const res = await fetch(`/api/admin/branding/${asset}`, {
         method: 'DELETE',
         headers: { 'X-CSRFToken': document.querySelector('meta[name=csrf-token]').content },
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      showToastLocal('Logo removed.');
+      showToastLocal('Removed.');
       setTimeout(() => location.reload(), 1000);
     } catch (e) {
       showToastLocal(e.message, true);
     }
   }
 
-  /* ── Save settings ───────────────────────────────────────────────── */
+  /* ── Save / reset ────────────────────────────────────────────────── */
   async function saveSettings() {
     const hex = document.getElementById('accent-hex-input').value.trim().toUpperCase();
     if (!/^#[0-9A-F]{6}$/.test(hex)) {
       showToastLocal('Please enter a valid 6-digit hex colour.', true); return;
     }
-    const navStyle  = _currentNavStyle;
-    const clubName  = document.getElementById('club-name-input').value.trim();
-    const shortName = document.getElementById('short-name-input').value.trim();
-
     try {
-      const res = await apiFetch('/api/admin/branding', {
+      await apiFetch('/api/admin/branding', {
         method: 'POST',
-        body: JSON.stringify({ accent: hex, nav_style: navStyle, club_name: clubName, short_name: shortName }),
+        body: JSON.stringify({
+          accent:         hex,
+          nav_style:      _cur.nav_style,
+          club_name:      document.getElementById('club-name-input').value.trim(),
+          short_name:     document.getElementById('short-name-input').value.trim(),
+          accent_dark:    _cur.accent_dark,
+          bg_light:       _cur.bg_light,
+          surface_light:  _cur.surface_light,
+          heading_light:  _cur.heading_light,
+          bg_dark:        _cur.bg_dark,
+          surface_dark:   _cur.surface_dark,
+          heading_dark:   _cur.heading_dark,
+          font:           _cur.font,
+          default_theme:  _cur.default_theme,
+          email_branding: document.getElementById('email-branding-cb').checked,
+        }),
       });
       showToastLocal('Branding saved! Reloading…');
       setTimeout(() => location.reload(), 1200);
@@ -460,9 +871,25 @@
     }
   }
 
-  /* ── Boot — apply current settings immediately ───────────────────── */
-  applyAccentToPage(_currentAccent);
-  applyNavStyleToPage(_currentNavStyle);
+  async function resetBranding() {
+    if (!confirm('Reset ALL branding settings (colours, font, theme, nav style, name override) '
+               + 'to defaults?\n\nUploaded files (logo, favicon, login background) are kept — '
+               + 'remove those individually if needed.')) return;
+    try {
+      await apiFetch('/api/admin/branding/reset', { method: 'POST', body: '{}' });
+      showToastLocal('Branding reset. Reloading…');
+      setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+      showToastLocal(e.message, true);
+    }
+  }
+
+  /* ── Boot ────────────────────────────────────────────────────────── */
+  applyAccentToPage(_cur.accent);
+  applyNavStyleToPage(_cur.nav_style);
+  initOvRows();
+  applyFontPreview();
+  renderPreviews();
   refreshIcons();
 </script>
 {% endblock %}

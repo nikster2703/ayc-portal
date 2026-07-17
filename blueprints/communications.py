@@ -3,21 +3,23 @@ AYC Portal — Communications blueprint.
 Routes: /api/email-templates/*, /api/mailshots/*, /api/mailshots
 """
 
+import html as _html
 import json
 import os
 import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from flask import Blueprint, current_app, jsonify, request, session
 
-from config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+from config import BRANDING_DIR, CLUB_NAME, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
 from helpers import (
     get_db, log_action, permission_required, _assigned_session,
-    decrypt_file, resolve_doc_path, user_can_access_doc,
+    decrypt_file, resolve_doc_path, user_can_access_doc, get_brand_settings,
 )
 
 bp = Blueprint('communications', __name__)
@@ -515,6 +517,45 @@ def api_mailshots_send():
     all_emails   = [r['email'] for r in recipients]
     member_lookup = _build_member_lookup(all_emails)
 
+    # v12.70: optional branded header/footer wrapper (Admin → Branding).
+    # The logo (raster formats only — SVG isn't reliably rendered by email
+    # clients) is embedded inline via CID; without one, the header shows the
+    # club name on the accent bar.
+    _brand      = get_brand_settings()
+    _brand_wrap = _brand.get('brand_email_branding', '0') == '1'
+    _logo_bytes = _logo_subtype = None
+    if _brand_wrap and _brand.get('brand_logo_file'):
+        _lext = _brand['brand_logo_file'].rsplit('.', 1)[-1].lower()
+        if _lext in ('png', 'jpg', 'jpeg', 'gif'):
+            try:
+                with open(os.path.join(BRANDING_DIR,
+                                       os.path.basename(_brand['brand_logo_file'])), 'rb') as _fh:
+                    _logo_bytes = _fh.read()
+                _logo_subtype = 'jpeg' if _lext in ('jpg', 'jpeg') else _lext
+            except OSError:
+                pass
+
+    def _apply_brand_wrap(inner_html):
+        accent = _brand.get('brand_accent') or '#0096b4'
+        club   = _html.escape(_brand.get('brand_club_name') or CLUB_NAME)
+        header = (f'<img src="cid:brandlogo" alt="{club}" height="36" '
+                  f'style="display:block;max-height:36px;height:36px">'
+                  if _logo_bytes else
+                  f'<span style="color:#ffffff;font-size:18px;font-weight:bold;'
+                  f'font-family:Arial,sans-serif">{club}</span>')
+        return (
+            f'<table width="100%" cellpadding="0" cellspacing="0" role="presentation" '
+            f'style="background:#f2f4f7;padding:24px 0"><tr><td align="center">'
+            f'<table width="600" cellpadding="0" cellspacing="0" role="presentation" '
+            f'style="max-width:600px;width:100%;background:#ffffff;border-radius:10px;overflow:hidden">'
+            f'<tr><td style="background:{accent};padding:16px 28px" align="left">{header}</td></tr>'
+            f'<tr><td style="padding:26px 28px;font-family:Arial,Helvetica,sans-serif;'
+            f'font-size:14px;color:#1a202c;line-height:1.6">{inner_html}</td></tr>'
+            f'<tr><td style="padding:14px 28px;background:#f2f4f7;font-size:12px;color:#6b7280;'
+            f'font-family:Arial,Helvetica,sans-serif">{club}</td></tr>'
+            f'</table></td></tr></table>'
+        )
+
     emails_sent = 0
     errors      = []
     try:
@@ -543,11 +584,32 @@ def api_mailshots_send():
                     personalised_body    = _substitute_fields(body, member_data)
                     personalised_subject = _substitute_fields(subject, member_data)
 
-                    msg = MIMEMultipart('mixed') if attachments else MIMEMultipart('alternative')
+                    # v12.70: branded wrapper + optional inline logo (multipart/related)
+                    if _brand_wrap:
+                        personalised_body = _apply_brand_wrap(personalised_body)
+                    html_part = MIMEText(personalised_body, 'html', 'utf-8')
+                    if _brand_wrap and _logo_bytes:
+                        content = MIMEMultipart('related')
+                        content.attach(html_part)
+                        _img = MIMEImage(_logo_bytes, _subtype=_logo_subtype)
+                        _img.add_header('Content-ID', '<brandlogo>')
+                        _img.add_header('Content-Disposition', 'inline',
+                                        filename=_brand['brand_logo_file'])
+                        content.attach(_img)
+                    else:
+                        content = html_part
+
+                    if attachments:
+                        msg = MIMEMultipart('mixed')
+                        msg.attach(content)
+                    elif isinstance(content, MIMEMultipart):
+                        msg = content
+                    else:
+                        msg = MIMEMultipart('alternative')
+                        msg.attach(content)
                     msg['Subject'] = personalised_subject
                     msg['From']    = _smtp_from
                     msg['To']      = r['email']
-                    msg.attach(MIMEText(personalised_body, 'html', 'utf-8'))
 
                     for att in attachments:
                         part = MIMEBase('application', 'octet-stream')

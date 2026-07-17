@@ -29,7 +29,7 @@ import bcrypt
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, session
 
 from config import (
-    BRANDING_DIR, DATABASE, INSTANCE_DIR, LOG_DIR,
+    BRANDING_DIR, BRAND_FONT_STACKS, BRAND_KEYS, DATABASE, INSTANCE_DIR, LOG_DIR,
     ROLE_DISPLAY_NAMES,
 )
 from extensions import csrf
@@ -111,6 +111,19 @@ def api_branding_get():
         'club_name':  brand.get('brand_club_name', ''),
         'short_name': brand.get('brand_short_name', ''),
         'has_logo':   bool(brand.get('brand_logo_file')),
+        # v12.70 Branding v2
+        'accent_dark':    brand.get('brand_accent_dark', ''),
+        'bg_light':       brand.get('brand_bg_light', ''),
+        'surface_light':  brand.get('brand_surface_light', ''),
+        'heading_light':  brand.get('brand_heading_light', ''),
+        'bg_dark':        brand.get('brand_bg_dark', ''),
+        'surface_dark':   brand.get('brand_surface_dark', ''),
+        'heading_dark':   brand.get('brand_heading_dark', ''),
+        'font':           brand.get('brand_font', ''),
+        'default_theme':  brand.get('brand_default_theme', 'light'),
+        'email_branding': brand.get('brand_email_branding', '0') == '1',
+        'has_favicon':    bool(brand.get('brand_favicon_file')),
+        'has_login_image': bool(brand.get('brand_login_image_file')),
     })
 
 
@@ -138,6 +151,38 @@ def api_branding_save():
     if 'short_name' in data:
         updates['brand_short_name'] = str(data['short_name']).strip()[:30]
 
+    # v12.70 Branding v2 — optional colours ('' clears back to theme default)
+    _OPT_COLOUR_KEYS = {
+        'accent_dark':   'brand_accent_dark',
+        'bg_light':      'brand_bg_light',
+        'surface_light': 'brand_surface_light',
+        'heading_light': 'brand_heading_light',
+        'bg_dark':       'brand_bg_dark',
+        'surface_dark':  'brand_surface_dark',
+        'heading_dark':  'brand_heading_dark',
+    }
+    for api_key, setting_key in _OPT_COLOUR_KEYS.items():
+        if api_key in data:
+            v = str(data[api_key] or '').strip()
+            if v and not _re.match(r'^#[0-9a-fA-F]{6}$', v):
+                return jsonify({'error': f'{api_key} must be a 6-digit hex colour or blank'}), 400
+            updates[setting_key] = v
+
+    if 'font' in data:
+        v = str(data['font'] or '').strip()
+        if v and v not in BRAND_FONT_STACKS:
+            return jsonify({'error': f'font must be one of: {", ".join(BRAND_FONT_STACKS)} (or blank)'}), 400
+        updates['brand_font'] = v
+
+    if 'default_theme' in data:
+        v = str(data['default_theme']).strip()
+        if v not in ('light', 'dark', 'system'):
+            return jsonify({'error': 'default_theme must be light, dark or system'}), 400
+        updates['brand_default_theme'] = v
+
+    if 'email_branding' in data:
+        updates['brand_email_branding'] = '1' if data['email_branding'] else '0'
+
     if not updates:
         return jsonify({'success': True, 'message': 'Nothing to update'})
 
@@ -155,48 +200,64 @@ def api_branding_save():
     return jsonify({'success': True})
 
 
-@bp.route('/api/admin/branding/logo', methods=['POST'])
-@permission_required('admin.branding')
-def api_branding_logo_upload():
-    if 'logo' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-    f = request.files['logo']
-    if not f.filename:
-        return jsonify({'error': 'No file selected'}), 400
+# v12.70: the logo, favicon and login-background uploads share one code path.
+# Each asset is stored in BRANDING_DIR under a fixed name prefix and referenced
+# by a brand_* setting key.
+_BRAND_ASSETS = {
+    'logo':        {'field': 'logo',    'prefix': 'logo',    'setting': 'brand_logo_file',
+                    'exts': ALLOWED_LOGO_EXTENSIONS, 'max_mb': 5},
+    'favicon':     {'field': 'favicon', 'prefix': 'favicon', 'setting': 'brand_favicon_file',
+                    'exts': {'ico', 'png', 'svg'},   'max_mb': 1},
+    'login-image': {'field': 'image',   'prefix': 'loginbg', 'setting': 'brand_login_image_file',
+                    'exts': {'png', 'jpg', 'jpeg', 'webp'}, 'max_mb': 8},
+}
 
-    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
-    if ext not in ALLOWED_LOGO_EXTENSIONS:
-        return jsonify({'error': f'File type .{ext} not allowed — use PNG, JPG, SVG or WebP'}), 400
 
-    filename  = f'logo.{ext}'
-    save_path = os.path.join(BRANDING_DIR, filename)
-
-    for old in os.listdir(BRANDING_DIR):
-        if old.startswith('logo.'):
-            try:
-                os.remove(os.path.join(BRANDING_DIR, old))
-            except OSError:
-                pass
-
-    f.save(save_path)
-    db = get_db()
+def _set_brand_setting(db, key, value):
     db.execute(
         'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
         ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at,'
         ' updated_by=excluded.updated_by',
-        ('brand_logo_file', filename, session['user_id'])
+        (key, value, session['user_id'])
     )
+
+
+def _brand_asset_upload(asset):
+    spec = _BRAND_ASSETS[asset]
+    f = request.files.get(spec['field']) or next(iter(request.files.values()), None)
+    if f is None or not f.filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in spec['exts']:
+        return jsonify({'error': f'File type .{ext} not allowed — use '
+                                 f'{", ".join(sorted(e.upper() for e in spec["exts"]))}'}), 400
+    f.seek(0, os.SEEK_END)
+    if f.tell() > spec['max_mb'] * 1024 * 1024:
+        return jsonify({'error': f'File must be under {spec["max_mb"]} MB'}), 400
+    f.seek(0)
+
+    filename = f'{spec["prefix"]}.{ext}'
+    for old in os.listdir(BRANDING_DIR):
+        if old.startswith(spec['prefix'] + '.'):
+            try:
+                os.remove(os.path.join(BRANDING_DIR, old))
+            except OSError:
+                pass
+    f.save(os.path.join(BRANDING_DIR, filename))
+
+    db = get_db()
+    _set_brand_setting(db, spec['setting'], filename)
     db.commit()
     _invalidate_brand_cache()
-    log_action('upload_branding_logo', 'settings', None, {'filename': filename})
+    log_action(f'upload_branding_{asset.replace("-", "_")}', 'settings', None, {'filename': filename})
     return jsonify({'success': True, 'filename': filename})
 
 
-@bp.route('/api/admin/branding/logo', methods=['DELETE'])
-@permission_required('admin.branding')
-def api_branding_logo_delete():
+def _brand_asset_delete(asset):
+    spec     = _BRAND_ASSETS[asset]
     brand    = get_brand_settings()
-    filename = brand.get('brand_logo_file', '')
+    filename = brand.get(spec['setting'], '')
     if filename:
         path = os.path.join(BRANDING_DIR, os.path.basename(filename))
         try:
@@ -204,17 +265,63 @@ def api_branding_logo_delete():
                 os.remove(path)
         except OSError:
             pass
-
     db = get_db()
-    db.execute(
-        'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
-        ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at,'
-        ' updated_by=excluded.updated_by',
-        ('brand_logo_file', '', session['user_id'])
-    )
+    _set_brand_setting(db, spec['setting'], '')
     db.commit()
     _invalidate_brand_cache()
-    log_action('delete_branding_logo', 'settings', None, {})
+    log_action(f'delete_branding_{asset.replace("-", "_")}', 'settings', None, {})
+    return jsonify({'success': True})
+
+
+@bp.route('/api/admin/branding/logo', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_logo_upload():
+    return _brand_asset_upload('logo')
+
+
+@bp.route('/api/admin/branding/logo', methods=['DELETE'])
+@permission_required('admin.branding')
+def api_branding_logo_delete():
+    return _brand_asset_delete('logo')
+
+
+@bp.route('/api/admin/branding/favicon', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_favicon_upload():
+    return _brand_asset_upload('favicon')
+
+
+@bp.route('/api/admin/branding/favicon', methods=['DELETE'])
+@permission_required('admin.branding')
+def api_branding_favicon_delete():
+    return _brand_asset_delete('favicon')
+
+
+@bp.route('/api/admin/branding/login-image', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_login_image_upload():
+    return _brand_asset_upload('login-image')
+
+
+@bp.route('/api/admin/branding/login-image', methods=['DELETE'])
+@permission_required('admin.branding')
+def api_branding_login_image_delete():
+    return _brand_asset_delete('login-image')
+
+
+@bp.route('/api/admin/branding/reset', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_reset():
+    """v12.70: reset all branding SETTINGS to defaults. Uploaded files (logo,
+    favicon, login image) are kept — they have their own Remove buttons."""
+    db = get_db()
+    for key, default in BRAND_KEYS.items():
+        if key.endswith('_file'):
+            continue
+        _set_brand_setting(db, key, default)
+    db.commit()
+    _invalidate_brand_cache()
+    log_action('reset_branding', 'settings', None, {})
     return jsonify({'success': True})
 
 

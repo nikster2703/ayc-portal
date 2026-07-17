@@ -6,15 +6,21 @@
   <title>{{ club_short_name }} Portal — Sign In</title>
   <script>
     /* v12.69: honour the saved dark-mode preference (same pre-paint snippet as
-       base.html — this page is standalone and never got the theme hookup, so
-       dark mode applied everywhere except the login screen). */
+       base.html). v12.70: fall back to the admin-set default theme when the
+       visitor has no saved choice ('system' follows the OS preference). */
     (function () {
       try {
-        if (localStorage.getItem('ayc-theme') === 'dark')
-          document.documentElement.dataset.theme = 'dark';
+        var saved = localStorage.getItem('ayc-theme');
+        var def   = '{{ (brand.brand_default_theme if brand else "light") or "light" }}';
+        var dark  = saved ? saved === 'dark'
+                  : def === 'dark'   ? true
+                  : def === 'system' ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                  : false;
+        if (dark) document.documentElement.dataset.theme = 'dark';
       } catch (_) {}
     })();
   </script>
+  {% if brand and brand._favicon_url %}<link rel="icon" href="{{ brand._favicon_url }}">{% endif %}
   <link rel="stylesheet" href="/static/vendor/fonts.css">
   <link rel="stylesheet" href="/static/css/shared.css">
   {% if brand %}
@@ -26,6 +32,12 @@
       --nav-effective-bg:   {{ brand._nav_bg }};
       --nav-effective-text: {{ brand._nav_text }};
     }
+    /* v12.70 Branding v2 — the login page honours the font choice and the
+       dark-mode accent (backgrounds here are the branded gradient/image, so
+       the bg/surface/heading overrides are intentionally not applied). */
+    {# |safe: whitelisted server-side stack, never user input #}
+    {% if brand._font_stack %}:root { --font: {{ brand._font_stack | safe }}; } body, input, button { font-family: var(--font); }{% endif %}
+    {% if brand.brand_accent_dark %}html[data-theme="dark"] { --accent: {{ brand.brand_accent_dark }}; }{% endif %}
   </style>
   {% endif %}
   <style>
@@ -34,7 +46,13 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      {% if brand and brand._login_image_url %}
+      /* v12.70: admin-uploaded login background (dark scrim keeps the card legible) */
+      background: linear-gradient(rgba(10, 15, 27, .5), rgba(10, 15, 27, .62)),
+                  url('{{ brand._login_image_url }}') center / cover no-repeat fixed;
+      {% else %}
       background: linear-gradient(140deg, #111e36 0%, var(--nav-effective-bg) 60%, var(--accent) 100%);
+      {% endif %}
       padding: 20px;
     }
     .login-card {
