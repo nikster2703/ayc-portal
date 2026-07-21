@@ -1048,5 +1048,170 @@ def ensure_tables():
                 seed.commit()
         except Exception as _mig_exc:
             logger.warning('Payment field migration skipped: %s', _mig_exc)
+
+        # ── v12.71: backfill declaration/signature answers ─────────────────────
+        # Approvals used to drop the declarations JSON on the floor, so members
+        # approved before v12.71 have no member_field_values rows for their
+        # declaration fields and render '—'. Recover them from the original
+        # registration, matched on name + date of birth. Idempotent: existing
+        # values are never overwritten (INSERT OR IGNORE + explicit guard).
+        try:
+            decl_fields = {
+                fd['key']: fd for fd in seed.execute(
+                    "SELECT id, key, field_type FROM field_definitions "
+                    "WHERE field_type IN ('declaration', 'signature')"
+                ).fetchall()
+            }
+            if decl_fields:
+                backfilled = 0
+                for reg in seed.execute(
+                    "SELECT pr.declarations, m.id AS member_id "
+                    "FROM pending_registrations pr "
+                    "JOIN members m ON m.first_name = pr.first_name "
+                    "                AND m.surname = pr.surname "
+                    "                AND IFNULL(m.date_of_birth,'') = IFNULL(pr.date_of_birth,'') "
+                    "WHERE pr.status = 'approved' "
+                    "  AND pr.declarations IS NOT NULL AND pr.declarations != ''"
+                ).fetchall():
+                    try:
+                        decl_data = json.loads(reg['declarations']) or {}
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    sig_value = decl_data.get('signature_name')
+                    for key, fd in decl_fields.items():
+                        val = decl_data.get(key)
+                        if fd['field_type'] == 'signature' and not val:
+                            val = sig_value
+                        if val is None or val == '':
+                            continue
+                        already = seed.execute(
+                            "SELECT 1 FROM member_field_values "
+                            "WHERE member_id = ? AND field_id = ?",
+                            (reg['member_id'], fd['id'])
+                        ).fetchone()
+                        if already:
+                            continue
+                        seed.execute(
+                            "INSERT INTO member_field_values "
+                            "(member_id, field_id, value) VALUES (?,?,?)",
+                            (reg['member_id'], fd['id'], str(val))
+                        )
+                        backfilled += 1
+                if backfilled:
+                    seed.commit()
+                    logger.info(
+                        'Migration: backfilled %s declaration values from registrations',
+                        backfilled
+                    )
+        except Exception as _decl_exc:
+            logger.warning('Declaration backfill migration skipped: %s', _decl_exc)
+
+        # ── v12.73: move staff self-contacts onto the members row ──────────────
+        # Staff approval used to write the applicant's OWN mobile/email as a fake
+        # emergency contact (contact_order = 1, contact_name = their own name)
+        # while members.mobile/email stayed NULL. Relocate those values to the
+        # columns the field definitions actually point at, then drop the bogus
+        # contact row. Deliberately conservative:
+        #   • staff-style member types only;
+        #   • only contact_order = 1 rows whose contact_name matches the member's
+        #     own name (case/whitespace-insensitive) — a staff member who has a
+        #     genuine emergency contact recorded there is left completely alone;
+        #   • never overwrites a non-empty members.mobile/email — if the columns
+        #     already hold something different, the row is skipped and logged
+        #     rather than guessing which value wins;
+        #   • the contact row is deleted only once its values are safely on the
+        #     members row, so a crash mid-migration cannot lose data.
+        try:
+            def _norm_name(s):
+                return ' '.join((s or '').split()).strip().lower()
+
+            staff_rows = seed.execute('''
+                SELECT  m.id, m.first_name, m.surname, m.mobile, m.email,
+                        c.id AS contact_id, c.contact_name, c.contact_phone, c.contact_email
+                FROM    members m
+                JOIN    member_types mt ON mt.slug = m.member_type
+                                       AND mt.registration_style = 'staff'
+                JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
+            ''').fetchall()
+
+            moved = skipped = 0
+            for s in staff_rows:
+                own = _norm_name(f"{s['first_name']} {s['surname']}")
+                if not own or _norm_name(s['contact_name']) != own:
+                    continue   # genuine emergency contact — leave it be
+
+                c_phone = (s['contact_phone'] or '').strip()
+                c_email = (s['contact_email'] or '').strip()
+                m_phone = (s['mobile'] or '').strip()
+                m_email = (s['email'] or '').strip()
+
+                # Refuse to clobber a different value already on the members row.
+                if (m_phone and c_phone and m_phone != c_phone) or \
+                   (m_email and c_email and m_email != c_email):
+                    skipped += 1
+                    logger.warning(
+                        'Staff contact migration: member_id=%s has conflicting '
+                        'mobile/email on members vs contact 1 — left untouched '
+                        'for manual review', s['id']
+                    )
+                    continue
+
+                seed.execute(
+                    'UPDATE members SET mobile = ?, email = ? WHERE id = ?',
+                    (m_phone or c_phone, m_email or c_email, s['id'])
+                )
+                seed.execute('DELETE FROM member_contacts WHERE id = ?', (s['contact_id'],))
+                moved += 1
+
+            # Make sure mobile/email are actually surfaced on staff-style types.
+            # Two separate concerns:
+            #  (a) LINK the fields where no link exists at all — pure addition.
+            #  (b) VISIBILITY. The default staff seed links mobile/email with
+            #      show_on_card = 0, because staff details used to reach the card
+            #      through the Contacts tab instead. Now that the contact row is
+            #      gone, leaving card = 0 would make details that WERE visible
+            #      disappear — a regression caused by this very migration. So the
+            #      flag is forced on once, guarded by a settings marker so a later
+            #      deliberate "hide this on the card" choice is never re-flipped.
+            already_shown = seed.execute(
+                "SELECT value FROM settings WHERE key = 'migration_staff_contact_v1273'"
+            ).fetchone()
+            for mt in seed.execute(
+                "SELECT id FROM member_types WHERE registration_style = 'staff'"
+            ).fetchall():
+                for key in ('mobile', 'email'):
+                    fd = seed.execute(
+                        'SELECT id FROM field_definitions WHERE key = ?', (key,)
+                    ).fetchone()
+                    if not fd:
+                        continue
+                    seed.execute(
+                        '''INSERT OR IGNORE INTO member_type_fields
+                           (member_type_id, field_id, required, show_on_registration,
+                            show_on_list, show_on_card, show_on_detail, show_on_print,
+                            sort_order)
+                           VALUES (?,?,0,1,0,1,1,0,?)''',
+                        (mt['id'], fd['id'], 36 if key == 'mobile' else 37)
+                    )
+                    if not already_shown:
+                        seed.execute(
+                            'UPDATE member_type_fields SET show_on_card = 1, show_on_detail = 1 '
+                            'WHERE member_type_id = ? AND field_id = ? AND show_on_card = 0',
+                            (mt['id'], fd['id'])
+                        )
+            if not already_shown:
+                seed.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+                    "VALUES ('migration_staff_contact_v1273', 'done', datetime('now'))"
+                )
+
+            seed.commit()
+            if moved or skipped:
+                logger.info(
+                    'Migration: moved %s staff self-contact(s) onto the members row '
+                    '(%s skipped for manual review)', moved, skipped
+                )
+        except Exception as _staff_exc:
+            logger.warning('Staff contact migration skipped: %s', _staff_exc)
     finally:
         seed.close()

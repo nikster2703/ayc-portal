@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.70'  # Branding v2 — dark-mode accent, theme colours, font, default theme, favicon, login background, email branding, reset. See CHANGELOG.md.
+APP_VERSION = 'v12.73'  # BUG: mobile/email missing from the members PUT whitelist (DB-only edits); staff self-contacts relocated onto the members row. See CHANGELOG.md.
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}

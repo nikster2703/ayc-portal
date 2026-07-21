@@ -317,9 +317,14 @@ def api_member_update(member_id):
 
     # v12.50: 'session' removed from text_fields — session assignment now goes
     # through set_member_sessions() below (junction table + echo column).
+    # v12.73: 'mobile' and 'email' were the only writable members columns exposed
+    # as system field definitions but missing from this whitelist — the edit modal
+    # rendered the inputs and sent them in the payload, and the server silently
+    # dropped them, so those two values could only ever be changed in the DB.
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
                    'ethnicity_religion', 'medical_sen', 'gp_contact',
-                   'comments', 'date_registered', 'staff_role']
+                   'comments', 'date_registered', 'staff_role',
+                   'mobile', 'email']
     # NOTE: status is intentionally excluded — use POST /api/members/<id>/status
     bool_fields = ['unattended_exit', 'gdpr_consent']
 

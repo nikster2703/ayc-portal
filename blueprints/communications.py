@@ -55,6 +55,17 @@ _FC_LABELS = {
 }
 
 
+# v12.73: staff store their OWN mobile/email on the members row (see the approvals
+# fix), so members.email is a legitimate mailshot destination for staff-style types.
+# It is deliberately NOT one for youth types: a young person's own email may be on
+# record, but club comms must reach their parent or guardian via contact 1. Any
+# widening of this rule is a safeguarding decision, not a technical one.
+_STAFF_TYPE_SQL = (
+    "EXISTS (SELECT 1 FROM member_types mt_s "
+    "WHERE mt_s.slug = m.member_type AND mt_s.registration_style = 'staff')"
+)
+
+
 def _build_member_lookup(emails):
     """
     Given a list of email addresses, return a dict keyed by email with member
@@ -65,11 +76,16 @@ def _build_member_lookup(emails):
       2. First-class cols — all columns in _FC_LABELS fetched directly from members
       3. Custom fields    — member_field_values rows for truly custom field_definitions
       4. Contacts         — primary and secondary contact details from member_contacts
+
+    v12.73: matches on the contact-1 email OR, for staff-style types, the member's
+    own members.email. A row can match on either, so the key this member is filed
+    under is whichever address actually matched, not a fixed column.
     """
     if not emails:
         return {}
-    db = get_db()
-    ph = ','.join('?' * len(emails))
+    db     = get_db()
+    wanted = [e.lower() for e in emails]
+    ph     = ','.join('?' * len(wanted))
     rows = db.execute(f'''
         SELECT  m.id, m.first_name, m.surname, m.member_type,
                 m.date_of_birth, m.address, m.postcode, m.ethnicity_religion,
@@ -81,13 +97,16 @@ def _build_member_lookup(emails):
                     WHERE ms_s.member_id = m.id ORDER BY st_s.sort_order, st_s.name
                 )), m.session) AS session,   -- v12.51: all sessions, comma-joined
                 m.date_registered, m.comments,
-                c.contact_email AS email,
+                c.contact_email AS c1_email,
+                m.email         AS own_email,
+                {_STAFF_TYPE_SQL} AS is_staff_type,
                 c.contact_name  AS c1_name,
                 c.contact_phone AS c1_phone
         FROM    members m
-        JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
+        LEFT JOIN member_contacts c ON c.member_id = m.id AND c.contact_order = 1
         WHERE   lower(c.contact_email) IN ({ph})
-    ''', [e.lower() for e in emails]).fetchall()
+           OR   ({_STAFF_TYPE_SQL} AND lower(m.email) IN ({ph}))
+    ''', wanted * 2).fetchall()
 
     if not rows:
         return {}
@@ -126,7 +145,8 @@ def _build_member_lookup(emails):
         # ── Contact 1 ─────────────────────────────────────────────────────
         custom['Primary Contact — Full Name'] = r['c1_name']  or ''
         custom['Primary Contact — Phone']     = r['c1_phone'] or ''
-        custom['Primary Contact — Email']     = r['email']    or ''
+        custom['Primary Contact — Email']     = r['c1_email'] or ''
+        custom['Email Address']               = r['own_email'] or ''
 
         # ── Contact 2 ─────────────────────────────────────────────────────
         c2 = c2_map.get(r['id'])
@@ -134,13 +154,24 @@ def _build_member_lookup(emails):
         custom['Second Contact — Phone']     = (c2['contact_phone'] if c2 else '') or ''
         custom['Second Contact — Email']     = (c2['contact_email'] if c2 else '') or ''
 
-        lookup[r['email'].lower()] = {
-            'first_name':  r['first_name'] or '',
-            'surname':     r['surname']    or '',
-            'member_type': r['member_type'] or '',
-            'email':       r['email']      or '',
-            'custom':      custom,
-        }
+        # v12.73: a member can be reachable at more than one of the matched
+        # addresses (contact 1 and, for staff, their own). File the row under
+        # every address that was actually asked for, so {Email} resolves to the
+        # address THIS recipient was mailed at rather than a fixed column.
+        matched = []
+        if (r['c1_email'] or '').strip().lower() in wanted:
+            matched.append(r['c1_email'].strip())
+        if r['is_staff_type'] and (r['own_email'] or '').strip().lower() in wanted:
+            matched.append(r['own_email'].strip())
+
+        for addr in matched:
+            lookup[addr.lower()] = {
+                'first_name':  r['first_name']  or '',
+                'surname':     r['surname']     or '',
+                'member_type': r['member_type'] or '',
+                'email':       addr,
+                'custom':      custom,
+            }
     return lookup
 
 
@@ -360,18 +391,36 @@ def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_ty
             params = valid_ids + params   # flag params come before WHERE params
 
     where = ' AND '.join(conditions) if conditions else '1=1'
-    rows  = db.execute(f'''
-        SELECT  DISTINCT c.contact_email,
-                m.first_name || " " || m.surname AS member_name
-        FROM    members m
-        {flag_join}
-        JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
-        WHERE   {where}
-          AND   c.contact_email IS NOT NULL
-          AND   trim(c.contact_email) != ""
-        ORDER   BY m.first_name
-    ''', params).fetchall()
-    return [{'email': r['contact_email'], 'name': r['member_name']} for r in rows]
+    # v12.73: two sources, unioned — the contact-1 email for everyone, plus the
+    # member's own members.email for staff-style types only (staff keep their own
+    # details there since the approvals fix; youth comms must still go to the
+    # guardian on contact 1). Both halves take the same filter params, hence
+    # `params * 2`; flag_join params are already at the head of `params`.
+    rows = db.execute(f'''
+        SELECT DISTINCT email, member_name FROM (
+            SELECT  c.contact_email AS email,
+                    m.first_name || " " || m.surname AS member_name,
+                    m.first_name AS sort_name
+            FROM    members m
+            {flag_join}
+            JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
+            WHERE   {where}
+              AND   c.contact_email IS NOT NULL
+              AND   trim(c.contact_email) != ""
+            UNION
+            SELECT  m.email AS email,
+                    m.first_name || " " || m.surname AS member_name,
+                    m.first_name AS sort_name
+            FROM    members m
+            {flag_join}
+            WHERE   {where}
+              AND   {_STAFF_TYPE_SQL}
+              AND   m.email IS NOT NULL
+              AND   trim(m.email) != ""
+        )
+        ORDER BY sort_name
+    ''', params * 2).fetchall()
+    return [{'email': r['email'], 'name': r['member_name']} for r in rows]
 
 
 @bp.route('/api/mailshots/preview', methods=['POST'])
@@ -484,6 +533,17 @@ def api_mailshots_send():
             ).fetchall()
             if (r['contact_email'] or '').strip()
         }
+        # v12.73: staff keep their own email on the members row, so an incident
+        # concerning a staff member has no contact rows to validate against and
+        # every recipient would be rejected. Their own address counts as theirs.
+        # Youth members are deliberately NOT widened this way — an incident about
+        # a young person must reach their guardian's contact email.
+        _own = db.execute(
+            f'SELECT m.email FROM members m WHERE m.id = ? AND {_STAFF_TYPE_SQL}',
+            (_incident_note['member_id'],)
+        ).fetchone()
+        if _own and (_own['email'] or '').strip():
+            _member_emails.add(_own['email'].strip().lower())
         _bad = [r['email'] for r in recipients
                 if r['email'].lower() not in _member_emails]
         if _bad:
@@ -747,13 +807,27 @@ def api_comms_incidents():
             member_ids
         ).fetchall():
             if (c['contact_email'] or '').strip():
-                contacts_map.setdefault(c['member_id'], []).append(c)
+                contacts_map.setdefault(c['member_id'], []).append(
+                    {'name': c['contact_name'], 'email': c['contact_email'].strip()})
+
+        # v12.73: staff have no contact rows — their own email is on the members
+        # row — so the incident checklist rendered empty and nobody could be
+        # notified about a staff incident. Mirrors the send-side validation.
+        for s in db.execute(
+            f'SELECT m.id, m.email, m.first_name || " " || m.surname AS nm '
+            f'FROM members m WHERE m.id IN ({ph}) AND {_STAFF_TYPE_SQL} '
+            f'AND m.email IS NOT NULL AND trim(m.email) != ""',
+            member_ids
+        ).fetchall():
+            existing = {e['email'].lower() for e in contacts_map.get(s['id'], [])}
+            if s['email'].strip().lower() not in existing:
+                contacts_map.setdefault(s['id'], []).append(
+                    {'name': s['nm'], 'email': s['email'].strip()})
 
     out = []
     for r in rows:
         d = dict(r)
-        d['contacts'] = [{'name': c['contact_name'] or d['member_name'],
-                          'email': c['contact_email'].strip()}
+        d['contacts'] = [{'name': c['name'] or d['member_name'], 'email': c['email']}
                          for c in contacts_map.get(r['member_id'], [])]
         out.append(d)
     return jsonify(out)
