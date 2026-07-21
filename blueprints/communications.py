@@ -695,8 +695,12 @@ def api_mailshots_send():
 
     # v12.56: stamp the session note once at least one email actually went out
     if _incident_note is not None and emails_sent > 0:
+        # v12.74: record HOW it was closed off, not just that it was — an email
+        # receipt and a face-to-face conversation are different things on a
+        # safeguarding record.
         db.execute(
-            "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ? WHERE id = ?",
+            "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ?, "
+            "resolution_method = 'email' WHERE id = ?",
             (session['user_id'], incident_note_id)
         )
         log_action('incident_notified', 'session_notes', incident_note_id, {
@@ -737,6 +741,58 @@ def api_mailshots_send():
 
 
 # ── Incident notifications (v12.56) ───────────────────────────────────────────
+
+@bp.route('/api/comms/incidents/<int:note_id>/resolve', methods=['POST'])
+@permission_required('mailshots.send')
+def api_comms_incident_resolve(note_id):
+    """v12.74: close off an incident that was dealt with face to face.
+
+    Not every incident needs an email — plenty are handled in conversation at
+    pickup. Previously the only way to clear one from the pending list was to
+    send a mailshot, which meant either sending an unnecessary email or leaving
+    the item outstanding forever. This records the outcome WITHOUT sending
+    anything: resolution_method = 'in_person', plus an optional note describing
+    what was said, and the same notified_at/notified_by stamp so the existing
+    'is this dealt with?' checks keep working unchanged.
+
+    Sending a mailshot afterwards is still allowed and will overwrite the
+    method with 'email' — the later, stronger receipt wins.
+    """
+    db   = get_db()
+    note = db.execute(
+        'SELECT id, member_id, note_type, session_type, session_date, notified_at '
+        'FROM session_notes WHERE id = ?', (note_id,)
+    ).fetchone()
+    if not note:
+        return jsonify({'error': 'Incident not found'}), 404
+
+    # Session-scoped users may only act on their own sessions — mirrors the
+    # scoping the listing endpoint applies.
+    scoped = _assigned_session()
+    if scoped is not None and note['session_type'] not in scoped:
+        return jsonify({'error': 'That incident is outside your assigned sessions'}), 403
+
+    data = request.get_json(silent=True) or {}
+    resolution_note = (data.get('note') or '').strip()[:1000]
+
+    db.execute(
+        "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ?, "
+        "resolution_method = 'in_person', resolution_note = ? WHERE id = ?",
+        (session['user_id'], resolution_note or None, note_id)
+    )
+    db.commit()
+
+    log_action('incident_resolved_in_person', 'session_notes', note_id, {
+        'member_id':    note['member_id'],
+        'note_type':    note['note_type'],
+        'session_type': note['session_type'],
+        'session_date': note['session_date'],
+        'note':         resolution_note,
+        'was_notified': bool(note['notified_at']),
+        'resolved_by':  session.get('username'),
+    })
+    return jsonify({'success': True})
+
 
 @bp.route('/api/comms/incidents')
 @permission_required('mailshots.send')
@@ -784,6 +840,7 @@ def api_comms_incidents():
         SELECT  sn.id, sn.session_date, sn.session_type, sn.note_type,
                 sn.title, sn.details, sn.created_at,
                 sn.notified_at, sn.member_id,
+                sn.resolution_method, sn.resolution_note,
                 u.username  AS added_by_name,
                 un.username AS notified_by_name,
                 m.first_name || ' ' || m.surname AS member_name

@@ -502,6 +502,13 @@ def ensure_tables():
         "ALTER TABLE session_notes ADD COLUMN notified_by INTEGER REFERENCES users(id)",
         # v12.63: per-session-type calendar colour
         "ALTER TABLE session_types ADD COLUMN colour TEXT",
+        # v12.74: how an incident was closed off. 'email' = notified via a
+        # mailshot; 'in_person' = dealt with face to face, no email sent.
+        # NULL means still outstanding, which is exactly what every pre-v12.74
+        # row is, so nothing changes for existing data. resolution_note carries
+        # the optional 'what was said' for the in-person case.
+        "ALTER TABLE session_notes ADD COLUMN resolution_method TEXT",
+        "ALTER TABLE session_notes ADD COLUMN resolution_note TEXT",
     ]
     for stmt in alter_stmts:
         try:
