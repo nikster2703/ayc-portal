@@ -1602,13 +1602,9 @@
                 ${esc(n.note_type)}
               </span>
               ${member ? `<span style="font-size:13px">↳ ${member}</span>` : ''}
-              ${n.notified_at ? (n.resolution_method === 'in_person'
-                ? `<span title="Dealt with face to face — no email sent${n.notified_by_name ? ', recorded by ' + esc(n.notified_by_name) : ''}${n.resolution_note ? ' — ' + esc(n.resolution_note) : ''}"
+              ${n.notified_at ? `<span title="Parent/guardian emailed${n.notified_by_name ? ' by ' + esc(n.notified_by_name) : ''}"
                   style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;
-                  background:var(--green-bg);color:var(--green)">🤝 Resolved in person ${esc((n.notified_at || '').slice(0, 10))}</span>`
-                : `<span title="Parent/guardian emailed${n.notified_by_name ? ' by ' + esc(n.notified_by_name) : ''}"
-                  style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;
-                  background:var(--green-bg);color:var(--green)">✉️ Notified ${esc((n.notified_at || '').slice(0, 10))}</span>`) : ''}
+                  background:var(--green-bg);color:var(--green)">✉️ Notified ${esc((n.notified_at || '').slice(0, 10))}</span>` : ''}
               ${(n.member_id && CAN_NOTIFY) ? `<a href="/communications?incident=${n.id}"
                   class="btn btn-ghost btn-sm" onclick="event.stopPropagation()"
                   style="font-size:11px;padding:2px 8px${n.notified_at ? ';opacity:.65' : ''}">

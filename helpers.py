@@ -20,7 +20,7 @@ from flask import g, has_request_context, jsonify, redirect, request, session, u
 
 from config import (
     DATABASE, UPLOAD_DIR, ALLOWED_EXTENSIONS,
-    BRAND_KEYS, BRAND_FONT_STACKS, CLUB_NAME, CLUB_SHORT_NAME,
+    BRAND_KEYS, CLUB_NAME, CLUB_SHORT_NAME,
     ROLE_ADMIN, ROLE_DISPLAY_NAMES,
     LOGIN_MAX_FAILURES, LOGIN_LOCKOUT_SECONDS,
 )
@@ -378,12 +378,6 @@ def get_brand_settings():
     result['_nav_text']   = nav_text
     result['_nav_border'] = nav_border
     result['_logo_url']   = f'/branding/logo?v={int(time.time())}' if result['brand_logo_file'] else ''
-    # v12.70 Branding v2 derived values
-    result['_favicon_url']     = (f'/branding/favicon?v={int(time.time())}'
-                                  if result['brand_favicon_file'] else '')
-    result['_login_image_url'] = (f'/branding/login-image?v={int(time.time())}'
-                                  if result['brand_login_image_file'] else '')
-    result['_font_stack']      = BRAND_FONT_STACKS.get(result['brand_font'], '')
 
     _brand_cache = result
     return result
@@ -533,46 +527,21 @@ def get_sessions_for_members(member_ids):
 def set_member_sessions(member_id, names):
     """Replace a member's session assignments with the given session names.
 
-    Validates names against ALL session_types — active AND inactive (v12.65:
-    `active` governs UI visibility, not data validity; validating against
-    active types only meant editing any member assigned to a deactivated
-    session silently dropped that assignment, because the edit modal can't
-    render a chip for it). Assignments to inactive types that the caller
-    doesn't mention are PRESERVED for the same reason — the UI can't send
-    what it can't show. Rewrites member_sessions and keeps the
-    members.session echo column in sync (first assigned session by
-    sort_order; empty string when none). Caller commits.
+    Validates names against session_types (unknown names are dropped), rewrites
+    member_sessions, and keeps the members.session echo column in sync (first
+    assigned session by sort_order; empty string when none). Caller commits.
     Returns the cleaned, ordered list actually stored.
     """
-    db        = get_db()
-    all_types = db.execute(
-        'SELECT id, name, active FROM session_types ORDER BY sort_order, name'
-    ).fetchall()
-    type_id   = {t['name']: t['id'] for t in all_types}
-    order     = {t['name']: i for i, t in enumerate(all_types)}
-    inactive  = {t['name'] for t in all_types if not t['active']}
-
-    clean = [n for n in dict.fromkeys(names or []) if n in type_id]  # dedupe, validate
-
-    # v12.65: carry over existing assignments to inactive session types that the
-    # caller omitted — UI callers only render active types, so omission there
-    # means "invisible", not "remove".
-    existing_inactive = [r['name'] for r in db.execute(
-        'SELECT st.name FROM member_sessions ms '
-        'JOIN session_types st ON st.id = ms.session_type_id '
-        'WHERE ms.member_id = ? AND st.active = 0', (member_id,)
-    ).fetchall()]
-    for n in existing_inactive:
-        if n not in clean and n in inactive:
-            clean.append(n)
-
-    clean.sort(key=lambda n: order[n])
+    db    = get_db()
+    types = {s['name']: s['id'] for s in get_session_types()}
+    clean = [n for n in dict.fromkeys(names or []) if n in types]   # dedupe, validate
+    clean.sort(key=lambda n: next(i for i, s in enumerate(get_session_types()) if s['name'] == n))
 
     db.execute('DELETE FROM member_sessions WHERE member_id = ?', (member_id,))
     for n in clean:
         db.execute(
             'INSERT OR IGNORE INTO member_sessions (member_id, session_type_id) VALUES (?,?)',
-            (member_id, type_id[n])
+            (member_id, types[n])
         )
     db.execute('UPDATE members SET session = ? WHERE id = ?',
                (clean[0] if clean else '', member_id))
@@ -603,6 +572,15 @@ def member_in_scope(member_id, scoped=None):
         return True
     row = db.execute('SELECT session FROM members WHERE id = ?', (member_id,)).fetchone()
     return bool(row) and (row['session'] or '') in scoped
+
+
+def member_session_filter_sql(alias='m'):
+    """SQL EXISTS fragment matching members assigned to any of N session names.
+    Usage: cond, params = member_session_filter_sql(); cond needs the name list
+    appended to params by the caller via the returned placeholder count."""
+    return (f'EXISTS (SELECT 1 FROM member_sessions ms_f '
+            f'JOIN session_types st_f ON st_f.id = ms_f.session_type_id '
+            f'WHERE ms_f.member_id = {alias}.id AND st_f.name IN ({{ph}}))')
 
 
 # ── Register helpers ───────────────────────────────────────────────────────────

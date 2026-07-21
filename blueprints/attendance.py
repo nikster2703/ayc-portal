@@ -583,7 +583,6 @@ def api_notes_get(session_type, date):
     rows = db.execute('''
         SELECT  sn.id, sn.note_type, sn.title, sn.details, sn.created_at,
                 sn.member_id, sn.notified_at,
-                sn.resolution_method, sn.resolution_note,
                 u.username   AS added_by_name,
                 un.username  AS notified_by_name,
                 m.first_name AS member_first, m.surname AS member_surname

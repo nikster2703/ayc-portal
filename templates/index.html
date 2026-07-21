@@ -4,23 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_short_name }} Portal — Sign In</title>
-  <script>
-    /* v12.69: honour the saved dark-mode preference (same pre-paint snippet as
-       base.html). v12.70: fall back to the admin-set default theme when the
-       visitor has no saved choice ('system' follows the OS preference). */
-    (function () {
-      try {
-        var saved = localStorage.getItem('ayc-theme');
-        var def   = '{{ (brand.brand_default_theme if brand else "light") or "light" }}';
-        var dark  = saved ? saved === 'dark'
-                  : def === 'dark'   ? true
-                  : def === 'system' ? window.matchMedia('(prefers-color-scheme: dark)').matches
-                  : false;
-        if (dark) document.documentElement.dataset.theme = 'dark';
-      } catch (_) {}
-    })();
-  </script>
-  {% if brand and brand._favicon_url %}<link rel="icon" href="{{ brand._favicon_url }}">{% endif %}
   <link rel="stylesheet" href="/static/vendor/fonts.css">
   <link rel="stylesheet" href="/static/css/shared.css">
   {% if brand %}
@@ -32,12 +15,6 @@
       --nav-effective-bg:   {{ brand._nav_bg }};
       --nav-effective-text: {{ brand._nav_text }};
     }
-    /* v12.70 Branding v2 — the login page honours the font choice and the
-       dark-mode accent (backgrounds here are the branded gradient/image, so
-       the bg/surface/heading overrides are intentionally not applied). */
-    {# |safe: whitelisted server-side stack, never user input #}
-    {% if brand._font_stack %}:root { --font: {{ brand._font_stack | safe }}; } body, input, button { font-family: var(--font); }{% endif %}
-    {% if brand.brand_accent_dark %}html[data-theme="dark"] { --accent: {{ brand.brand_accent_dark }}; }{% endif %}
   </style>
   {% endif %}
   <style>
@@ -46,13 +23,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      {% if brand and brand._login_image_url %}
-      /* v12.70: admin-uploaded login background (dark scrim keeps the card legible) */
-      background: linear-gradient(rgba(10, 15, 27, .5), rgba(10, 15, 27, .62)),
-                  url('{{ brand._login_image_url }}') center / cover no-repeat fixed;
-      {% else %}
       background: linear-gradient(140deg, #111e36 0%, var(--nav-effective-bg) 60%, var(--accent) 100%);
-      {% endif %}
       padding: 20px;
     }
     .login-card {
@@ -146,18 +117,6 @@
     @media (max-width: 480px) {
       .login-card { padding: 36px 24px 28px; }
     }
-
-    /* v12.69: dark-mode fixes. In dark, --navy is re-pointed to a near-white
-       TEXT colour, so the navy Sign In button would render white-on-white —
-       use the accent instead. Inputs get an explicit dark surface (the UA
-       default is white regardless of theme). */
-    html[data-theme="dark"] .login-btn        { background: var(--accent); }
-    html[data-theme="dark"] .login-btn:hover  { background: var(--accent-dark); }
-    html[data-theme="dark"] .form-group input {
-      background: var(--surface-2);
-      color: var(--text);
-    }
-    html[data-theme="dark"] .club-badge .version { color: var(--muted); opacity: .7; }
   </style>
 </head>
 <body>
