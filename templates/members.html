@@ -1596,6 +1596,19 @@
         return { icon: '✏️', title: `Payment updated${d.period ? ': ' + esc(d.period) : ''}`, note: null };
       case 'payment_void':
         return { icon: '🚫', title: 'Payment voided', note: d.reason ? `Reason: ${esc(d.reason)}` : null };
+      case 'session_note': {
+        const noteIcons = {
+          General: '📝', Medical: '🩺', Safeguarding: '🛡',
+          Behaviour: '⚠️', Accident: '🚨', Other: '📝',
+        };
+        const label = d.note_type || 'Note';
+        const sess  = d.session_type ? ` — ${esc(d.session_type)}` : '';
+        return {
+          icon:  noteIcons[d.note_type] || '📝',
+          title: `${esc(label)} note${d.title ? ': ' + esc(d.title) : ''}${sess}`,
+          note:  d.details ? esc(d.details) : null,
+        };
+      }
       default:
         return { icon: '📋', title: esc(action.replace(/_/g, ' ')), note: null };
     }

@@ -636,7 +636,16 @@ def api_postcode_lookup(postcode):
 @bp.route('/api/members/<int:member_id>/activity')
 @permission_required('members.view')
 def api_member_activity(member_id):
-    """Return audit log entries for a specific member, excluding noisy view events."""
+    """Return audit log entries for a specific member, excluding noisy view
+    events, merged with any register/session notes (incidents) linked to
+    them via session_notes.member_id.
+
+    Note-link audit entries are logged against table_name='session_notes',
+    record_id=<note id> (see api_notes_create in attendance.py) — not
+    table_name='members', so they never matched the query below on their
+    own. session_notes is queried directly instead so the note's actual
+    content (type/title/details) shows up, not just a pointer.
+    """
     db     = get_db()
     member = db.execute('SELECT id FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
@@ -644,7 +653,7 @@ def api_member_activity(member_id):
     if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
-    rows = db.execute('''
+    audit_rows = db.execute('''
         SELECT  al.id, al.action, al.details, al.timestamp,
                 u.username AS performed_by
         FROM    audit_log al
@@ -656,7 +665,45 @@ def api_member_activity(member_id):
         LIMIT   100
     ''', (member_id,)).fetchall()
 
-    return jsonify([dict(r) for r in rows])
+    note_rows = db.execute('''
+        SELECT  sn.id, sn.note_type, sn.title, sn.details AS note_details,
+                sn.session_type, sn.session_date, sn.created_at AS timestamp,
+                u.username AS performed_by
+        FROM    session_notes sn
+        LEFT JOIN users u ON u.id = sn.added_by
+        WHERE   sn.member_id = ?
+        ORDER   BY sn.created_at DESC
+        LIMIT   100
+    ''', (member_id,)).fetchall()
+
+    combined = [
+        {
+            'id':           f'audit-{r["id"]}',
+            'action':       r['action'],
+            'details':      r['details'],
+            'timestamp':    r['timestamp'],
+            'performed_by': r['performed_by'],
+        }
+        for r in audit_rows
+    ] + [
+        {
+            'id':           f'note-{r["id"]}',
+            'action':       'session_note',
+            'details':      json.dumps({
+                'note_type':    r['note_type'],
+                'title':        r['title'],
+                'details':      r['note_details'],
+                'session_type': r['session_type'],
+                'session_date': r['session_date'],
+            }),
+            'timestamp':    r['timestamp'],
+            'performed_by': r['performed_by'],
+        }
+        for r in note_rows
+    ]
+    combined.sort(key=lambda r: r['timestamp'] or '', reverse=True)
+
+    return jsonify(combined[:100])
 
 
 @bp.route('/api/members/<int:member_id>/tags')

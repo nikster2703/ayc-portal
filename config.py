@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.75'  # Incidents can be closed off as resolved in person (no email). Plus v12.73 mobile/email PUT whitelist + staff contact model. See CHANGELOG.md.
+APP_VERSION = 'v12.76'  # Linked incidents/session notes now surface on the member's own Activity tab. See CHANGELOG.md.
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
