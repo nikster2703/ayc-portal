@@ -580,8 +580,24 @@ def quick_session_page():
 @bp.route('/branding/logo')
 def branding_logo():
     """Serve the organisation logo — publicly accessible, no auth needed."""
+    return _serve_branding_file('brand_logo_file')
+
+
+@bp.route('/branding/favicon')
+def branding_favicon():
+    """v12.70: serve the custom favicon — public (browsers fetch it unauthenticated)."""
+    return _serve_branding_file('brand_favicon_file')
+
+
+@bp.route('/branding/login-image')
+def branding_login_image():
+    """v12.70: serve the login-page background image — public (login is pre-auth)."""
+    return _serve_branding_file('brand_login_image_file')
+
+
+def _serve_branding_file(setting_key):
     brand    = get_brand_settings()
-    filename = brand.get('brand_logo_file', '')
+    filename = brand.get(setting_key, '')
     if not filename:
         return '', 404
     safe = os.path.join(BRANDING_DIR, os.path.basename(filename))

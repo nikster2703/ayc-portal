@@ -317,9 +317,14 @@ def api_member_update(member_id):
 
     # v12.50: 'session' removed from text_fields — session assignment now goes
     # through set_member_sessions() below (junction table + echo column).
+    # v12.73: 'mobile' and 'email' were the only writable members columns exposed
+    # as system field definitions but missing from this whitelist — the edit modal
+    # rendered the inputs and sent them in the payload, and the server silently
+    # dropped them, so those two values could only ever be changed in the DB.
     text_fields = ['first_name', 'surname', 'date_of_birth', 'address', 'postcode',
                    'ethnicity_religion', 'medical_sen', 'gp_contact',
-                   'comments', 'date_registered', 'staff_role']
+                   'comments', 'date_registered', 'staff_role',
+                   'mobile', 'email']
     # NOTE: status is intentionally excluded — use POST /api/members/<id>/status
     bool_fields = ['unattended_exit', 'gdpr_consent']
 
@@ -334,17 +339,37 @@ def api_member_update(member_id):
         )
         if not isinstance(wanted, list):
             return jsonify({'error': 'sessions must be a list of session names'}), 400
+
         old_sessions = get_member_session_names(member_id)
+        scoped       = _assigned_session()
+        if scoped is not None:
+            # v12.67 (audit fix #5): scoped users may only CHANGE assignments
+            # within their own sessions — previously any valid session could be
+            # added (or removed via a crafted payload), unlike approvals which
+            # already enforced this. Compare against what set_member_sessions
+            # will actually store: unknown names are dropped, and assignments
+            # to inactive types are preserved (v12.65), so mirror both here to
+            # avoid false 403s.
+            _rows     = db.execute('SELECT name, active FROM session_types').fetchall()
+            _known    = {r['name'] for r in _rows}
+            _inactive = {r['name'] for r in _rows if not r['active']}
+            effective = [n for n in dict.fromkeys(wanted) if n in _known]
+            effective += [n for n in old_sessions if n in _inactive and n not in effective]
+            _sc     = set(scoped)
+            added   = set(effective) - set(old_sessions)
+            removed = set(old_sessions) - set(effective)
+            if (added | removed) - _sc:
+                return jsonify({'error': 'You can only add or remove sessions '
+                                         'within your own sessions'}), 403
+            # And they must not edit the member out of their own reach —
+            # the saved set must still intersect their scope (or be empty,
+            # which admins can later reassign).
+            if effective and not (set(effective) & _sc):
+                return jsonify({'error': 'You cannot remove a member from all of your sessions'}), 400
+
         new_sessions = set_member_sessions(member_id, wanted)
         if old_sessions != new_sessions:
             changes['sessions'] = {'from': old_sessions, 'to': new_sessions}
-        # Scoped users must not edit themselves out of reach accidentally —
-        # they may only save a session set that still intersects their scope
-        # (or an empty set, which admins can later reassign).
-        scoped = _assigned_session()
-        if scoped is not None and new_sessions and not (set(new_sessions) & set(scoped)):
-            db.rollback()
-            return jsonify({'error': 'You cannot remove a member from all of your sessions'}), 400
 
     for field in text_fields:
         if field in data:

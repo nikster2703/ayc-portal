@@ -29,7 +29,7 @@ import bcrypt
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, session
 
 from config import (
-    BRANDING_DIR, DATABASE, INSTANCE_DIR, LOG_DIR,
+    BRANDING_DIR, BRAND_FONT_STACKS, BRAND_KEYS, DATABASE, INSTANCE_DIR, LOG_DIR,
     ROLE_DISPLAY_NAMES,
 )
 from extensions import csrf
@@ -111,6 +111,19 @@ def api_branding_get():
         'club_name':  brand.get('brand_club_name', ''),
         'short_name': brand.get('brand_short_name', ''),
         'has_logo':   bool(brand.get('brand_logo_file')),
+        # v12.70 Branding v2
+        'accent_dark':    brand.get('brand_accent_dark', ''),
+        'bg_light':       brand.get('brand_bg_light', ''),
+        'surface_light':  brand.get('brand_surface_light', ''),
+        'heading_light':  brand.get('brand_heading_light', ''),
+        'bg_dark':        brand.get('brand_bg_dark', ''),
+        'surface_dark':   brand.get('brand_surface_dark', ''),
+        'heading_dark':   brand.get('brand_heading_dark', ''),
+        'font':           brand.get('brand_font', ''),
+        'default_theme':  brand.get('brand_default_theme', 'light'),
+        'email_branding': brand.get('brand_email_branding', '0') == '1',
+        'has_favicon':    bool(brand.get('brand_favicon_file')),
+        'has_login_image': bool(brand.get('brand_login_image_file')),
     })
 
 
@@ -138,6 +151,38 @@ def api_branding_save():
     if 'short_name' in data:
         updates['brand_short_name'] = str(data['short_name']).strip()[:30]
 
+    # v12.70 Branding v2 — optional colours ('' clears back to theme default)
+    _OPT_COLOUR_KEYS = {
+        'accent_dark':   'brand_accent_dark',
+        'bg_light':      'brand_bg_light',
+        'surface_light': 'brand_surface_light',
+        'heading_light': 'brand_heading_light',
+        'bg_dark':       'brand_bg_dark',
+        'surface_dark':  'brand_surface_dark',
+        'heading_dark':  'brand_heading_dark',
+    }
+    for api_key, setting_key in _OPT_COLOUR_KEYS.items():
+        if api_key in data:
+            v = str(data[api_key] or '').strip()
+            if v and not _re.match(r'^#[0-9a-fA-F]{6}$', v):
+                return jsonify({'error': f'{api_key} must be a 6-digit hex colour or blank'}), 400
+            updates[setting_key] = v
+
+    if 'font' in data:
+        v = str(data['font'] or '').strip()
+        if v and v not in BRAND_FONT_STACKS:
+            return jsonify({'error': f'font must be one of: {", ".join(BRAND_FONT_STACKS)} (or blank)'}), 400
+        updates['brand_font'] = v
+
+    if 'default_theme' in data:
+        v = str(data['default_theme']).strip()
+        if v not in ('light', 'dark', 'system'):
+            return jsonify({'error': 'default_theme must be light, dark or system'}), 400
+        updates['brand_default_theme'] = v
+
+    if 'email_branding' in data:
+        updates['brand_email_branding'] = '1' if data['email_branding'] else '0'
+
     if not updates:
         return jsonify({'success': True, 'message': 'Nothing to update'})
 
@@ -155,48 +200,64 @@ def api_branding_save():
     return jsonify({'success': True})
 
 
-@bp.route('/api/admin/branding/logo', methods=['POST'])
-@permission_required('admin.branding')
-def api_branding_logo_upload():
-    if 'logo' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-    f = request.files['logo']
-    if not f.filename:
-        return jsonify({'error': 'No file selected'}), 400
+# v12.70: the logo, favicon and login-background uploads share one code path.
+# Each asset is stored in BRANDING_DIR under a fixed name prefix and referenced
+# by a brand_* setting key.
+_BRAND_ASSETS = {
+    'logo':        {'field': 'logo',    'prefix': 'logo',    'setting': 'brand_logo_file',
+                    'exts': ALLOWED_LOGO_EXTENSIONS, 'max_mb': 5},
+    'favicon':     {'field': 'favicon', 'prefix': 'favicon', 'setting': 'brand_favicon_file',
+                    'exts': {'ico', 'png', 'svg'},   'max_mb': 1},
+    'login-image': {'field': 'image',   'prefix': 'loginbg', 'setting': 'brand_login_image_file',
+                    'exts': {'png', 'jpg', 'jpeg', 'webp'}, 'max_mb': 8},
+}
 
-    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
-    if ext not in ALLOWED_LOGO_EXTENSIONS:
-        return jsonify({'error': f'File type .{ext} not allowed — use PNG, JPG, SVG or WebP'}), 400
 
-    filename  = f'logo.{ext}'
-    save_path = os.path.join(BRANDING_DIR, filename)
-
-    for old in os.listdir(BRANDING_DIR):
-        if old.startswith('logo.'):
-            try:
-                os.remove(os.path.join(BRANDING_DIR, old))
-            except OSError:
-                pass
-
-    f.save(save_path)
-    db = get_db()
+def _set_brand_setting(db, key, value):
     db.execute(
         'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
         ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at,'
         ' updated_by=excluded.updated_by',
-        ('brand_logo_file', filename, session['user_id'])
+        (key, value, session['user_id'])
     )
+
+
+def _brand_asset_upload(asset):
+    spec = _BRAND_ASSETS[asset]
+    f = request.files.get(spec['field']) or next(iter(request.files.values()), None)
+    if f is None or not f.filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in spec['exts']:
+        return jsonify({'error': f'File type .{ext} not allowed — use '
+                                 f'{", ".join(sorted(e.upper() for e in spec["exts"]))}'}), 400
+    f.seek(0, os.SEEK_END)
+    if f.tell() > spec['max_mb'] * 1024 * 1024:
+        return jsonify({'error': f'File must be under {spec["max_mb"]} MB'}), 400
+    f.seek(0)
+
+    filename = f'{spec["prefix"]}.{ext}'
+    for old in os.listdir(BRANDING_DIR):
+        if old.startswith(spec['prefix'] + '.'):
+            try:
+                os.remove(os.path.join(BRANDING_DIR, old))
+            except OSError:
+                pass
+    f.save(os.path.join(BRANDING_DIR, filename))
+
+    db = get_db()
+    _set_brand_setting(db, spec['setting'], filename)
     db.commit()
     _invalidate_brand_cache()
-    log_action('upload_branding_logo', 'settings', None, {'filename': filename})
+    log_action(f'upload_branding_{asset.replace("-", "_")}', 'settings', None, {'filename': filename})
     return jsonify({'success': True, 'filename': filename})
 
 
-@bp.route('/api/admin/branding/logo', methods=['DELETE'])
-@permission_required('admin.branding')
-def api_branding_logo_delete():
+def _brand_asset_delete(asset):
+    spec     = _BRAND_ASSETS[asset]
     brand    = get_brand_settings()
-    filename = brand.get('brand_logo_file', '')
+    filename = brand.get(spec['setting'], '')
     if filename:
         path = os.path.join(BRANDING_DIR, os.path.basename(filename))
         try:
@@ -204,17 +265,63 @@ def api_branding_logo_delete():
                 os.remove(path)
         except OSError:
             pass
-
     db = get_db()
-    db.execute(
-        'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime("now"), ?)'
-        ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at,'
-        ' updated_by=excluded.updated_by',
-        ('brand_logo_file', '', session['user_id'])
-    )
+    _set_brand_setting(db, spec['setting'], '')
     db.commit()
     _invalidate_brand_cache()
-    log_action('delete_branding_logo', 'settings', None, {})
+    log_action(f'delete_branding_{asset.replace("-", "_")}', 'settings', None, {})
+    return jsonify({'success': True})
+
+
+@bp.route('/api/admin/branding/logo', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_logo_upload():
+    return _brand_asset_upload('logo')
+
+
+@bp.route('/api/admin/branding/logo', methods=['DELETE'])
+@permission_required('admin.branding')
+def api_branding_logo_delete():
+    return _brand_asset_delete('logo')
+
+
+@bp.route('/api/admin/branding/favicon', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_favicon_upload():
+    return _brand_asset_upload('favicon')
+
+
+@bp.route('/api/admin/branding/favicon', methods=['DELETE'])
+@permission_required('admin.branding')
+def api_branding_favicon_delete():
+    return _brand_asset_delete('favicon')
+
+
+@bp.route('/api/admin/branding/login-image', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_login_image_upload():
+    return _brand_asset_upload('login-image')
+
+
+@bp.route('/api/admin/branding/login-image', methods=['DELETE'])
+@permission_required('admin.branding')
+def api_branding_login_image_delete():
+    return _brand_asset_delete('login-image')
+
+
+@bp.route('/api/admin/branding/reset', methods=['POST'])
+@permission_required('admin.branding')
+def api_branding_reset():
+    """v12.70: reset all branding SETTINGS to defaults. Uploaded files (logo,
+    favicon, login image) are kept — they have their own Remove buttons."""
+    db = get_db()
+    for key, default in BRAND_KEYS.items():
+        if key.endswith('_file'):
+            continue
+        _set_brand_setting(db, key, default)
+    db.commit()
+    _invalidate_brand_cache()
+    log_action('reset_branding', 'settings', None, {})
     return jsonify({'success': True})
 
 
@@ -2268,23 +2375,55 @@ def api_import_run():
                     _match_vals[f] = (email_val or '')
                 else:
                     _match_vals[f] = (core.get(f) or '')
-            match_key = tuple((_match_vals.get(f) or '').strip().lower()
+            # v12.68: normalised key — postcodes space-insensitive, DOB parsed to
+            # ISO — so in-run repeats match even when the file mixes formats.
+            match_key = tuple(_norm_match_val(f, _match_vals.get(f))
                               for f in match_fields)
             _has_identity = any(v for v in match_key)
 
             # v12.58: multi-session — fold repeat members into one, unioning sessions.
             if multi_session and _has_identity:
-                target_id = run_member_ids.get(match_key)
+                target_id    = run_member_ids.get(match_key)
+                _status_warn = None
                 # Match an existing portal member too, but only when the user has
                 # asked to treat matches as the same person (skip-duplicates on).
                 if target_id is None and skip_dupes:
-                    target_id = _find_existing_member(db, match_fields, _match_vals)
+                    _existing = _find_existing_member(db, match_fields, _match_vals)
+                    if _existing is not None:
+                        target_id = _existing['id']
+                        # v12.66 (audit fix #3): merging onto an archived/left record
+                        # "succeeds" but the member stays invisible on every register —
+                        # surface it for review instead of folding the row in silently.
+                        if _existing['status_behaviour'] != 'active':
+                            _status_warn = (f"combined into an existing member whose status is "
+                                            f"'{_existing['status']}' — they will not appear on any "
+                                            f"register until their status is changed")
                 if target_id is not None:
                     _w = _merge_member_row(db, target_id, core.get('session') or '',
                                            mobile_val, email_val, contacts)
+                    # v12.67 (audit fix #4): a merged row can carry the paid marker —
+                    # previously it was dropped (the payment block below is only
+                    # reached by first-occurrence rows). Record a whole-club
+                    # membership payment on the target member unless they already
+                    # have a non-voided one for the current period.
+                    if _bool_val(core.get('_payment_paid', 0)) and _membership_type and _import_period:
+                        _has_pay = db.execute(
+                            'SELECT 1 FROM member_payments mp '
+                            'JOIN payment_types pt ON pt.id = mp.payment_type_id '
+                            'WHERE mp.member_id = ? AND mp.period = ? '
+                            '  AND pt.is_membership = 1 AND mp.voided_at IS NULL LIMIT 1',
+                            (target_id, _import_period)
+                        ).fetchone()
+                        if not _has_pay:
+                            db.execute(
+                                'INSERT INTO member_payments '
+                                '(member_id, payment_type_id, period, recorded_by) VALUES (?,?,?,?)',
+                                (target_id, _membership_type['id'], _import_period, None)
+                            )
                     db.commit()
                     run_member_ids[match_key] = target_id
                     merged += 1
+                    _w = '; '.join(x for x in (_w, _status_warn) if x)
                     if _w:
                         warnings.append({'row': row_num, 'name': _row_name(), 'warning': _w})
                     continue
@@ -2300,14 +2439,19 @@ def api_import_run():
             # v12.58: duplicate check runs against the configurable match fields
             # (case-insensitive, NULL treated as blank). In multi-session mode an
             # existing match was already merged above, so this only fires for
-            # single-session imports.
-            if skip_dupes and not provided_id and not multi_session and \
-                    _find_existing_member(db, match_fields, _match_vals) is not None:
-                skipped += 1
-                _flds = ' + '.join(f.replace('_', ' ').title() for f in match_fields)
-                not_imported.append({'row': row_num, 'name': _row_name(),
-                                     'reason': f'Duplicate — already exists in the portal (matched on {_flds})'})
-                continue
+            # single-session imports. v12.66: staff records are excluded from the
+            # match; a non-active-status match names the status so the results
+            # screen shows why the "duplicate" isn't on any register.
+            if skip_dupes and not provided_id and not multi_session:
+                _existing = _find_existing_member(db, match_fields, _match_vals)
+                if _existing is not None:
+                    skipped += 1
+                    _flds = ' + '.join(f.replace('_', ' ').title() for f in match_fields)
+                    _note = ('' if _existing['status_behaviour'] == 'active' else
+                             f" — note: the existing record's status is '{_existing['status']}'")
+                    not_imported.append({'row': row_num, 'name': _row_name(),
+                                         'reason': f'Duplicate — already exists in the portal (matched on {_flds}){_note}'})
+                    continue
 
             member_id = provided_id if provided_id else _next_member_id(db)
             db.execute('''
@@ -2524,22 +2668,89 @@ def _apply_member_sessions(db, member_db_id, raw_session_value):
     return valid, invalid
 
 
+def _norm_dob(value):
+    """v12.68: parse the common UK date formats to ISO for duplicate matching.
+    Returns 'YYYY-MM-DD', '' for blank, or None when unparseable (caller falls
+    back to the raw lowered string). Any time component is dropped first
+    (spreadsheet date cells often stringify as 'YYYY-MM-DD 00:00:00')."""
+    v = (value or '').strip()
+    if not v:
+        return ''
+    v = v.split(' ')[0].split('T')[0]
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%d/%m/%y'):
+        try:
+            return datetime.strptime(v, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    return None
+
+
+def _norm_match_val(field, value):
+    """v12.68: normalise one identity value for duplicate matching — lowercase +
+    trim everywhere; postcodes also drop internal spaces ('AB1 2CD' == 'ab12cd');
+    dates of birth are parsed to ISO where possible ('01/06/2015' == '2015-06-01')."""
+    v = (value or '').strip().lower()
+    if field == 'postcode':
+        return v.replace(' ', '')
+    if field == 'date_of_birth':
+        return _norm_dob(v) or v
+    return v
+
+
 def _find_existing_member(db, match_fields, vals):
     """v12.58: find a member already in the portal matching on the configurable
     identity fields. Comparison is case-insensitive and treats NULL as blank, so
     an empty postcode/DOB still matches a blank. match_fields is pre-whitelisted
-    to real column names by the caller. Returns a member id, or None. A match key
-    with every value blank never matches (avoids collapsing all no-data rows)."""
+    to real column names by the caller. A match key with every value blank never
+    matches (avoids collapsing all no-data rows).
+
+    v12.68: postcode matching ignores internal spaces on both sides, and DOB is
+    compared date-normalised — the DB side via SQLite date() when the stored
+    value is ISO (falling back to the raw lowered string), the incoming side via
+    _norm_dob — so '01/06/2015' in the file matches a stored '2015-06-01'.
+
+    v12.66 (audit fix #3): returns the matched row (id, status, status_behaviour)
+    instead of a bare id, and:
+    - STAFF records are never matched — a register row whose match fields
+      collide with a staff member must not merge sessions/contacts into (or be
+      skipped against) the staff record;
+    - among non-staff matches, a member whose status behaviour is 'active' is
+      preferred, so a returning member matches their live record ahead of an
+      archived duplicate; callers warn when the only match is non-active
+      (merged rows would otherwise stay invisible on every register while the
+      import reports success).
+    Returns the row, or None."""
     if not any((vals.get(f) or '').strip() for f in match_fields):
         return None
     clauses, params = [], []
     for f in match_fields:
-        clauses.append(f"lower(COALESCE({f},'')) = ?")
-        params.append((vals.get(f) or '').strip().lower())
-    row = db.execute(
-        f'SELECT id FROM members WHERE {" AND ".join(clauses)} ORDER BY id LIMIT 1',
-        params).fetchone()
-    return row['id'] if row else None
+        v = _norm_match_val(f, vals.get(f))
+        if f == 'postcode':
+            clauses.append("replace(lower(COALESCE(m.postcode,'')),' ','') = ?")
+            params.append(v)
+        elif f == 'date_of_birth':
+            raw      = (vals.get(f) or '').strip().lower()
+            norm_sql = "COALESCE(date(m.date_of_birth), lower(trim(COALESCE(m.date_of_birth,''))))"
+            if v and v != raw:
+                # incoming value parsed to ISO — accept a DB value stored either
+                # ISO (date() normalises it) or in the file's original format
+                clauses.append(f'({norm_sql} = ? OR {norm_sql} = ?)')
+                params.extend([v, raw])
+            else:
+                clauses.append(f'{norm_sql} = ?')
+                params.append(v)
+        else:
+            clauses.append(f"lower(COALESCE(m.{f},'')) = ?")
+            params.append(v)
+    return db.execute(f'''
+        SELECT m.id, m.status, COALESCE(ms.behaviour, '') AS status_behaviour
+        FROM   members m
+        LEFT JOIN member_types    mt ON mt.slug = m.member_type
+        LEFT JOIN member_statuses ms ON ms.name = m.status
+        WHERE  {' AND '.join(clauses)}
+          AND  COALESCE(mt.registration_style, '') != 'staff'
+        ORDER  BY CASE WHEN ms.behaviour = 'active' THEN 0 ELSE 1 END, m.id
+        LIMIT  1''', params).fetchone()
 
 
 def _merge_member_row(db, target_id, raw_session, mobile_val, email_val, contacts):

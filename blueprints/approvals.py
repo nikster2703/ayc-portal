@@ -277,29 +277,27 @@ def api_approvals_approve(reg_id):
         ).fetchone()
         staff_slug = staff_mt['slug'] if staff_mt else 'staff'
 
+        # v12.73: a staff applicant's OWN mobile and email now land on the members
+        # row, where the matching system field definitions already point. They used
+        # to be written as a fake emergency contact (contact_order = 1, contact_name
+        # = the staff member's own name) while members.mobile/email stayed NULL —
+        # a semantic mismatch that made them visible on the card but uneditable.
         db.execute('''
             INSERT INTO members
                 (member_id, first_name, surname, date_of_birth, address, postcode,
+                 mobile, email,
                  status, session, member_type, staff_role, date_registered)
-            VALUES (?,?,?,?,?,?,"Active",?,?,?,date("now"))
+            VALUES (?,?,?,?,?,?,?,?,"Active",?,?,?,date("now"))
         ''', (
             mid,
             reg['first_name'], reg['surname'], reg['date_of_birth'],
             reg['address'], reg['postcode'],
+            reg['mobile'] or '', reg['email'] or '',
             assigned_session,
             staff_slug,
             staff_role,
         ))
         member_db_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-
-        full_name = f"{reg['first_name']} {reg['surname']}".strip()
-        if reg['mobile'] or reg['email']:
-            db.execute(
-                'INSERT INTO member_contacts'
-                ' (member_id, contact_order, contact_name, contact_phone, contact_email)'
-                ' VALUES (?,1,?,?,?)',
-                (member_db_id, full_name, reg['mobile'] or '', reg['email'] or '')
-            )
 
         create_login  = data.get('create_login', False)
         portal_role   = data.get('portal_role', '').strip()
@@ -407,6 +405,37 @@ def api_approvals_approve(reg_id):
                     )
         except (json.JSONDecodeError, TypeError):
             pass
+
+    # v12.71: Declarations and the signature were captured on the registration but
+    # never carried across to the member record, so every declaration field on the
+    # member profile rendered as '—'. Persist them the same way as custom fields.
+    decl_raw = reg['declarations'] if 'declarations' in reg.keys() else None
+    if decl_raw:
+        try:
+            decl_data = json.loads(decl_raw) or {}
+        except (json.JSONDecodeError, TypeError):
+            decl_data = {}
+
+        # The form posts the typed signature under 'signature_name', but the field
+        # definition is keyed by its own slug (e.g. 'guardian_confirmation').
+        sig_value = decl_data.get('signature_name')
+
+        for fd in db.execute(
+            "SELECT id, key, field_type FROM field_definitions "
+            "WHERE field_type IN ('declaration', 'signature')"
+        ).fetchall():
+            if fd['field_type'] == 'signature':
+                val = decl_data.get(fd['key']) or sig_value
+            else:
+                val = decl_data.get(fd['key'])
+            if val is None or val == '':
+                continue
+            db.execute(
+                'INSERT OR REPLACE INTO member_field_values'
+                ' (member_id, field_id, value, updated_at)'
+                ' VALUES (?, ?, ?, datetime("now"))',
+                (member_db_id, fd['id'], str(val))
+            )
 
     db.execute(
         'UPDATE pending_registrations'

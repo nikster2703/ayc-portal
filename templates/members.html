@@ -193,10 +193,10 @@
     <!-- Dynamic fields — rendered by JS from Field Builder config -->
     <div id="edit-dynamic-fields"></div>
 
-    <!-- Contacts — shown only when type has contact fields -->
+    <!-- Contacts — shown when the type has contact fields OR the member has contact data (v12.72) -->
     <div id="edit-contacts-section" style="display:none">
       <div style="border-top:2px solid var(--border);margin:14px 0 16px;padding-top:14px">
-        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:12px">📞 Contact 1</div>
+        <div id="edit-c1-heading" style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:12px">📞 Contact 1</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group"><label class="form-label">Name</label><input id="e-c1-name" type="text" class="form-input"></div>
           <div class="form-group"><label class="form-label">Phone</label><input id="e-c1-phone" type="tel" class="form-input"></div>
@@ -204,7 +204,7 @@
         </div>
       </div>
       <div style="border-top:2px solid var(--border);margin:0 0 16px;padding-top:14px">
-        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
+        <div id="edit-c2-heading" style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:12px">📞 Contact 2 <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group"><label class="form-label">Name</label><input id="e-c2-name" type="text" class="form-input"></div>
           <div class="form-group"><label class="form-label">Phone</label><input id="e-c2-phone" type="tel" class="form-input"></div>
@@ -410,6 +410,7 @@
   const USER_ROLE    = "{{ current_role }}";  // kept for any legacy checks
   const USER_PERMS   = new Set({{ user_permissions | tojson }});
   const ALL_SESSION_TYPES = {{ session_types | tojson }};   // v12.53: [{id, name, …}]
+  const SESSION_NAMES     = {{ (session_names or []) | tojson }};   // v12.67: [] = unscoped
   const CAN_EDIT     = USER_PERMS.has('members.edit');
   const IS_ADMIN     = USER_PERMS.has('members.hard_delete');
 
@@ -554,12 +555,14 @@
   function paidBadgeHtml(m, formal) {
     const sessionVal = ((document.getElementById('session-filter') || {}).value) || 'all';
     const specific   = sessionVal !== 'all' && sessionVal !== '__staff__';
+    // v12.68: casual badges tokenised (were hardcoded #dcfce7/#166534/… greens
+    // and ambers) so they follow the skin/dark-mode palette like everything else.
     const full = formal
       ? `<span class="badge badge-paid-f"><i data-lucide="credit-card"></i>Paid</span>`
       : `<span style="display:inline-block;padding:1px 8px;border-radius:20px;
                       font-size:11px;font-weight:700;
-                      background:#dcfce7;color:#166534;
-                      border:1.5px solid #86efac">💳 Paid</span>`;
+                      background:var(--green-bg);color:var(--green);
+                      border:1.5px solid color-mix(in srgb, var(--green) 40%, transparent)">💳 Paid</span>`;
     if (specific) return isPaidInContext(m) ? full : '';
     if (m.paid_current === 1) return full;
     const part = m.paid_sessions || [];
@@ -569,8 +572,8 @@
       ? `<span class="badge badge-partpaid-f" title="${esc(title)}"><i data-lucide="credit-card"></i>Paid ${part.length}/${(m.sessions || []).length}</span>`
       : `<span title="${esc(title)}" style="display:inline-block;padding:1px 8px;border-radius:20px;
                       font-size:11px;font-weight:700;
-                      background:#fef9c3;color:#854d0e;
-                      border:1.5px solid #fde68a">💳 Paid ${part.length}/${(m.sessions || []).length}</span>`;
+                      background:var(--amber-bg);color:var(--amber);
+                      border:1.5px solid color-mix(in srgb, var(--amber) 40%, transparent)">💳 Paid ${part.length}/${(m.sessions || []).length}</span>`;
   }
 
   /* ── Filters ───────────────────────────────────────── */
@@ -797,6 +800,14 @@
       return truthy
         ? '<span class="badge badge-yes">Yes</span>'
         : '<span class="badge badge-no">No</span>';
+    }
+    // v12.71: declarations are stored as 'yes'/'no' answers — show them as badges
+    // rather than raw text, matching the boolean treatment above.
+    if (field.field_type === 'declaration') {
+      const s = String(val).trim().toLowerCase();
+      if (s === 'yes' || s === 'true' || s === '1') return '<span class="badge badge-yes">Yes</span>';
+      if (s === 'no'  || s === 'false' || s === '0') return '<span class="badge badge-no">No</span>';
+      return esc(String(val));
     }
     if (field.field_type === 'date') return esc(fmtDate(val) || String(val));
     if (field.field_type === 'textarea') {
@@ -1235,6 +1246,11 @@
         return;
       }
 
+      /* v12.67 (audit fix #7): the endpoint returns up to 104 rows PER session
+         since v12.62 (for the formal skin's per-session grid) — the casual flat
+         table must not render them all. Cap at the 20 most recent (rows arrive
+         newest-first) with a count note, matching the old LIMIT 20 behaviour. */
+      const casualRows = rows.slice(0, 20);
       el.innerHTML = `
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
@@ -1246,7 +1262,7 @@
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => `
+            ${casualRows.map(r => `
               <tr>
                 <td style="padding:5px 8px 5px 0;border-bottom:1px solid var(--border)">${fmtDate(r.session_date)}</td>
                 <td style="padding:5px 8px;border-bottom:1px solid var(--border)">${esc(r.session_type)}</td>
@@ -1254,7 +1270,10 @@
                 <td style="padding:5px 0 5px 8px;border-bottom:1px solid var(--border)">${r.signed_out_at || '—'}</td>
               </tr>`).join('')}
           </tbody>
-        </table>`;
+        </table>
+        ${rows.length > casualRows.length
+          ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">Showing the ${casualRows.length} most recent of ${rows.length} recorded sessions.</div>`
+          : ''}`;
     } catch (e) {
       el.innerHTML = `<span style="font-size:13px;color:var(--red)">Could not load attendance.</span>`;
     }
@@ -1679,9 +1698,26 @@
       f.field_type !== 'signature'
     );
 
-    // Show contacts section only if the type has contact fields
-    const hasContacts = (conf.all || []).some(f => f.key.startsWith('contact'));
-    document.getElementById('edit-contacts-section').style.display = hasContacts ? '' : 'none';
+    // v12.72: show the contacts section if the TYPE has contact fields OR the
+    // member already has contact data on record — mirroring the card, which
+    // shows contacts whenever they're present with no type-level gate. Staff
+    // registration stores the applicant's own mobile/email as contact 1 without
+    // contact* fields ever being assigned to the staff type, so the type-only
+    // gate made those values visible on the card but impossible to edit.
+    const typeHasContacts = (conf.all || []).some(f => f.key.startsWith('contact'));
+    const hasContactData  = !!(member.contact1_name || member.contact1_phone || member.contact1_email ||
+                               member.contact2_name || member.contact2_phone || member.contact2_email);
+    document.getElementById('edit-contacts-section').style.display =
+      (typeHasContacts || hasContactData) ? '' : 'none';
+
+    // Staff store their OWN mobile/email in contact 1, so "Contact 1 / Contact 2"
+    // reads wrong for them — relabel rather than restructure.
+    const isStaffType = ((conf.type || {}).registration_style === 'staff');
+    const c1h = document.getElementById('edit-c1-heading');
+    const c2h = document.getElementById('edit-c2-heading');
+    if (c1h) c1h.innerHTML = isStaffType ? '📞 Contact Details' : '📞 Contact 1';
+    if (c2h) c2h.innerHTML = (isStaffType ? '📞 Additional Contact' : '📞 Contact 2') +
+      ' <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.6">— optional</span>';
 
     // Build HTML — pair non-fullwidth fields into a 2-col grid
     const FULL_WIDTH = new Set(['textarea', 'boolean']);
@@ -1721,10 +1757,24 @@
     document.getElementById('e-member_id').textContent = m.member_id || '—';
     document.getElementById('e-first_name').value      = m.first_name || '';
     document.getElementById('e-surname').value         = m.surname || '';
-    // v12.50: multi-session — tick the chip for each assigned session
+    // v12.50: multi-session — tick the chip for each assigned session.
+    // v12.67 (audit fix #5): scoped users may only change assignments within
+    // their own sessions — lock (don't hide) out-of-scope chips so an existing
+    // out-of-scope assignment stays visible, stays in the save payload
+    // (disabled inputs still match :checked), and can't be toggled.
     const assigned = new Set(m.sessions || (m.session ? [m.session] : []));
     document.querySelectorAll('#e-sessions input[type="checkbox"]')
-            .forEach(cb => { cb.checked = assigned.has(cb.value); });
+            .forEach(cb => {
+              cb.checked = assigned.has(cb.value);
+              const locked = SESSION_NAMES.length && !SESSION_NAMES.includes(cb.value);
+              cb.disabled = !!locked;
+              const chip = cb.closest('.sess-chip');
+              if (chip) {
+                chip.style.opacity = locked ? '.45' : '';
+                chip.style.cursor  = locked ? 'not-allowed' : '';
+                chip.title = locked ? 'Outside your assigned sessions' : '';
+              }
+            });
 
     // Status badge (read-only display — changes go through the status modal)
     const smeta = getStatusMeta(m.status);

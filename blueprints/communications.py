@@ -3,21 +3,23 @@ AYC Portal — Communications blueprint.
 Routes: /api/email-templates/*, /api/mailshots/*, /api/mailshots
 """
 
+import html as _html
 import json
 import os
 import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from flask import Blueprint, current_app, jsonify, request, session
 
-from config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+from config import BRANDING_DIR, CLUB_NAME, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
 from helpers import (
     get_db, log_action, permission_required, _assigned_session,
-    decrypt_file, resolve_doc_path, user_can_access_doc,
+    decrypt_file, resolve_doc_path, user_can_access_doc, get_brand_settings,
 )
 
 bp = Blueprint('communications', __name__)
@@ -53,6 +55,17 @@ _FC_LABELS = {
 }
 
 
+# v12.73: staff store their OWN mobile/email on the members row (see the approvals
+# fix), so members.email is a legitimate mailshot destination for staff-style types.
+# It is deliberately NOT one for youth types: a young person's own email may be on
+# record, but club comms must reach their parent or guardian via contact 1. Any
+# widening of this rule is a safeguarding decision, not a technical one.
+_STAFF_TYPE_SQL = (
+    "EXISTS (SELECT 1 FROM member_types mt_s "
+    "WHERE mt_s.slug = m.member_type AND mt_s.registration_style = 'staff')"
+)
+
+
 def _build_member_lookup(emails):
     """
     Given a list of email addresses, return a dict keyed by email with member
@@ -63,11 +76,16 @@ def _build_member_lookup(emails):
       2. First-class cols — all columns in _FC_LABELS fetched directly from members
       3. Custom fields    — member_field_values rows for truly custom field_definitions
       4. Contacts         — primary and secondary contact details from member_contacts
+
+    v12.73: matches on the contact-1 email OR, for staff-style types, the member's
+    own members.email. A row can match on either, so the key this member is filed
+    under is whichever address actually matched, not a fixed column.
     """
     if not emails:
         return {}
-    db = get_db()
-    ph = ','.join('?' * len(emails))
+    db     = get_db()
+    wanted = [e.lower() for e in emails]
+    ph     = ','.join('?' * len(wanted))
     rows = db.execute(f'''
         SELECT  m.id, m.first_name, m.surname, m.member_type,
                 m.date_of_birth, m.address, m.postcode, m.ethnicity_religion,
@@ -79,13 +97,16 @@ def _build_member_lookup(emails):
                     WHERE ms_s.member_id = m.id ORDER BY st_s.sort_order, st_s.name
                 )), m.session) AS session,   -- v12.51: all sessions, comma-joined
                 m.date_registered, m.comments,
-                c.contact_email AS email,
+                c.contact_email AS c1_email,
+                m.email         AS own_email,
+                {_STAFF_TYPE_SQL} AS is_staff_type,
                 c.contact_name  AS c1_name,
                 c.contact_phone AS c1_phone
         FROM    members m
-        JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
+        LEFT JOIN member_contacts c ON c.member_id = m.id AND c.contact_order = 1
         WHERE   lower(c.contact_email) IN ({ph})
-    ''', [e.lower() for e in emails]).fetchall()
+           OR   ({_STAFF_TYPE_SQL} AND lower(m.email) IN ({ph}))
+    ''', wanted * 2).fetchall()
 
     if not rows:
         return {}
@@ -124,7 +145,8 @@ def _build_member_lookup(emails):
         # ── Contact 1 ─────────────────────────────────────────────────────
         custom['Primary Contact — Full Name'] = r['c1_name']  or ''
         custom['Primary Contact — Phone']     = r['c1_phone'] or ''
-        custom['Primary Contact — Email']     = r['email']    or ''
+        custom['Primary Contact — Email']     = r['c1_email'] or ''
+        custom['Email Address']               = r['own_email'] or ''
 
         # ── Contact 2 ─────────────────────────────────────────────────────
         c2 = c2_map.get(r['id'])
@@ -132,13 +154,24 @@ def _build_member_lookup(emails):
         custom['Second Contact — Phone']     = (c2['contact_phone'] if c2 else '') or ''
         custom['Second Contact — Email']     = (c2['contact_email'] if c2 else '') or ''
 
-        lookup[r['email'].lower()] = {
-            'first_name':  r['first_name'] or '',
-            'surname':     r['surname']    or '',
-            'member_type': r['member_type'] or '',
-            'email':       r['email']      or '',
-            'custom':      custom,
-        }
+        # v12.73: a member can be reachable at more than one of the matched
+        # addresses (contact 1 and, for staff, their own). File the row under
+        # every address that was actually asked for, so {Email} resolves to the
+        # address THIS recipient was mailed at rather than a fixed column.
+        matched = []
+        if (r['c1_email'] or '').strip().lower() in wanted:
+            matched.append(r['c1_email'].strip())
+        if r['is_staff_type'] and (r['own_email'] or '').strip().lower() in wanted:
+            matched.append(r['own_email'].strip())
+
+        for addr in matched:
+            lookup[addr.lower()] = {
+                'first_name':  r['first_name']  or '',
+                'surname':     r['surname']     or '',
+                'member_type': r['member_type'] or '',
+                'email':       addr,
+                'custom':      custom,
+            }
     return lookup
 
 
@@ -358,18 +391,36 @@ def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_ty
             params = valid_ids + params   # flag params come before WHERE params
 
     where = ' AND '.join(conditions) if conditions else '1=1'
-    rows  = db.execute(f'''
-        SELECT  DISTINCT c.contact_email,
-                m.first_name || " " || m.surname AS member_name
-        FROM    members m
-        {flag_join}
-        JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
-        WHERE   {where}
-          AND   c.contact_email IS NOT NULL
-          AND   trim(c.contact_email) != ""
-        ORDER   BY m.first_name
-    ''', params).fetchall()
-    return [{'email': r['contact_email'], 'name': r['member_name']} for r in rows]
+    # v12.73: two sources, unioned — the contact-1 email for everyone, plus the
+    # member's own members.email for staff-style types only (staff keep their own
+    # details there since the approvals fix; youth comms must still go to the
+    # guardian on contact 1). Both halves take the same filter params, hence
+    # `params * 2`; flag_join params are already at the head of `params`.
+    rows = db.execute(f'''
+        SELECT DISTINCT email, member_name FROM (
+            SELECT  c.contact_email AS email,
+                    m.first_name || " " || m.surname AS member_name,
+                    m.first_name AS sort_name
+            FROM    members m
+            {flag_join}
+            JOIN    member_contacts c ON c.member_id = m.id AND c.contact_order = 1
+            WHERE   {where}
+              AND   c.contact_email IS NOT NULL
+              AND   trim(c.contact_email) != ""
+            UNION
+            SELECT  m.email AS email,
+                    m.first_name || " " || m.surname AS member_name,
+                    m.first_name AS sort_name
+            FROM    members m
+            {flag_join}
+            WHERE   {where}
+              AND   {_STAFF_TYPE_SQL}
+              AND   m.email IS NOT NULL
+              AND   trim(m.email) != ""
+        )
+        ORDER BY sort_name
+    ''', params * 2).fetchall()
+    return [{'email': r['email'], 'name': r['member_name']} for r in rows]
 
 
 @bp.route('/api/mailshots/preview', methods=['POST'])
@@ -469,6 +520,36 @@ def api_mailshots_send():
     if not recipients:
         return jsonify({'error': 'No recipients selected'}), 400
 
+    # v12.67 (audit fix #6): an incident notification must go to THAT member's
+    # contacts. The UI pins the checklist correctly, but the API accepted any
+    # in-scope recipient set alongside incident_note_id — stamping the note
+    # "notified" while the email went to a different family.
+    if _incident_note is not None:
+        _member_emails = {
+            (r['contact_email'] or '').strip().lower()
+            for r in db.execute(
+                'SELECT contact_email FROM member_contacts WHERE member_id = ?',
+                (_incident_note['member_id'],)
+            ).fetchall()
+            if (r['contact_email'] or '').strip()
+        }
+        # v12.73: staff keep their own email on the members row, so an incident
+        # concerning a staff member has no contact rows to validate against and
+        # every recipient would be rejected. Their own address counts as theirs.
+        # Youth members are deliberately NOT widened this way — an incident about
+        # a young person must reach their guardian's contact email.
+        _own = db.execute(
+            f'SELECT m.email FROM members m WHERE m.id = ? AND {_STAFF_TYPE_SQL}',
+            (_incident_note['member_id'],)
+        ).fetchone()
+        if _own and (_own['email'] or '').strip():
+            _member_emails.add(_own['email'].strip().lower())
+        _bad = [r['email'] for r in recipients
+                if r['email'].lower() not in _member_emails]
+        if _bad:
+            return jsonify({'error': 'Incident notifications can only be sent to the '
+                                     "member's own parent/guardian contacts"}), 400
+
     # Resolve and validate attachments from the document repository
     attachments = []   # list of {filename, mime_type, data (bytes)}
     if document_ids:
@@ -495,6 +576,45 @@ def api_mailshots_send():
     # Pre-load member data for merge field substitution
     all_emails   = [r['email'] for r in recipients]
     member_lookup = _build_member_lookup(all_emails)
+
+    # v12.70: optional branded header/footer wrapper (Admin → Branding).
+    # The logo (raster formats only — SVG isn't reliably rendered by email
+    # clients) is embedded inline via CID; without one, the header shows the
+    # club name on the accent bar.
+    _brand      = get_brand_settings()
+    _brand_wrap = _brand.get('brand_email_branding', '0') == '1'
+    _logo_bytes = _logo_subtype = None
+    if _brand_wrap and _brand.get('brand_logo_file'):
+        _lext = _brand['brand_logo_file'].rsplit('.', 1)[-1].lower()
+        if _lext in ('png', 'jpg', 'jpeg', 'gif'):
+            try:
+                with open(os.path.join(BRANDING_DIR,
+                                       os.path.basename(_brand['brand_logo_file'])), 'rb') as _fh:
+                    _logo_bytes = _fh.read()
+                _logo_subtype = 'jpeg' if _lext in ('jpg', 'jpeg') else _lext
+            except OSError:
+                pass
+
+    def _apply_brand_wrap(inner_html):
+        accent = _brand.get('brand_accent') or '#0096b4'
+        club   = _html.escape(_brand.get('brand_club_name') or CLUB_NAME)
+        header = (f'<img src="cid:brandlogo" alt="{club}" height="36" '
+                  f'style="display:block;max-height:36px;height:36px">'
+                  if _logo_bytes else
+                  f'<span style="color:#ffffff;font-size:18px;font-weight:bold;'
+                  f'font-family:Arial,sans-serif">{club}</span>')
+        return (
+            f'<table width="100%" cellpadding="0" cellspacing="0" role="presentation" '
+            f'style="background:#f2f4f7;padding:24px 0"><tr><td align="center">'
+            f'<table width="600" cellpadding="0" cellspacing="0" role="presentation" '
+            f'style="max-width:600px;width:100%;background:#ffffff;border-radius:10px;overflow:hidden">'
+            f'<tr><td style="background:{accent};padding:16px 28px" align="left">{header}</td></tr>'
+            f'<tr><td style="padding:26px 28px;font-family:Arial,Helvetica,sans-serif;'
+            f'font-size:14px;color:#1a202c;line-height:1.6">{inner_html}</td></tr>'
+            f'<tr><td style="padding:14px 28px;background:#f2f4f7;font-size:12px;color:#6b7280;'
+            f'font-family:Arial,Helvetica,sans-serif">{club}</td></tr>'
+            f'</table></td></tr></table>'
+        )
 
     emails_sent = 0
     errors      = []
@@ -524,11 +644,32 @@ def api_mailshots_send():
                     personalised_body    = _substitute_fields(body, member_data)
                     personalised_subject = _substitute_fields(subject, member_data)
 
-                    msg = MIMEMultipart('mixed') if attachments else MIMEMultipart('alternative')
+                    # v12.70: branded wrapper + optional inline logo (multipart/related)
+                    if _brand_wrap:
+                        personalised_body = _apply_brand_wrap(personalised_body)
+                    html_part = MIMEText(personalised_body, 'html', 'utf-8')
+                    if _brand_wrap and _logo_bytes:
+                        content = MIMEMultipart('related')
+                        content.attach(html_part)
+                        _img = MIMEImage(_logo_bytes, _subtype=_logo_subtype)
+                        _img.add_header('Content-ID', '<brandlogo>')
+                        _img.add_header('Content-Disposition', 'inline',
+                                        filename=_brand['brand_logo_file'])
+                        content.attach(_img)
+                    else:
+                        content = html_part
+
+                    if attachments:
+                        msg = MIMEMultipart('mixed')
+                        msg.attach(content)
+                    elif isinstance(content, MIMEMultipart):
+                        msg = content
+                    else:
+                        msg = MIMEMultipart('alternative')
+                        msg.attach(content)
                     msg['Subject'] = personalised_subject
                     msg['From']    = _smtp_from
                     msg['To']      = r['email']
-                    msg.attach(MIMEText(personalised_body, 'html', 'utf-8'))
 
                     for att in attachments:
                         part = MIMEBase('application', 'octet-stream')
@@ -554,8 +695,12 @@ def api_mailshots_send():
 
     # v12.56: stamp the session note once at least one email actually went out
     if _incident_note is not None and emails_sent > 0:
+        # v12.74: record HOW it was closed off, not just that it was — an email
+        # receipt and a face-to-face conversation are different things on a
+        # safeguarding record.
         db.execute(
-            "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ? WHERE id = ?",
+            "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ?, "
+            "resolution_method = 'email' WHERE id = ?",
             (session['user_id'], incident_note_id)
         )
         log_action('incident_notified', 'session_notes', incident_note_id, {
@@ -597,6 +742,58 @@ def api_mailshots_send():
 
 # ── Incident notifications (v12.56) ───────────────────────────────────────────
 
+@bp.route('/api/comms/incidents/<int:note_id>/resolve', methods=['POST'])
+@permission_required('mailshots.send')
+def api_comms_incident_resolve(note_id):
+    """v12.74: close off an incident that was dealt with face to face.
+
+    Not every incident needs an email — plenty are handled in conversation at
+    pickup. Previously the only way to clear one from the pending list was to
+    send a mailshot, which meant either sending an unnecessary email or leaving
+    the item outstanding forever. This records the outcome WITHOUT sending
+    anything: resolution_method = 'in_person', plus an optional note describing
+    what was said, and the same notified_at/notified_by stamp so the existing
+    'is this dealt with?' checks keep working unchanged.
+
+    Sending a mailshot afterwards is still allowed and will overwrite the
+    method with 'email' — the later, stronger receipt wins.
+    """
+    db   = get_db()
+    note = db.execute(
+        'SELECT id, member_id, note_type, session_type, session_date, notified_at '
+        'FROM session_notes WHERE id = ?', (note_id,)
+    ).fetchone()
+    if not note:
+        return jsonify({'error': 'Incident not found'}), 404
+
+    # Session-scoped users may only act on their own sessions — mirrors the
+    # scoping the listing endpoint applies.
+    scoped = _assigned_session()
+    if scoped is not None and note['session_type'] not in scoped:
+        return jsonify({'error': 'That incident is outside your assigned sessions'}), 403
+
+    data = request.get_json(silent=True) or {}
+    resolution_note = (data.get('note') or '').strip()[:1000]
+
+    db.execute(
+        "UPDATE session_notes SET notified_at = datetime('now'), notified_by = ?, "
+        "resolution_method = 'in_person', resolution_note = ? WHERE id = ?",
+        (session['user_id'], resolution_note or None, note_id)
+    )
+    db.commit()
+
+    log_action('incident_resolved_in_person', 'session_notes', note_id, {
+        'member_id':    note['member_id'],
+        'note_type':    note['note_type'],
+        'session_type': note['session_type'],
+        'session_date': note['session_date'],
+        'note':         resolution_note,
+        'was_notified': bool(note['notified_at']),
+        'resolved_by':  session.get('username'),
+    })
+    return jsonify({'success': True})
+
+
 @bp.route('/api/comms/incidents')
 @permission_required('mailshots.send')
 def api_comms_incidents():
@@ -619,11 +816,14 @@ def api_comms_incidents():
     conditions = ['sn.member_id IS NOT NULL']
     params     = []
     if note_id:
+        # v12.68: cast before touching the conditions list (hygiene — the old
+        # order appended the clause before the int() could raise).
         try:
-            conditions.append('sn.id = ?')
-            params.append(int(note_id))
+            note_id = int(note_id)
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid note id'}), 400
+        conditions.append('sn.id = ?')
+        params.append(note_id)
     else:
         conditions.append("sn.created_at >= datetime('now', ?)")
         params.append(f'-{days} days')
@@ -640,6 +840,7 @@ def api_comms_incidents():
         SELECT  sn.id, sn.session_date, sn.session_type, sn.note_type,
                 sn.title, sn.details, sn.created_at,
                 sn.notified_at, sn.member_id,
+                sn.resolution_method, sn.resolution_note,
                 u.username  AS added_by_name,
                 un.username AS notified_by_name,
                 m.first_name || ' ' || m.surname AS member_name
@@ -652,17 +853,39 @@ def api_comms_incidents():
         LIMIT   100
     ''', params).fetchall()
 
+    # v12.68: batch the contact lookups (was one query per note row — N+1).
+    contacts_map = {}
+    member_ids = list({r['member_id'] for r in rows})
+    if member_ids:
+        ph = ','.join('?' * len(member_ids))
+        for c in db.execute(
+            f'SELECT member_id, contact_name, contact_email FROM member_contacts '
+            f'WHERE member_id IN ({ph}) ORDER BY member_id, contact_order',
+            member_ids
+        ).fetchall():
+            if (c['contact_email'] or '').strip():
+                contacts_map.setdefault(c['member_id'], []).append(
+                    {'name': c['contact_name'], 'email': c['contact_email'].strip()})
+
+        # v12.73: staff have no contact rows — their own email is on the members
+        # row — so the incident checklist rendered empty and nobody could be
+        # notified about a staff incident. Mirrors the send-side validation.
+        for s in db.execute(
+            f'SELECT m.id, m.email, m.first_name || " " || m.surname AS nm '
+            f'FROM members m WHERE m.id IN ({ph}) AND {_STAFF_TYPE_SQL} '
+            f'AND m.email IS NOT NULL AND trim(m.email) != ""',
+            member_ids
+        ).fetchall():
+            existing = {e['email'].lower() for e in contacts_map.get(s['id'], [])}
+            if s['email'].strip().lower() not in existing:
+                contacts_map.setdefault(s['id'], []).append(
+                    {'name': s['nm'], 'email': s['email'].strip()})
+
     out = []
     for r in rows:
         d = dict(r)
-        contacts = db.execute(
-            'SELECT contact_name, contact_email FROM member_contacts '
-            'WHERE member_id = ? ORDER BY contact_order',
-            (r['member_id'],)
-        ).fetchall()
-        d['contacts'] = [{'name': c['contact_name'] or d['member_name'],
-                          'email': c['contact_email'].strip()}
-                         for c in contacts if (c['contact_email'] or '').strip()]
+        d['contacts'] = [{'name': c['name'] or d['member_name'], 'email': c['email']}
+                         for c in contacts_map.get(r['member_id'], [])]
         out.append(d)
     return jsonify(out)
 

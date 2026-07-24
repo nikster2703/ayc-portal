@@ -10,8 +10,15 @@
        theme: light (default) / dark · skin: casual (default) / formal */
     (function () {
       try {
-        if (localStorage.getItem('ayc-theme') === 'dark')
-          document.documentElement.dataset.theme = 'dark';
+        /* v12.70: the admin-set default theme applies to users with no saved
+           choice — 'system' follows the OS preference. A saved choice wins. */
+        var saved = localStorage.getItem('ayc-theme');
+        var def   = '{{ (brand.brand_default_theme if brand else "light") or "light" }}';
+        var dark  = saved ? saved === 'dark'
+                  : def === 'dark'   ? true
+                  : def === 'system' ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                  : false;
+        if (dark) document.documentElement.dataset.theme = 'dark';
         if (localStorage.getItem('ayc-skin') !== 'formal')
           document.documentElement.dataset.skin = 'casual';
       } catch (_) {
@@ -53,7 +60,42 @@
       --nav-effective-text:   {{ brand._nav_text }};
       --nav-effective-border: {{ brand._nav_border }};
     }
+
+    /* ── v12.70 Branding v2 — optional per-theme overrides ──────────
+       Empty settings emit nothing, so the theme defaults stand. These
+       blocks sit AFTER the shared.css/skin links, so equal-specificity
+       selectors win by cascade order; html[data-theme="dark"] here
+       likewise outranks shared.css's dark block. --surface-2 and
+       --navy-dark are derived from the chosen values so related
+       surfaces stay coherent. */
+    {% if brand._font_stack %}
+    {# |safe: the stack comes from the server-side BRAND_FONT_STACKS whitelist,
+       never user input — autoescape would break the quotes in font names #}
+    :root, html[data-skin="casual"]:not([data-theme="dark"]) { --font: {{ brand._font_stack | safe }}; }
+    {% endif %}
+    {% if brand.brand_bg_light or brand.brand_surface_light or brand.brand_heading_light %}
+    :root, html[data-skin="casual"]:not([data-theme="dark"]) {
+      {% if brand.brand_bg_light %}--bg: {{ brand.brand_bg_light }}; --cream: {{ brand.brand_bg_light }};{% endif %}
+      {% if brand.brand_surface_light %}--surface: {{ brand.brand_surface_light }};
+      --surface-2: color-mix(in srgb, {{ brand.brand_surface_light }} 98%, black);{% endif %}
+      {% if brand.brand_heading_light %}--navy: {{ brand.brand_heading_light }};
+      --navy-dark: color-mix(in srgb, {{ brand.brand_heading_light }} 80%, black);{% endif %}
+    }
+    {% endif %}
+    {% if brand.brand_accent_dark or brand.brand_bg_dark or brand.brand_surface_dark or brand.brand_heading_dark %}
+    html[data-theme="dark"] {
+      {% if brand.brand_accent_dark %}--accent: {{ brand.brand_accent_dark }};{% endif %}
+      {% if brand.brand_bg_dark %}--bg: {{ brand.brand_bg_dark }}; --cream: {{ brand.brand_bg_dark }};{% endif %}
+      {% if brand.brand_surface_dark %}--surface: {{ brand.brand_surface_dark }};
+      --surface-2: color-mix(in srgb, {{ brand.brand_surface_dark }} 93%, white);{% endif %}
+      {% if brand.brand_heading_dark %}--navy: {{ brand.brand_heading_dark }};
+      --navy-dark: color-mix(in srgb, {{ brand.brand_heading_dark }} 80%, white);{% endif %}
+    }
+    {% endif %}
   </style>
+  {% endif %}
+  {% if brand and brand._favicon_url %}
+  <link rel="icon" href="{{ brand._favicon_url }}">
   {% endif %}
   {% block head %}{% endblock %}
 </head>
