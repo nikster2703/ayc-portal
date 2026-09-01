@@ -46,6 +46,10 @@
       <div>
         <label class="form-label">Rule Type</label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="type-picker">
+          <label class="type-opt" data-type="conditions" style="grid-column:1 / -1">
+            <input type="radio" name="rule_type" value="conditions"> <i data-lucide="sliders-horizontal"></i><span class="ico-emoji">🎛</span> Conditions
+            <span class="type-desc">Any combination of member fields — dates, numbers, text, empty or filled</span>
+          </label>
           <label class="type-opt" data-type="attendance">
             <input type="radio" name="rule_type" value="attendance"> <i data-lucide="calendar"></i><span class="ico-emoji">📅</span> Attendance
             <span class="type-desc">Consecutive missed sessions</span>
@@ -63,6 +67,29 @@
             <span class="type-desc">Value above or below threshold</span>
           </label>
         </div>
+      </div>
+
+      <!-- Condition builder (v12.77) -->
+      <div id="opts-conditions" class="rule-opts" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+          <label class="form-label" style="margin:0">Conditions</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">
+            Match
+            <select id="f-match-mode" class="form-input" style="width:auto;padding:4px 8px;font-size:12px">
+              <option value="all">all conditions</option>
+              <option value="any">any condition</option>
+            </select>
+          </label>
+        </div>
+        <div id="cond-list"></div>
+        <div id="cond-empty" class="cond-empty">No conditions yet — add one to define when this flag is raised.</div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="addCondition()">
+          <i data-lucide="plus"></i><span class="ico-emoji">＋</span> Add condition
+        </button>
+        <p class="cond-hint">
+          Date conditions can be relative — “is next calendar month”, “is in the next N days” — so a
+          rule such as renewals due next month keeps working every month without being edited.
+        </p>
       </div>
 
       <!-- Attendance options -->
@@ -290,6 +317,18 @@
   .rule-card__actions { flex-shrink: 0; display: flex; gap: 8px; }
   .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 13px; }
   .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; }
+  /* v12.77 condition builder */
+  .cond-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .cond-row .cond-field { flex: 2 1 150px; min-width: 130px; }
+  .cond-row .cond-op    { flex: 2 1 150px; min-width: 130px; }
+  .cond-row .cond-v1,
+  .cond-row .cond-v2    { flex: 1 1 90px; min-width: 80px; }
+  .cond-row .form-input { padding: 6px 8px; font-size: 13px; }
+  .cond-sep { font-size: 12px; color: var(--muted); }
+  .cond-del { flex: 0 0 auto; padding: 4px 9px; font-size: 16px; line-height: 1; color: var(--muted); }
+  .cond-del:hover { color: #ef4444; }
+  .cond-empty { font-size: 12px; color: var(--muted); padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; }
+  .cond-hint { font-size: 11.5px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
 </style>
 {% endblock %}
 
@@ -300,7 +339,110 @@
   const CAN_MANAGE    = {{ ('alerts.manage' in user_permissions) | tojson }};
   const COLOURS = ['#ef4444','#f59e0b','#3b6fde','#8b5cf6','#22a06b'];
   const COLOUR_NAMES = { '#ef4444':'Red','#f59e0b':'Amber','#3b6fde':'Blue','#8b5cf6':'Purple','#22a06b':'Green' };
-  const TYPE_LABELS = { attendance:'Attendance', date_field:'Date Field', empty_field:'Field Value', numeric:'Numeric' };
+  const TYPE_LABELS = { conditions:'Conditions', attendance:'Attendance', date_field:'Date Field', empty_field:'Field Value', numeric:'Numeric' };
+
+  // v12.77: field + operator catalogue, served by /api/alert-rules/fields so the
+  // UI's operator lists can never disagree with what the engine will accept.
+  let FIELD_CATALOGUE = { fields: [], operators: {} };
+  const DAY_OPS = ['in_next_days', 'in_last_days', 'more_than_days_ago'];
+
+  async function ensureCatalogue() {
+    if (FIELD_CATALOGUE.fields.length) return;
+    try { FIELD_CATALOGUE = await apiFetch('/api/alert-rules/fields'); }
+    catch (e) { console.error('Field catalogue failed to load', e); }
+  }
+  function fieldMeta(key) { return FIELD_CATALOGUE.fields.find(f => f.key === key); }
+  function condEsc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  function makeConditionRow(cond) {
+    const row = document.createElement('div');
+    row.className = 'cond-row';
+
+    const fsel = document.createElement('select');
+    fsel.className = 'form-input cond-field';
+    fsel.innerHTML = '<option value="">— choose a field —</option>' +
+      FIELD_CATALOGUE.fields.map(f =>
+        `<option value="${condEsc(f.key)}">${condEsc(f.label)}</option>`).join('');
+
+    const osel = document.createElement('select');
+    osel.className = 'form-input cond-op';
+
+    const v1  = document.createElement('input'); v1.className = 'form-input cond-v1';
+    const v2  = document.createElement('input'); v2.className = 'form-input cond-v2';
+    const sep = document.createElement('span');  sep.className = 'cond-sep'; sep.textContent = 'and';
+
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'btn btn-ghost btn-sm cond-del';
+    del.textContent = '×'; del.title = 'Remove this condition';
+    del.onclick = () => { row.remove(); syncCondEmpty(); };
+
+    function syncOperators(keepOp) {
+      const meta = fieldMeta(fsel.value);
+      const ops  = meta ? meta.operators : [];
+      osel.innerHTML = ops.map(o =>
+        `<option value="${condEsc(o)}">${condEsc((FIELD_CATALOGUE.operators[o] || {}).label || o)}</option>`).join('');
+      if (keepOp && ops.includes(keepOp)) osel.value = keepOp;
+      syncValues();
+    }
+    function syncValues() {
+      const meta  = fieldMeta(fsel.value);
+      const ftype = meta ? meta.field_type : 'text';
+      const args  = (FIELD_CATALOGUE.operators[osel.value] || {}).value_args ?? 0;
+      // "in the next N days" takes a number even on a date field.
+      const inputType = DAY_OPS.includes(osel.value) ? 'number'
+                      : ftype === 'date'   ? 'date'
+                      : ftype === 'number' ? 'number' : 'text';
+      v1.type = v2.type = inputType;
+      v1.placeholder = DAY_OPS.includes(osel.value) ? 'days' : 'value';
+      v2.placeholder = 'value';
+      v1.style.display  = args >= 1 ? '' : 'none';
+      v2.style.display  = args >= 2 ? '' : 'none';
+      sep.style.display = args >= 2 ? '' : 'none';
+    }
+    fsel.onchange = () => syncOperators();
+    osel.onchange = syncValues;
+
+    row.append(fsel, osel, v1, sep, v2, del);
+    if (cond) {
+      fsel.value = cond.field_key || '';
+      syncOperators(cond.operator);
+      v1.value = cond.value_1 ?? '';
+      v2.value = cond.value_2 ?? '';
+    } else {
+      syncOperators();
+    }
+    return row;
+  }
+
+  function syncCondEmpty() {
+    const has = document.querySelectorAll('#cond-list .cond-row').length > 0;
+    document.getElementById('cond-empty').style.display = has ? 'none' : 'block';
+  }
+  function addCondition(cond) {
+    document.getElementById('cond-list').appendChild(makeConditionRow(cond));
+    syncCondEmpty();
+    refreshIcons();
+  }
+  function renderConditions(list) {
+    const wrap = document.getElementById('cond-list');
+    wrap.innerHTML = '';
+    (list || []).forEach(c => wrap.appendChild(makeConditionRow(c)));
+    syncCondEmpty();
+  }
+  function collectConditions() {
+    return [...document.querySelectorAll('#cond-list .cond-row')].map(r => {
+      const v1 = r.querySelector('.cond-v1'), v2 = r.querySelector('.cond-v2');
+      return {
+        field_key: r.querySelector('.cond-field').value,
+        operator:  r.querySelector('.cond-op').value,
+        value_1:   v1.style.display === 'none' ? null : v1.value,
+        value_2:   v2.style.display === 'none' ? null : v2.value,
+      };
+    }).filter(c => c.field_key && c.operator);
+  }
 
   let selectedColour = '#ef4444';
   let editingRuleId  = null;
@@ -348,6 +490,11 @@
     const metaParts = [];
     metaParts.push(TYPE_LABELS[r.rule_type] || r.rule_type);
     if (r.rule_type === 'attendance') metaParts.push(`${r.threshold_value} consecutive misses`);
+    if ((r.conditions || []).length) {
+      const n = r.conditions.length;
+      metaParts.push(n === 1 ? '1 condition'
+                             : `${n} conditions (${r.match_mode === 'any' ? 'any' : 'all'})`);
+    }
     if (r.rule_type === 'empty_field') metaParts.push(r.condition === 'is_filled' ? 'is filled' : 'is empty');
     if (r.target_field) {
       const fd = FIELD_DEFS.find(f => f.key === r.target_field);
@@ -378,7 +525,8 @@
   }
 
   // ── Modal open/close ────────────────────────────────────────────────────────
-  function openRuleModal(rule) {
+  async function openRuleModal(rule) {
+    await ensureCatalogue();
     editingRuleId = rule ? rule.id : null;
     document.getElementById('modal-title').textContent = rule ? 'Edit Alert Rule' : 'New Alert Rule';
 
@@ -420,6 +568,23 @@
         document.getElementById('f-condition-num').value = rule.condition || 'above';
         document.getElementById('f-threshold-num').value = rule.threshold_value ?? 0;
       }
+    }
+
+    // v12.77: conditions. A migrated legacy rule carries condition rows too, so
+    // they are shown whatever its rule_type — that is how an old rule gets
+    // upgraded: open it, and the conditions are already there.
+    document.getElementById('f-match-mode').value = (rule && rule.match_mode === 'any') ? 'any' : 'all';
+    renderConditions(rule ? rule.conditions : []);
+    if (!rule) {
+      // New rules default to the conditions builder.
+      const opt = document.querySelector('.type-opt[data-type="conditions"]');
+      if (opt) opt.classList.add('selected');
+      const radio = document.querySelector('input[name="rule_type"][value="conditions"]');
+      if (radio) radio.checked = true;
+      showRuleOpts('conditions', null);
+    } else if (rule.rule_type !== 'attendance' && (rule.conditions || []).length) {
+      // Legacy rule with migrated conditions — show the builder alongside.
+      document.getElementById('opts-conditions').style.display = 'block';
     }
 
     document.getElementById('rule-modal').classList.add('open');
@@ -542,7 +707,19 @@
       auto_resolve:       document.getElementById('f-auto-resolve').checked,
     };
 
-    if (type === 'attendance') {
+    if (type === 'conditions') {
+      payload.conditions = collectConditions();
+      payload.match_mode = document.getElementById('f-match-mode').value || 'all';
+      if (!payload.conditions.length) {
+        showToast('Add at least one condition.', true); return;
+      }
+      const incomplete = payload.conditions.find(c => {
+        const args = (FIELD_CATALOGUE.operators[c.operator] || {}).value_args ?? 0;
+        return (args >= 1 && !String(c.value_1 ?? '').trim())
+            || (args >= 2 && !String(c.value_2 ?? '').trim());
+      });
+      if (incomplete) { showToast('Every condition needs its value filled in.', true); return; }
+    } else if (type === 'attendance') {
       payload.threshold_value = parseInt(document.getElementById('f-threshold-att').value) || 5;
       payload.threshold_unit  = 'sessions';
     } else if (type === 'date_field') {

@@ -392,6 +392,25 @@ def api_payment_types_list():
     return jsonify([dict(r) for r in rows])
 
 
+def _sessions_granted(data):
+    """Parse the optional sessions_granted field on a payment type.
+
+    Returns (value, error). NULL means this type does not grant sessions, which
+    is every payment type before v12.77 — so existing types are unaffected and
+    the derived sessions_remaining field simply has no value for their members.
+    """
+    raw = data.get('sessions_granted')
+    if raw is None or str(raw).strip() == '':
+        return None, None
+    try:
+        n = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None, 'Sessions granted must be a whole number'
+    if n < 0:
+        return None, 'Sessions granted cannot be negative'
+    return n, None
+
+
 @bp.route('/api/admin/payment-types', methods=['POST'])
 @permission_required('payments.manage')
 def api_payment_types_create():
@@ -401,12 +420,16 @@ def api_payment_types_create():
     desc = (data.get('description') or '').strip() or None
     if not name:
         return jsonify({'error': 'name is required'}), 400
+    granted, g_err = _sessions_granted(data)
+    if g_err:
+        return jsonify({'error': g_err}), 400
 
     max_sort = db.execute('SELECT COALESCE(MAX(sort_order),0) FROM payment_types').fetchone()[0]
     try:
         db.execute(
-            'INSERT INTO payment_types (name, description, sort_order) VALUES (?,?,?)',
-            (name, desc, max_sort + 1)
+            'INSERT INTO payment_types (name, description, sessions_granted, sort_order) '
+            'VALUES (?,?,?,?)',
+            (name, desc, granted, max_sort + 1)
         )
         db.commit()
     except sqlite3.IntegrityError:
@@ -429,11 +452,14 @@ def api_payment_types_update(type_id):
     desc = (data.get('description') or '').strip() or None
     if not name:
         return jsonify({'error': 'name is required'}), 400
+    granted, g_err = _sessions_granted(data)
+    if g_err:
+        return jsonify({'error': g_err}), 400
 
     try:
         db.execute(
-            'UPDATE payment_types SET name=?, description=? WHERE id=?',
-            (name, desc, type_id)
+            'UPDATE payment_types SET name=?, description=?, sessions_granted=? WHERE id=?',
+            (name, desc, granted, type_id)
         )
         db.commit()
     except sqlite3.IntegrityError:

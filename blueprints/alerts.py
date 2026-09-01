@@ -16,6 +16,8 @@ from helpers import (
     get_setting, send_notification, tpl_ctx,
     _connect_db,
 )
+import rule_engine
+from rule_engine import SAFE_MEMBER_COLUMNS
 
 bp = Blueprint('alerts', __name__)
 
@@ -26,12 +28,96 @@ _HEX_COLOUR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 # Whitelist of column names that may be interpolated into SQL for system fields.
 # This prevents SQL injection if a field_definition row's column_name is ever
 # tampered with — only names on this list can be used directly in queries.
-_SAFE_MEMBER_COLUMNS = frozenset({
-    'first_name', 'surname', 'date_of_birth', 'address', 'postcode',
-    'ethnicity_religion', 'medical_sen', 'gp_contact', 'mobile', 'email',
-    'member_type', 'staff_role', 'status', 'status_note', 'session',
-    'member_id',
-})
+# v12.77: the list now lives in rule_engine so there is exactly ONE copy. Two
+# copies that drift apart is the echo-column bug class. The module-level alias
+# is kept so the legacy evaluators below read unchanged.
+_SAFE_MEMBER_COLUMNS = SAFE_MEMBER_COLUMNS
+
+# Rule types accepted by the API. 'conditions' is the v12.77 multi-condition
+# rule; the three legacy single-condition types are still accepted so existing
+# rules can be edited without being forcibly rewritten.
+_LEGACY_RULE_TYPES = ('date_field', 'empty_field', 'numeric')
+_RULE_TYPES = ('attendance', 'conditions') + _LEGACY_RULE_TYPES
+
+
+def _row_get(row, key, default=None):
+    """Read a column that may not exist yet on an older schema."""
+    try:
+        val = row[key]
+    except (KeyError, IndexError):
+        return default
+    return default if val is None else val
+
+
+def _sessions_remaining_map(db, member_ids):
+    """{member_id: sessions remaining} for the derived sessions_remaining field.
+
+    Granted = sum of payment_types.sessions_granted across the member's
+    non-voided payments in the CURRENT membership period.
+    Used    = attendance sign-ins falling inside that period.
+
+    Members with no session-granting payment are omitted entirely rather than
+    reported as 0 — they have no value for this field, so a numeric condition
+    should not match them. Reporting 0 would flag every member who never
+    bought a block of sessions the moment someone wrote 'remaining is under 2'.
+    """
+    member_ids = list(member_ids)
+    if not member_ids:
+        return {}
+    period  = (get_setting('current_membership_period', '') or '').strip()
+    if not period:
+        return {}
+    p_start = (get_setting('current_period_start', '') or '').strip()
+    p_end   = (get_setting('current_period_end', '') or '').strip()
+
+    ph = ','.join('?' * len(member_ids))
+    granted = {}
+    for r in db.execute(
+        f'SELECT mp.member_id AS mid, SUM(pt.sessions_granted) AS n '
+        f'FROM member_payments mp '
+        f'JOIN payment_types pt ON pt.id = mp.payment_type_id '
+        f'WHERE mp.voided_at IS NULL AND mp.period = ? '
+        f'  AND pt.sessions_granted IS NOT NULL '
+        f'  AND mp.member_id IN ({ph}) '
+        f'GROUP BY mp.member_id',
+        [period] + member_ids
+    ).fetchall():
+        if r['n']:
+            granted[r['mid']] = int(r['n'])
+    if not granted:
+        return {}
+
+    ids    = list(granted)
+    params = list(ids)
+    date_cond = ''
+    if p_start:
+        date_cond += ' AND session_date >= ?'
+        params.append(p_start)
+    if p_end:
+        date_cond += ' AND session_date <= ?'
+        params.append(p_end)
+    ph2 = ','.join('?' * len(ids))
+    used = {}
+    for r in db.execute(
+        f'SELECT member_id AS mid, COUNT(*) AS n FROM attendance '
+        f'WHERE signed_in_at IS NOT NULL AND member_id IN ({ph2}){date_cond} '
+        f'GROUP BY member_id',
+        params
+    ).fetchall():
+        used[r['mid']] = r['n']
+
+    return {mid: granted[mid] - used.get(mid, 0) for mid in granted}
+
+
+def _rule_conditions(db, rule_id):
+    """Condition rows for a rule; [] if the table predates this install."""
+    try:
+        return db.execute(
+            'SELECT field_key, operator, value_1, value_2 FROM rule_conditions '
+            'WHERE rule_id = ? ORDER BY sort_order, id', (rule_id,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
 
 
 # ── Alert rule engine ─────────────────────────────────────────────────────────
@@ -91,8 +177,27 @@ def _run_alert_rule(db, rule, today_str):
 
     should_flag = set()   # member db ids that currently meet the condition
 
+    # ── Condition-set rules (v12.77) ──────────────────────────────────────────
+    # The new path. Attendance keeps its own timeline evaluator below because it
+    # tests a sequence of sessions, not a field value. A legacy flat rule whose
+    # condition could not be migrated has no rule_conditions rows and falls
+    # through to its original evaluator, so nothing stops working.
+    _conds = _rule_conditions(db, rule_id) if rule_type != 'attendance' else []
+
+    if _conds:
+        _member_ids = [m['id'] for m in members]
+        _virtual = {}
+        if any((c['field_key'] or '') == 'sessions_remaining' for c in _conds):
+            _virtual['sessions_remaining'] = _sessions_remaining_map(db, _member_ids)
+        should_flag = rule_engine.evaluate_conditions(
+            db, _conds, _member_ids,
+            today=datetime.strptime(today_str, '%Y-%m-%d').date(),
+            match_mode=_row_get(rule, 'match_mode', 'all'),
+            virtual_values=_virtual,
+        )
+
     # ── Attendance rule ────────────────────────────────────────────────────────
-    if rule_type == 'attendance':
+    elif rule_type == 'attendance':
         threshold = rule['threshold_value'] or 5
         # Use session_completions (registers that were actually completed) rather
         # than term_sessions (the planning calendar).  term_sessions may be
@@ -352,6 +457,75 @@ def run_all_alert_rules():
         db.close()
 
 
+def _validate_conditions(db, raw):
+    """Normalise and validate an incoming conditions list.
+
+    Returns (conditions, error). A rule must not be saveable in a state the
+    evaluator would silently ignore, so an operator that is not offered for the
+    target field's type is rejected here rather than quietly matching nobody.
+    Returns (None, None) when the caller sent no conditions key at all, which
+    means 'leave the existing conditions alone'.
+    """
+    if raw is None:
+        return None, None
+    if not isinstance(raw, list):
+        return None, 'conditions must be a list'
+
+    out = []
+    for i, c in enumerate(raw, 1):
+        if not isinstance(c, dict):
+            return None, 'Condition %d is malformed' % i
+        fkey = (c.get('field_key') or '').strip()
+        op   = (c.get('operator') or '').strip()
+        if not fkey:
+            return None, 'Condition %d: choose a field' % i
+        if op not in rule_engine.OPERATORS:
+            return None, 'Condition %d: unknown operator "%s"' % (i, op)
+
+        if fkey in rule_engine.VIRTUAL_FIELDS:
+            ftype = rule_engine.VIRTUAL_FIELDS[fkey]['field_type']
+        else:
+            fd = db.execute(
+                'SELECT field_type FROM field_definitions WHERE key = ?', (fkey,)
+            ).fetchone()
+            if not fd:
+                return None, 'Condition %d: unknown field "%s"' % (i, fkey)
+            ftype = fd['field_type'] or 'text'
+
+        if op not in rule_engine.operators_for(ftype):
+            return None, ('Condition %d: "%s" cannot be used on a %s field'
+                          % (i, rule_engine.OPERATORS[op]['label'], ftype))
+
+        need = rule_engine.OPERATORS[op]['value_args']
+        v1 = c.get('value_1')
+        v2 = c.get('value_2')
+        v1 = None if v1 is None or str(v1).strip() == '' else str(v1).strip()
+        v2 = None if v2 is None or str(v2).strip() == '' else str(v2).strip()
+        if need >= 1 and v1 is None:
+            return None, 'Condition %d: a value is required' % i
+        if need >= 2 and v2 is None:
+            return None, 'Condition %d: two values are required' % i
+        if need == 0:
+            v1 = v2 = None
+        elif need == 1:
+            v2 = None
+        out.append({'field_key': fkey, 'operator': op,
+                    'value_1': v1, 'value_2': v2})
+    return out, None
+
+
+def _write_conditions(db, rule_id, conds):
+    """Replace a rule's condition set wholesale."""
+    db.execute('DELETE FROM rule_conditions WHERE rule_id = ?', (rule_id,))
+    for i, c in enumerate(conds):
+        db.execute(
+            'INSERT INTO rule_conditions (rule_id, field_key, operator, '
+            'value_1, value_2, sort_order) VALUES (?,?,?,?,?,?)',
+            (rule_id, c['field_key'], c['operator'],
+             c['value_1'], c['value_2'], i)
+        )
+
+
 # ── Alert Rules API ───────────────────────────────────────────────────────────
 
 @bp.route('/api/alert-rules')
@@ -367,7 +541,64 @@ def api_alert_rules_list():
         GROUP BY ar.id
         ORDER BY ar.is_active DESC, ar.name
     ''').fetchall()
-    return jsonify([dict(r) for r in rows])
+
+    # v12.77: attach each rule's condition set. One query for the lot rather
+    # than one per rule.
+    conds_by_rule = {}
+    try:
+        for c in db.execute(
+            'SELECT rule_id, field_key, operator, value_1, value_2 '
+            'FROM rule_conditions ORDER BY rule_id, sort_order, id'
+        ).fetchall():
+            conds_by_rule.setdefault(c['rule_id'], []).append({
+                'field_key': c['field_key'], 'operator': c['operator'],
+                'value_1': c['value_1'], 'value_2': c['value_2'],
+            })
+    except sqlite3.OperationalError:
+        pass   # table not created yet on a pre-migration boot
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        d['conditions'] = conds_by_rule.get(r['id'], [])
+        d.setdefault('match_mode', 'all')
+        out.append(d)
+    return jsonify(out)
+
+
+@bp.route('/api/alert-rules/fields')
+@permission_required('alerts.view')
+def api_alert_rule_fields():
+    """Field + operator catalogue for the rule condition builder.
+
+    Returns every active field definition the engine can evaluate, each with the
+    operators valid for its type, plus the derived virtual fields. The UI drives
+    its operator dropdown from this so the two can never disagree.
+    """
+    db = get_db()
+    fields = []
+    for r in db.execute(
+        'SELECT key, label, field_type, system_field FROM field_definitions '
+        'WHERE active = 1 ORDER BY system_field DESC, sort_order, label'
+    ).fetchall():
+        ftype = r['field_type'] or 'text'
+        if ftype in ('declaration',):
+            continue          # recorded at registration, not staff-editable
+        fields.append({
+            'key': r['key'], 'label': r['label'], 'field_type': ftype,
+            'system': bool(r['system_field']),
+            'operators': rule_engine.operators_for(ftype),
+        })
+    for key, meta in rule_engine.VIRTUAL_FIELDS.items():
+        fields.append({
+            'key': key, 'label': meta['label'], 'field_type': meta['field_type'],
+            'system': True, 'virtual': True, 'help': meta.get('help'),
+            'operators': rule_engine.operators_for(meta['field_type']),
+        })
+    return jsonify({
+        'fields': fields,
+        'operators': {k: v for k, v in rule_engine.OPERATORS.items()},
+    })
 
 
 @bp.route('/api/alert-rules', methods=['POST'])
@@ -382,7 +613,7 @@ def api_alert_rules_create():
 
     if not name:
         return jsonify({'error': 'Rule name is required'}), 400
-    if rule_type not in ('attendance', 'date_field', 'empty_field', 'numeric'):
+    if rule_type not in _RULE_TYPES:
         return jsonify({'error': 'Invalid rule_type'}), 400
     if not flag_label:
         return jsonify({'error': 'Flag label is required'}), 400
@@ -397,20 +628,34 @@ def api_alert_rules_create():
     auto_resolve   = 1 if data.get('auto_resolve', True) else 0
     resolve_field  = (data.get('resolve_field') or '').strip() or None
 
-    db  = get_db()
+    match_mode = 'any' if (data.get('match_mode') or 'all').strip().lower() == 'any' else 'all'
+
+    db = get_db()
+    conds, cond_err = _validate_conditions(db, data.get('conditions'))
+    if cond_err:
+        return jsonify({'error': cond_err}), 400
+    # A condition rule with no conditions would match nobody, which is a silently
+    # broken rule rather than an error the user can see. Reject it at save time.
+    if rule_type == 'conditions' and not conds:
+        return jsonify({'error': 'Add at least one condition'}), 400
+
     cur = db.execute(
         'INSERT INTO alert_rules (name, rule_type, target_field, condition, '
         'threshold_value, threshold_unit, applies_to_session, flag_label, '
-        'flag_colour, auto_resolve, resolve_field, is_active, created_by) '
-        'VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)',
+        'flag_colour, auto_resolve, resolve_field, match_mode, is_active, created_by) '
+        'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
         (name, rule_type, target_field, condition, threshold_val, threshold_unit,
          applies_sess, flag_label, flag_colour, auto_resolve, resolve_field,
-         session['user_id'])
+         match_mode, session['user_id'])
     )
+    rule_id = cur.lastrowid
+    if conds:
+        _write_conditions(db, rule_id, conds)
     db.commit()
-    log_action('create_alert_rule', 'alert_rules', cur.lastrowid,
-               {'name': name, 'rule_type': rule_type, 'flag_label': flag_label})
-    return jsonify({'success': True, 'id': cur.lastrowid})
+    log_action('create_alert_rule', 'alert_rules', rule_id,
+               {'name': name, 'rule_type': rule_type, 'flag_label': flag_label,
+                'conditions': len(conds or [])})
+    return jsonify({'success': True, 'id': rule_id})
 
 
 @bp.route('/api/alert-rules/<int:rule_id>', methods=['PUT'])
@@ -427,10 +672,27 @@ def api_alert_rules_update(rule_id):
         return jsonify({'error': 'Colour must be a valid 6-digit hex code (e.g. #ef4444)'}), 400
 
     db = get_db()
+    conds, cond_err = _validate_conditions(db, data.get('conditions'))
+    if cond_err:
+        return jsonify({'error': cond_err}), 400
+    new_type = (data.get('rule_type') or rule['rule_type']).strip()
+    if new_type not in _RULE_TYPES:
+        return jsonify({'error': 'Invalid rule_type'}), 400
+    if new_type == 'conditions':
+        # Either the payload carries conditions, or the rule already has some.
+        existing = _rule_conditions(db, rule_id)
+        if conds is not None and not conds:
+            return jsonify({'error': 'Add at least one condition'}), 400
+        if conds is None and not existing:
+            return jsonify({'error': 'Add at least one condition'}), 400
+    match_mode = 'any' if (data.get('match_mode')
+                           or _row_get(rule, 'match_mode', 'all')
+                           ).strip().lower() == 'any' else 'all'
     db.execute(
         'UPDATE alert_rules SET name=?, rule_type=?, target_field=?, condition=?, '
         'threshold_value=?, threshold_unit=?, applies_to_session=?, flag_label=?, '
-        'flag_colour=?, auto_resolve=?, resolve_field=?, is_active=? WHERE id=?',
+        'flag_colour=?, auto_resolve=?, resolve_field=?, match_mode=?, is_active=? '
+        'WHERE id=?',
         (
             (data.get('name') or rule['name']).strip(),
             (data.get('rule_type') or rule['rule_type']).strip(),
@@ -443,13 +705,17 @@ def api_alert_rules_update(rule_id):
             flag_colour,
             1 if data.get('auto_resolve', bool(rule['auto_resolve'])) else 0,
             (data.get('resolve_field') or rule['resolve_field'] or None),
+            match_mode,
             1 if data.get('is_active', bool(rule['is_active'])) else 0,
             rule_id,
         )
     )
+    if conds is not None:
+        _write_conditions(db, rule_id, conds)
     db.commit()
     log_action('update_alert_rule', 'alert_rules', rule_id,
-               {'name': data.get('name', rule['name'])})
+               {'name': data.get('name', rule['name']),
+                'conditions': len(conds) if conds is not None else 'unchanged'})
     return jsonify({'success': True})
 
 

@@ -91,9 +91,19 @@
       <label class="form-label">Name <span style="color:var(--red)">*</span></label>
       <input id="t-name" class="form-input" placeholder="e.g. Trip" maxlength="80">
     </div>
-    <div class="form-group" style="margin-bottom:4px">
+    <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Description</label>
       <input id="t-desc" class="form-input" placeholder="Optional description" maxlength="200">
+    </div>
+    <div class="form-group" style="margin-bottom:4px">
+      <label class="form-label">Sessions granted</label>
+      <input id="t-sessions" class="form-input" type="number" min="0" step="1"
+             placeholder="Leave blank — this type doesn't buy sessions">
+      <p style="font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5">
+        For block bookings — how many sessions one payment of this type buys. An alert rule can
+        then watch <strong>Paid sessions remaining</strong> and flag members before they run out.
+        Leave blank for subscriptions and one-off payments.
+      </p>
     </div>
     <p id="type-modal-err" style="display:none;color:var(--red);font-size:13px;margin-top:8px"></p>
     <div class="modal-footer">
@@ -260,6 +270,8 @@
     document.getElementById('type-modal-title').textContent = id ? 'Edit Payment Type' : 'Add Payment Type';
     document.getElementById('t-name').value = t ? t.name : '';
     document.getElementById('t-desc').value = t ? (t.description || '') : '';
+    document.getElementById('t-sessions').value =
+      (t && t.sessions_granted !== null && t.sessions_granted !== undefined) ? t.sessions_granted : '';
     document.getElementById('type-modal-err').style.display = 'none';
     document.getElementById('type-modal').classList.add('open');
   }
@@ -272,6 +284,8 @@
   async function saveType() {
     const name = document.getElementById('t-name').value.trim();
     const desc = document.getElementById('t-desc').value.trim() || null;
+    const sessionsRaw = document.getElementById('t-sessions').value.trim();
+    const sessions_granted = sessionsRaw === '' ? null : sessionsRaw;
     const errEl = document.getElementById('type-modal-err');
     errEl.style.display = 'none';
     if (!name) { errEl.textContent = 'Name is required.'; errEl.style.display = ''; return; }
@@ -281,11 +295,11 @@
     try {
       if (_editingTypeId) {
         await apiFetch(`/api/admin/payment-types/${_editingTypeId}`, {
-          method: 'PUT', body: JSON.stringify({ name, description: desc })
+          method: 'PUT', body: JSON.stringify({ name, description: desc, sessions_granted })
         });
       } else {
         await apiFetch('/api/admin/payment-types', {
-          method: 'POST', body: JSON.stringify({ name, description: desc })
+          method: 'POST', body: JSON.stringify({ name, description: desc, sessions_granted })
         });
       }
       closeTypeModal();

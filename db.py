@@ -288,6 +288,20 @@ def ensure_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_member_flags_member ON member_flags(member_id);
         CREATE INDEX IF NOT EXISTS idx_member_flags_rule   ON member_flags(rule_id);
+        -- v12.77 (Automations Phase 0): a rule's condition set. Replaces the
+        -- single flat condition (rule_type/condition/threshold_value) on
+        -- alert_rules, which is retained and still written so a rollback stays
+        -- possible until this migration is proven in the wild.
+        CREATE TABLE IF NOT EXISTS rule_conditions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id     INTEGER NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+            field_key   TEXT    NOT NULL,
+            operator    TEXT    NOT NULL,
+            value_1     TEXT,
+            value_2     TEXT,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_rule_conditions_rule ON rule_conditions(rule_id);
         -- v8.2: Notifications system
         CREATE TABLE IF NOT EXISTS notifications (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -509,6 +523,14 @@ def ensure_tables():
         # the optional 'what was said' for the in-person case.
         "ALTER TABLE session_notes ADD COLUMN resolution_method TEXT",
         "ALTER TABLE session_notes ADD COLUMN resolution_note TEXT",
+        # v12.77 (Automations Phase 0): how a rule's conditions combine.
+        # 'all' matches the single-condition behaviour of every pre-v12.77 rule,
+        # so existing rules keep evaluating identically.
+        "ALTER TABLE alert_rules ADD COLUMN match_mode TEXT NOT NULL DEFAULT 'all'",
+        # v12.77: a payment type may grant a fixed number of sessions, which
+        # drives the derived sessions_remaining field the rule engine exposes.
+        # NULL = this payment type does not grant sessions (every existing row).
+        "ALTER TABLE payment_types ADD COLUMN sessions_granted INTEGER",
     ]
     for stmt in alter_stmts:
         try:
@@ -524,6 +546,72 @@ def ensure_tables():
                 raise
 
     db.commit()
+
+    # v12.77 (Automations Phase 0): migrate legacy single-condition alert rules
+    # into rule_conditions rows so the new engine can evaluate them. Guarded by a
+    # settings marker so it runs exactly once; a rule that already has conditions
+    # is never touched, so a re-run is a no-op and later manual edits stand.
+    # Attendance rules are deliberately NOT migrated — they are evaluated against
+    # the session timeline, not a field value, and keep their own rule_type.
+    # Wrapped in try/except like the other data migrations so a failure here can
+    # never block boot.
+    try:
+        _rc_marker = db.execute(
+            "SELECT value FROM settings WHERE key = 'migration_rule_conditions_v1277'"
+        ).fetchone()
+        if not _rc_marker:
+            _LEGACY_OPS = {
+                ('date_field',  'older_than'):   'more_than_days_ago',
+                ('date_field',  'before_today'): 'more_than_days_ago',
+                ('empty_field', 'is_empty'):     'is_empty',
+                ('empty_field', 'is_filled'):    'is_filled',
+                ('numeric',     'above'):        'gt',
+                ('numeric',     'below'):        'lt',
+            }
+            _rc_done = 0
+            for _r in db.execute(
+                "SELECT id, name, rule_type, target_field, condition, threshold_value "
+                "FROM alert_rules "
+                "WHERE rule_type IN ('date_field', 'empty_field', 'numeric')"
+            ).fetchall():
+                if db.execute('SELECT 1 FROM rule_conditions WHERE rule_id = ? LIMIT 1',
+                              (_r['id'],)).fetchone():
+                    continue
+                if not _r['target_field']:
+                    logger.warning('v12.77: alert rule %s (%s) has no target_field '
+                                   '- left on the legacy evaluator', _r['id'], _r['name'])
+                    continue
+                _cond = (_r['condition'] or '').strip()
+                _op = _LEGACY_OPS.get((_r['rule_type'], _cond))
+                if not _op:
+                    logger.warning('v12.77: alert rule %s (%s) has unrecognised '
+                                   'condition %r for type %r - left on the legacy '
+                                   'evaluator', _r['id'], _r['name'], _cond, _r['rule_type'])
+                    continue
+                if _op in ('is_empty', 'is_filled'):
+                    _v1 = None
+                elif _cond == 'before_today':
+                    # "older than 0 days" is exactly "strictly before today".
+                    _v1 = '0'
+                else:
+                    _v1 = str(_r['threshold_value'] if _r['threshold_value'] is not None else 0)
+                db.execute(
+                    'INSERT INTO rule_conditions (rule_id, field_key, operator, '
+                    'value_1, sort_order) VALUES (?,?,?,?,0)',
+                    (_r['id'], _r['target_field'], _op, _v1)
+                )
+                _rc_done += 1
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+                "VALUES ('migration_rule_conditions_v1277', ?, datetime('now'))",
+                (str(_rc_done),)
+            )
+            db.commit()
+            if _rc_done:
+                logger.info('v12.77: migrated %s legacy alert rule(s) to rule_conditions',
+                            _rc_done)
+    except Exception as _rc_exc:
+        logger.error('v12.77 rule_conditions migration failed (non-fatal): %s', _rc_exc)
 
     # v12.63: the calendar's "Special" status was stored as 'extra' in older code
     # while the UI always sent 'special' (so specials could never be created and
