@@ -3,6 +3,22 @@
 Release history, newest first. Moved out of `config.py`'s `APP_VERSION` comment in v12.68 —
 add new entries HERE and keep only a one-line pointer comment in `config.py`.
 
+## v12.79
+
+UI for the member groups feature shipped in v12.78, which was API-only. No Python changed — three templates.
+
+MEMBER CARD: a household chip sits next to the paid/unpaid badge on the payments panel. This is not decoration: with groups enabled a member can read as PAID while their own payment list is empty, because their household paid. Without the chip that looks like a bug to whoever is checking. It names the household, shows how many others are in it, marks the primary contact with a star, and its tooltip says who the renewal reminder will actually go to. A billing-exempt member (honorary, staff) gets a "Fee exempt" chip instead, so nobody wonders why they are not being chased. The chip renders only when groups are enabled and is silent otherwise.
+
+PAYMENT MODAL: two additions, both creation-only — editing a single row of an advance payment in isolation would desynchronise it from its siblings, so neither control appears in edit mode. (1) "Paid for" appears only when the member is actually in a household, offering this member or the household, defaulting to the household, with a line stating how many people the payment will cover. (2) "This payment also covers another period" reveals a second period field and explains that it is recorded as one entry per period, that the amount is split, and that voiding either voids the whole payment. Both periods must differ, and the second is required once the box is ticked.
+
+MEMBERSHIP PERIODS admin (on the payments settings page, beside the existing period box): list of periods with their date ranges and payment counts, an inline add form, and "Make current" — which updates the legacy current-period box in place without a reload, since both still drive paid status. The empty state says plainly that adding a period changes nothing on its own until one is made current.
+
+GROUP TYPES panel (collapsed, on the groups page): shows each type, which one is the billing unit, and how many groups use it. Promoting a type to billing unit is behind a confirmation naming the consequence — payments and renewal reminders move onto it and the current one stops being one.
+
+DEFERRED, deliberately: the "same household as..." picker at registration. On the PUBLIC registration form it would show a stranger a list of existing household names, which for a residents association is a list of real addresses and the people at them. It belongs on the staff-side approval screen instead, and is better built alongside the Phase 1b import and merge wizard, which needs the same member-picker component.
+
+Verified: 110 checks, all passing — the 102 from v12.78 unchanged, plus 8 new render tests that load /admin/groups, /admin/settings, /admin/payments and /members through a real Flask test client and assert the new markup is present, rather than only that the templates parse. Jinja parse across every template and JS parse on all three changed files. templates/members.html, templates/admin/payments.html, templates/admin/groups.html, config.py.
+
 ## v12.78
 
 FEATURE (Automations & Member Groups plan, Phase 1a) — members can be grouped into households that are billed together. One payment against a group covers every member of it, and a renewal reminder goes to the group's primary contact rather than to everybody in it. Driven by the Residents Association, whose subscription is per household, but the same shape as siblings on one family subscription at the club — so this is core, not a per-client feature, and it is inert until switched on.

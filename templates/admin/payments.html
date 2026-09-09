@@ -42,6 +42,35 @@
   <p id="period-msg" style="display:none;font-size:13px;margin-top:8px"></p>
 </div>
 
+<!-- ── Membership Periods (v12.78) ─────────────────────────────────────── -->
+<div class="form-card" style="max-width:680px;margin-bottom:24px">
+  <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
+    Membership Periods
+  </h2>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Each membership year is a row here rather than a column on a spreadsheet, so rolling into
+    the next year is adding a period and marking it current — nothing is retyped and the
+    history stays intact. Setting one current updates the box above automatically.
+  </p>
+  <div id="periods-list"></div>
+  <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:8px;align-items:end;margin-top:14px">
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Name</label>
+      <input id="np-name" class="form-input" placeholder="e.g. 2027/28" maxlength="30">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Starts</label>
+      <input id="np-start" type="date" class="form-input">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Ends</label>
+      <input id="np-end" type="date" class="form-input">
+    </div>
+    <button class="btn btn-secondary" onclick="addPeriod()">Add</button>
+  </div>
+  <p id="periods-msg" style="display:none;font-size:13px;margin-top:8px"></p>
+</div>
+
 <!-- ── Payment Types ───────────────────────────────────────────────────── -->
 <div class="form-card" style="max-width:680px;margin-bottom:24px">
   <h2 style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px">
@@ -401,5 +430,79 @@
   }
 
   loadAll();
+
+  // ── v12.78: membership periods ──────────────────────────────────────────────
+  async function loadPeriods() {
+    const wrap = document.getElementById('periods-list');
+    if (!wrap) return;
+    let data;
+    try { data = await apiFetch('/api/membership-periods'); }
+    catch (e) { wrap.innerHTML = '<p style="font-size:13px;color:var(--muted)">Could not load periods.</p>'; return; }
+    const rows = data.periods || [];
+    if (!rows.length) {
+      wrap.innerHTML = `<p style="font-size:13px;color:var(--muted);margin:0">
+        No periods defined yet. Adding one does not change anything on its own — the box above
+        still drives paid status until you mark a period current.</p>`;
+      return;
+    }
+    wrap.innerHTML = rows.map(p => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+                  padding:9px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <div style="min-width:0">
+          <strong style="font-size:14px">${escP(p.name)}</strong>
+          ${p.is_current ? '<span style="font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;padding:2px 7px;border-radius:999px;background:#22c55e20;color:var(--green);margin-left:6px">Current</span>' : ''}
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">
+            ${escP(p.start_date || '?')} → ${escP(p.end_date || '?')}
+            · ${p.payment_count} payment${p.payment_count === 1 ? '' : 's'}
+          </div>
+        </div>
+        ${p.is_current ? '' : `<button class="btn btn-ghost btn-sm" onclick="setCurrentPeriod(${p.id})">Make current</button>`}
+      </div>`).join('');
+  }
+
+  function escP(v){ return String(v ?? '').replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function periodsMsg(text, bad) {
+    const el = document.getElementById('periods-msg');
+    el.textContent = text; el.style.color = bad ? 'var(--red)' : 'var(--green)';
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
+  async function addPeriod() {
+    const name  = document.getElementById('np-name').value.trim();
+    const start = document.getElementById('np-start').value;
+    const end   = document.getElementById('np-end').value;
+    if (!name || !start || !end) { periodsMsg('Name, start and end are all required.', true); return; }
+    try {
+      await apiFetch('/api/membership-periods', {
+        method: 'POST',
+        body: JSON.stringify({ name, start_date: start, end_date: end })
+      });
+    } catch (e) { periodsMsg(e.message || 'Could not add that period.', true); return; }
+    document.getElementById('np-name').value = '';
+    document.getElementById('np-start').value = '';
+    document.getElementById('np-end').value = '';
+    periodsMsg('Period added.');
+    loadPeriods();
+  }
+
+  async function setCurrentPeriod(id) {
+    try { await apiFetch(`/api/membership-periods/${id}/current`, { method: 'POST' }); }
+    catch (e) { periodsMsg(e.message || 'Could not set the current period.', true); return; }
+    periodsMsg('Current period updated.');
+    loadPeriods();
+    // Keep the box above in step without a page reload.
+    try {
+      const r = await apiFetch('/api/payments/current-period');
+      document.getElementById('period-input').value = r.current_period || '';
+      document.getElementById('period-start').value = r.period_start || '';
+      document.getElementById('period-end').value   = r.period_end || '';
+    } catch (e) { /* cosmetic only */ }
+  }
+
+  loadPeriods();
+
 </script>
 {% endblock %}

@@ -40,6 +40,30 @@
 
 <div id="group-list"></div>
 
+<details id="types-panel" style="margin-top:28px;border:1px solid var(--border);border-radius:10px;padding:0 14px">
+  <summary style="cursor:pointer;padding:12px 0;font-weight:600;font-size:14px">Group types</summary>
+  <p style="font-size:12.5px;color:var(--muted);max-width:70ch;line-height:1.6;margin:0 0 12px">
+    Exactly one type is the <strong>billing unit</strong> — the one that owns payments and
+    renewal reminders. Other types (a committee, a minibus run) simply relate members to each
+    other and never affect money. Renaming the billing type renames it everywhere, including
+    on member cards, so call it whatever your organisation calls it.
+  </p>
+  <div id="types-list"></div>
+  {% if 'groups.manage' in user_permissions %}
+  <div style="display:grid;grid-template-columns:1.4fr auto auto;gap:8px;align-items:end;margin:12px 0 16px">
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">New type</label>
+      <input id="nt-name" class="form-input" placeholder="e.g. Family, Company" maxlength="40">
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding-bottom:9px">
+      <input type="checkbox" id="nt-billing"> Billing unit
+    </label>
+    <button class="btn btn-secondary" onclick="addType()">Add</button>
+  </div>
+  {% endif %}
+  <p id="types-msg" style="display:none;font-size:13px;margin:0 0 12px"></p>
+</details>
+
 <!-- ── Group modal ─────────────────────────────────────────────────────────── -->
 <div id="group-modal" class="modal-overlay" onclick="if(event.target===this)closeGroupModal()">
   <div class="modal" style="max-width:560px">
@@ -285,5 +309,64 @@
   }
 
   loadGroups();
+
+  // ── v12.78: group types ─────────────────────────────────────────────────────
+  function typesMsg(text, bad){
+    const el = document.getElementById('types-msg');
+    el.textContent = text; el.style.color = bad ? '#ef4444' : 'var(--green)';
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
+  async function loadTypesPanel(){
+    const wrap = document.getElementById('types-list');
+    if (!wrap) return;
+    await loadTypes();
+    wrap.innerHTML = TYPES.map(t => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+                  padding:9px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <div>
+          <strong style="font-size:14px">${esc(t.icon || '')} ${esc(t.name)}</strong>
+          ${t.is_billing_unit ? '<span class="grp-badge" style="margin-left:6px">Billing unit</span>' : ''}
+          ${t.active ? '' : '<span class="grp-badge" style="margin-left:6px">Inactive</span>'}
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">
+            ${t.group_count} group${t.group_count === 1 ? '' : 's'}
+          </div>
+        </div>
+        ${CAN_MANAGE && !t.is_billing_unit
+          ? `<button class="btn btn-ghost btn-sm" onclick="makeBilling(${t.id})">Make billing unit</button>` : ''}
+      </div>`).join('') || '<p style="font-size:13px;color:var(--muted)">No group types.</p>';
+  }
+
+  async function addType(){
+    const name = document.getElementById('nt-name').value.trim();
+    if (!name){ typesMsg('Enter a name.', true); return; }
+    const billing = document.getElementById('nt-billing').checked;
+    if (billing && !confirm(
+      'Making this the billing unit moves payments and renewal reminders onto it. ' +
+      'The current billing type will stop being one. Continue?')) return;
+    try {
+      await apiFetch('/api/group-types', {
+        method:'POST', body: JSON.stringify({ name, is_billing_unit: billing }) });
+    } catch(e){ typesMsg(e.message || 'Could not add that type.', true); return; }
+    document.getElementById('nt-name').value = '';
+    document.getElementById('nt-billing').checked = false;
+    typesMsg('Group type added.');
+    loadTypesPanel(); loadGroups();
+  }
+
+  async function makeBilling(id){
+    if (!confirm('Making this the billing unit moves payments and renewal reminders onto it. ' +
+                 'The current billing type will stop being one. Continue?')) return;
+    try {
+      await apiFetch(`/api/group-types/${id}`, {
+        method:'PUT', body: JSON.stringify({ is_billing_unit: true }) });
+    } catch(e){ typesMsg(e.message || 'Could not change the billing unit.', true); return; }
+    typesMsg('Billing unit changed.');
+    loadTypesPanel(); loadGroups();
+  }
+
+  loadTypesPanel();
+
 </script>
 {% endblock %}

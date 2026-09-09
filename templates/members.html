@@ -339,6 +339,28 @@
       </div>
     </div>
 
+    <!-- v12.78: paid for the member, or for their whole household -->
+    <div class="form-group" id="pm-paidfor-wrap" style="display:none;margin-bottom:12px">
+      <label class="form-label">Paid for</label>
+      <select id="pm-paidfor" class="form-input"></select>
+      <p id="pm-paidfor-hint" style="font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5"></p>
+    </div>
+
+    <!-- v12.78: one payment covering more than one period -->
+    <div class="form-group" id="pm-advance-wrap" style="margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="pm-advance" onchange="togglePmAdvance()">
+        This payment also covers another period
+      </label>
+      <div id="pm-advance-fields" style="display:none;margin-top:8px">
+        <input id="pm-period-2" class="form-input" placeholder="e.g. 2027/28" maxlength="20">
+        <p style="font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5">
+          Recorded as one entry per period so both years show as paid. The amount is split
+          between them, and voiding either one voids the whole payment.
+        </p>
+      </div>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div class="form-group">
         <label class="form-label">Date Received</label>
@@ -1299,6 +1321,43 @@
     _currentPeriod  = periodRes.current_period || '';
   }
 
+  // ── v12.78: household chip on the payments panel ────────────────────────────
+  // Shown next to the paid badge because a member can read as PAID without any
+  // payment of their own — their household paid. Without this the status looks
+  // wrong to anyone checking a member's own payment list.
+  async function _renderGroupChip(memberId) {
+    const el = document.getElementById(`group-chip-${memberId}`);
+    if (!el) return;
+    let data;
+    try { data = await apiFetch(`/api/members/${memberId}/group`); }
+    catch (e) { return; }
+    if (!data.enabled) return;
+
+    if (data.exempt) {
+      el.innerHTML = `<span title="This member type is exempt from membership fees"
+        style="font-size:11.5px;padding:3px 9px;border-radius:20px;background:var(--surface-2);
+               color:var(--muted);border:1px solid var(--border)">Fee exempt</span>`;
+      return;
+    }
+    if (!data.group) return;
+
+    const g       = data.group;
+    const label   = (data.label || 'Household').toLowerCase();
+    const others  = (g.members || []).filter(m => m.id !== memberId);
+    const primary = (g.members || []).find(m => m.id === g.primary_member_id);
+    const isPrim  = g.primary_member_id === memberId;
+    const names   = others.map(m => `${m.first_name || ''} ${m.surname || ''}`.trim()).filter(Boolean);
+    const tip = names.length
+      ? `Shares a ${label} with ${names.join(', ')}.` +
+        (primary ? ` Payment reminders go to ${isPrim ? 'this member' :
+                    `${primary.first_name || ''} ${primary.surname || ''}`.trim()}.` : '')
+      : `A ${label} of one.`;
+    el.innerHTML = `<a href="/admin/groups" title="${esc(tip)}"
+      style="text-decoration:none;font-size:11.5px;padding:3px 9px;border-radius:20px;
+             background:var(--surface-2);color:var(--text);border:1px solid var(--border)">
+      🏠 ${esc(g.name)}${names.length ? ` +${names.length}` : ''}${isPrim ? ' ★' : ''}</a>`;
+  }
+
   async function loadPayments(memberId) {
     const listEl   = document.getElementById(`payments-list-${memberId}`);
     const statusEl = document.getElementById(`payments-status-${memberId}`);
@@ -1331,10 +1390,12 @@
                          background:${paidBg};color:${paidCol};border:1px solid ${paidBrd}">
               ${paidLbl}
             </span>
+            <span id="group-chip-${memberId}"></span>
             ${USER_PERMS.has('payments.record') ? `<button class="btn btn-ghost btn-sm"
               style="font-size:12px;padding:3px 10px;margin-left:auto"
               onclick="event.stopPropagation();openPaymentModal(${memberId})">+ Record</button>` : ''}
           </div>`;
+        _renderGroupChip(memberId);
       } else if (statusEl && USER_PERMS.has('payments.record')) {
         statusEl.innerHTML = `<button class="btn btn-ghost btn-sm"
           style="font-size:12px;padding:3px 10px"
@@ -1433,6 +1494,15 @@
       ALL_SESSION_TYPES.filter(st => mSess.includes(st.name))
         .map(st => `<option value="${st.id}">${esc(st.name)} only</option>`).join('');
 
+    // v12.78: advance + paid-for controls, reset on every open
+    document.getElementById('pm-advance').checked = false;
+    document.getElementById('pm-advance-fields').style.display = 'none';
+    document.getElementById('pm-period-2').value = '';
+    // Both only make sense when recording a NEW payment. Editing one row of an
+    // advance payment in isolation would desynchronise it from its siblings.
+    document.getElementById('pm-advance-wrap').style.display = paymentId ? 'none' : 'block';
+    await _loadPaidForOptions(memberId, !!paymentId);
+
     // Pre-fill period with current
     document.getElementById('pm-period').value  = _currentPeriod || '';
     document.getElementById('pm-date').value    = '';
@@ -1461,6 +1531,34 @@
     }
 
     document.getElementById('payment-modal').classList.add('open');
+  }
+
+  // ── v12.78: advance + household payment controls ────────────────────────────
+  function togglePmAdvance() {
+    document.getElementById('pm-advance-fields').style.display =
+      document.getElementById('pm-advance').checked ? 'block' : 'none';
+  }
+
+  async function _loadPaidForOptions(memberId, isEdit) {
+    const wrap = document.getElementById('pm-paidfor-wrap');
+    const sel  = document.getElementById('pm-paidfor');
+    const hint = document.getElementById('pm-paidfor-hint');
+    wrap.style.display = 'none';
+    sel.innerHTML = '';
+    if (isEdit) return;
+    let data;
+    try { data = await apiFetch(`/api/members/${memberId}/group`); }
+    catch (e) { return; }                       // groups off or not permitted
+    if (!data.enabled || !data.group) return;   // nothing to choose between
+    const label = data.label || 'Household';
+    const n = data.group.member_count;
+    sel.innerHTML =
+      `<option value="member">This member only</option>` +
+      `<option value="group" selected>${esc(data.group.name)} (${label.toLowerCase()})</option>`;
+    hint.textContent = n > 1
+      ? `A ${label.toLowerCase()} payment covers all ${n} members of ${data.group.name}.`
+      : `${data.group.name} currently has one member, so both options are equivalent.`;
+    wrap.style.display = 'block';
   }
 
   function openEditPaymentModal(memberId, paymentId) {
@@ -1496,6 +1594,18 @@
       notes,
       session_type_id: sessId ? parseInt(sessId) : null,
     };
+
+    // v12.78: advance payments and household payments, creation only.
+    if (!_editingPaymentId) {
+      if (document.getElementById('pm-advance').checked) {
+        const p2 = document.getElementById('pm-period-2').value.trim();
+        if (!p2) { errEl.textContent = 'Enter the second period, or untick the box.'; errEl.style.display = ''; return; }
+        if (p2 === period) { errEl.textContent = 'The two periods must be different.'; errEl.style.display = ''; return; }
+        body.periods = [period, p2];
+      }
+      const pf = document.getElementById('pm-paidfor').value;
+      if (pf) body.paid_for = pf;
+    }
 
     const btn = document.getElementById('payment-modal-save');
     btn.disabled = true;
