@@ -21,7 +21,7 @@ LOG_DIR      = os.path.join(INSTANCE_DIR, 'data', 'logs')
 BRANDING_DIR = os.path.join(INSTANCE_DIR, 'data', 'branding')
 
 # ── Version ────────────────────────────────────────────────────────────────────
-APP_VERSION = 'v12.77'  # Alert rules gain a multi-condition engine with per-type operators and relative dates. See CHANGELOG.md.
+APP_VERSION = 'v12.78'  # Member groups: households that are billed together. See CHANGELOG.md.
 
 # ── Upload settings ────────────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'jpg', 'jpeg', 'png', 'xlsx', 'xls'}
@@ -142,6 +142,9 @@ ALL_PERMISSIONS = [
     ('payments.view',       'View Payments',            'View payment history on member cards',                  'payments'),
     ('payments.record',     'Record Payments',          'Add and edit payment entries on member records',        'payments'),
     ('payments.manage',     'Manage Payments',          'Void payments, manage payment types and methods, set current period', 'payments'),
+    # v12.78: member groups
+    ('groups.view',         'View Groups',              'See member groups and their members',                   'groups'),
+    ('groups.manage',       'Manage Groups',            'Create groups, move members between them, set the primary contact', 'groups'),
     # Admin — granular settings
     ('admin.branding',      'Manage Branding',          'Customise club name, logo, colours and nav style',      'admin'),
     ('admin.roles',         'Manage Roles & Permissions', 'Create and edit portal roles and their permission sets', 'admin'),
@@ -166,6 +169,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         'alerts.view', 'alerts.manage', 'alerts.run', 'alerts.dismiss',
         'notifications.view', 'notifications.send', 'notifications.manage',
         'payments.view', 'payments.record', 'payments.manage',
+        'groups.view', 'groups.manage',
     ],
     'editor': [
         'members.view', 'members.edit', 'members.delete', 'members.tags',
@@ -182,6 +186,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         'alerts.view', 'alerts.manage', 'alerts.run', 'alerts.dismiss',
         'notifications.view', 'notifications.send',
         'payments.view', 'payments.record', 'payments.manage',
+        'groups.view', 'groups.manage',
     ],
     'readonly': [
         'register.signout',

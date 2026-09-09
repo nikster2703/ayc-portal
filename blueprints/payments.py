@@ -20,12 +20,14 @@ Routes:
 
 from datetime import datetime, timezone
 
+import uuid
 import sqlcipher3 as sqlite3
 from flask import Blueprint, jsonify, request, session
 
 from helpers import (
     get_db, get_setting, log_action, permission_required, _assigned_session,
 )
+import groups
 
 bp = Blueprint('payments', __name__)
 
@@ -84,6 +86,13 @@ def api_member_payments_list(member_id):
     include_voided = request.args.get('include_voided', '0') == '1'
     void_clause = '' if include_voided else 'AND mp.voided_at IS NULL'
 
+    # v12.78: payments made against the member's billing group cover them too.
+    # _grp_id is None when groups are disabled or the member is in no group, and
+    # `mp.group_id = NULL` never matches, so the OR is inert for every install
+    # that has not enabled groups.
+    _grp = groups.member_billing_group(db, member_id)
+    _grp_id = _grp['id'] if _grp else None
+
     rows = db.execute(f'''
         SELECT  mp.id,
                 mp.member_id,
@@ -109,9 +118,9 @@ def api_member_payments_list(member_id):
         LEFT JOIN payment_methods pm ON pm.id = mp.method_id
         LEFT JOIN users u_rec  ON u_rec.id = mp.recorded_by
         LEFT JOIN users u_void ON u_void.id = mp.voided_by
-        WHERE   mp.member_id = ? {void_clause}
+        WHERE   (mp.member_id = ? OR mp.group_id = ?) {void_clause}
         ORDER   BY mp.created_at DESC
-    ''', (member_id,)).fetchall()
+    ''', (member_id, _grp_id)).fetchall()
 
     current = _current_period()
     payments = [_payment_row(r) for r in rows]
@@ -146,6 +155,21 @@ def api_member_payments_list(member_id):
     })
 
 
+def _split_amount(total, n):
+    """Split a payment total across n periods, remainder on the first row.
+
+    Returns [None] * n when no amount was given — an amount is optional on a
+    payment, and inventing zeros would misreport the year's takings.
+    """
+    if total is None or n <= 0:
+        return [None] * max(n, 1)
+    if n == 1:
+        return [total]
+    each = round(total / n, 2)
+    rows = [each] * n
+    rows[0] = round(total - each * (n - 1), 2)
+    return rows
+
 @bp.route('/api/members/<int:member_id>/payments', methods=['POST'])
 @permission_required('payments.record')
 def api_member_payments_create(member_id):
@@ -158,7 +182,15 @@ def api_member_payments_create(member_id):
 
     data = request.get_json() or {}
     payment_type_id = data.get('payment_type_id')
-    period          = (data.get('period') or '').strip()
+    # v12.78: a payment may cover SEVERAL membership periods — the Residents
+    # Association's "£10 to cover 2025 & 2026" case. `periods` is the new shape;
+    # `period` stays accepted so existing callers are untouched.
+    periods_raw = data.get('periods')
+    if isinstance(periods_raw, list) and periods_raw:
+        periods = [str(x).strip() for x in periods_raw if str(x).strip()]
+    else:
+        periods = [(data.get('period') or '').strip()]
+    period          = periods[0] if periods else ''
     payment_date    = (data.get('payment_date') or '').strip() or None
     amount_raw      = data.get('amount')
     method_id       = data.get('method_id') or None
@@ -167,8 +199,24 @@ def api_member_payments_create(member_id):
 
     if not payment_type_id:
         return jsonify({'error': 'payment_type_id is required'}), 400
-    if not period:
+    if not period or not all(periods):
         return jsonify({'error': 'period is required'}), 400
+    if len(periods) != len(set(periods)):
+        return jsonify({'error': 'The same period is listed twice'}), 400
+
+    # v12.78: who the payment is FOR. 'group' records it against the member's
+    # billing group so it covers every member of that group; the default stays
+    # 'member', which is how every existing payment behaves.
+    paid_for = (data.get('paid_for') or 'member').strip().lower()
+    group_id = None
+    if paid_for == 'group':
+        _g = groups.member_billing_group(db, member_id)
+        if not _g:
+            return jsonify({'error': f'This member is not in a '
+                                     f'{groups.group_label(db).lower()}'}), 400
+        group_id = _g['id']
+    elif paid_for != 'member':
+        return jsonify({'error': "paid_for must be 'member' or 'group'"}), 400
 
     # v12.53: a session-specific payment must reference a session the member is
     # actually assigned to (whole-club NULL always allowed).
@@ -199,21 +247,34 @@ def api_member_payments_create(member_id):
             return jsonify({'error': 'Invalid payment method'}), 400
 
     user_id = session.get('user_id')
-    db.execute(
-        '''INSERT INTO member_payments
-           (member_id, payment_type_id, period, payment_date, amount, method_id, notes, recorded_by, session_type_id)
-           VALUES (?,?,?,?,?,?,?,?,?)''',
-        (member_id, payment_type_id, period, payment_date, amount, method_id, notes, user_id, session_type_id)
-    )
+
+    # One row PER PERIOD. Recording £10 as a single row against one period would
+    # leave the second year reading as unpaid and the renewal date wrong; two
+    # rows make both years true and let the renewal date resolve to the end of
+    # the second period. Rows created together share an advance_ref so that
+    # voiding any one of them voids the whole payment.
+    advance_ref = uuid.uuid4().hex if len(periods) > 1 else None
+    amounts = _split_amount(amount, len(periods))
+    for per, amt in zip(periods, amounts):
+        db.execute(
+            '''INSERT INTO member_payments
+               (member_id, payment_type_id, period, payment_date, amount, method_id,
+                notes, recorded_by, session_type_id, group_id, advance_ref)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+            (member_id, payment_type_id, per, payment_date, amt, method_id, notes,
+             user_id, session_type_id, group_id, advance_ref)
+        )
     db.commit()
 
     log_action('payment_record', 'members', member_id, {
-        'payment_type_id': payment_type_id, 'period': period,
+        'payment_type_id': payment_type_id, 'periods': periods,
         'amount': amount, 'payment_date': payment_date,
         'session_type_id': session_type_id,
+        'paid_for': paid_for, 'group_id': group_id,
+        'advance': bool(advance_ref),
     })
 
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'periods': periods, 'advance': bool(advance_ref)})
 
 
 @bp.route('/api/payments/<int:payment_id>', methods=['PUT'])
@@ -311,17 +372,30 @@ def api_payment_void(payment_id):
     user_id     = session.get('user_id')
     now         = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
-    db.execute(
-        'UPDATE member_payments SET voided_at=?, voided_by=?, void_reason=? WHERE id=?',
-        (now, user_id, void_reason, payment_id)
-    )
+    # v12.78: an advance payment is several rows recording ONE transaction, so
+    # voiding any of them voids all of them. Voiding only the row that was
+    # clicked would leave the member paid for a year they never paid for.
+    if pay['advance_ref']:
+        cur = db.execute(
+            'UPDATE member_payments SET voided_at=?, voided_by=?, void_reason=? '
+            'WHERE advance_ref = ? AND voided_at IS NULL',
+            (now, user_id, void_reason, pay['advance_ref'])
+        )
+        voided = cur.rowcount
+    else:
+        db.execute(
+            'UPDATE member_payments SET voided_at=?, voided_by=?, void_reason=? WHERE id=?',
+            (now, user_id, void_reason, payment_id)
+        )
+        voided = 1
     db.commit()
 
     log_action('payment_void', 'members', pay['member_id'], {
         'payment_id': payment_id, 'reason': void_reason,
+        'rows_voided': voided, 'advance_ref': pay['advance_ref'],
     })
 
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'rows_voided': voided})
 
 
 # ── Current period setting ────────────────────────────────────────────────────

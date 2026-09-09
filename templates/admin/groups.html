@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — {{ group_label_plural }}{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+    <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none;margin-bottom:6px">← Settings</a>
+    <h1 style="margin-top:4px"><i data-lucide="home"></i><span class="ico-emoji">🏠</span> {{ group_label_plural }}</h1>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">
+      <input type="checkbox" id="show-archived" onchange="loadGroups()"> Show archived
+    </label>
+    {% if 'groups.manage' in user_permissions %}
+    <button class="btn btn-primary btn-sm" onclick="openGroupModal()">
+      <i data-lucide="plus"></i><span class="ico-emoji">+</span> New {{ group_label }}
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+{% if not groups_enabled %}
+<div class="card" style="border-left:4px solid #f59e0b;margin-bottom:16px">
+  <div style="padding:14px 16px">
+    <strong>{{ group_label_plural }} are switched off.</strong>
+    <p style="margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.6">
+      Nothing on this page affects members until the feature is enabled, and paid status is
+      calculated per member exactly as before. Turn it on in
+      <a href="/admin/settings">Settings</a> when you are ready to bill by {{ group_label|lower }}.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+<p style="font-size:13px;color:var(--muted);max-width:70ch;line-height:1.6;margin-bottom:16px">
+  A {{ group_label|lower }} groups members who are billed together. One payment against the
+  {{ group_label|lower }} covers everyone in it, and reminders go to the primary contact rather
+  than to every member. A {{ group_label|lower }} of one person is perfectly normal.
+</p>
+
+<div id="group-list"></div>
+
+<!-- ── Group modal ─────────────────────────────────────────────────────────── -->
+<div id="group-modal" class="modal-overlay" onclick="if(event.target===this)closeGroupModal()">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header" style="padding:18px 20px 0">
+      <h2 id="group-modal-title">New {{ group_label }}</h2>
+    </div>
+    <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+      <div>
+        <label class="form-label">Name</label>
+        <input id="g-name" class="form-input" placeholder="e.g. 14 Acacia Avenue" maxlength="120">
+      </div>
+      <div>
+        <label class="form-label">Type</label>
+        <select id="g-type" class="form-input"></select>
+      </div>
+      <div>
+        <label class="form-label">Notes</label>
+        <input id="g-notes" class="form-input" placeholder="Optional" maxlength="500">
+      </div>
+      <div id="g-members-wrap" style="display:none">
+        <label class="form-label">Members</label>
+        <div id="g-members"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input id="g-add-search" class="form-input" placeholder="Search members to add…"
+                 oninput="searchMembers()" autocomplete="off">
+        </div>
+        <div id="g-search-results"></div>
+      </div>
+      <p id="group-modal-err" style="display:none;color:#ef4444;font-size:13px;margin:0"></p>
+    </div>
+    <div class="modal-footer" style="padding:0 20px 18px;display:flex;justify-content:space-between;gap:8px">
+      <div>
+        <button id="g-retire" class="btn btn-ghost btn-sm" style="display:none;color:#ef4444"
+                onclick="retireGroup()">Remove {{ group_label|lower }}</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="closeGroupModal()">Cancel</button>
+        <button class="btn btn-primary" id="g-save" onclick="saveGroup()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+  .grp-card { border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px;
+              display:flex; align-items:flex-start; justify-content:space-between; gap:14px; background:var(--surface); }
+  .grp-card.archived { opacity:.62; }
+  .grp-card__name { font-weight:600; font-size:15px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .grp-card__meta { font-size:12px; color:var(--muted); margin-top:4px; }
+  .grp-members { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .grp-chip { font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--border); }
+  .grp-chip.primary { border-color:var(--accent); font-weight:600; }
+  .grp-badge { font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; padding:2px 7px;
+               border-radius:999px; background:var(--surface-2); color:var(--muted); }
+  .mem-row { display:flex; align-items:center; justify-content:space-between; gap:8px;
+             padding:7px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; font-size:13px; }
+  .mem-row__actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .srch-row { padding:7px 10px; border:1px solid var(--border); border-radius:8px; margin-top:6px;
+              font-size:13px; cursor:pointer; }
+  .srch-row:hover { background:var(--surface-2); }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const CAN_MANAGE = {{ ('groups.manage' in user_permissions) | tojson }};
+  const LABEL      = {{ group_label | tojson }};
+  let GROUPS = [], TYPES = [], editingId = null, draftMembers = [];
+
+  function esc(v){ return String(v ?? '').replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function memberName(m){ return `${m.first_name || ''} ${m.surname || ''}`.trim(); }
+
+  async function loadTypes(){
+    try { TYPES = await apiFetch('/api/group-types'); } catch(e){ TYPES = []; }
+  }
+
+  async function loadGroups(){
+    const arch = document.getElementById('show-archived').checked ? '?archived=1' : '';
+    const wrap = document.getElementById('group-list');
+    try {
+      const data = await apiFetch('/api/groups' + arch);
+      GROUPS = data.groups || [];
+    } catch(e){
+      wrap.innerHTML = `<div class="empty-state">Could not load: ${esc(e.message)}</div>`;
+      return;
+    }
+    if (!GROUPS.length){
+      wrap.innerHTML = `<div class="empty-state">No ${esc(LABEL.toLowerCase())}s yet.</div>`;
+      return;
+    }
+    wrap.innerHTML = GROUPS.map(g => {
+      const chips = (g.members || []).map(m =>
+        `<span class="grp-chip ${m.id === g.primary_member_id ? 'primary' : ''}">${esc(memberName(m))}${
+          m.id === g.primary_member_id ? ' ★' : ''}</span>`).join('');
+      const badges = [];
+      if (!g.is_active)   badges.push('<span class="grp-badge">Archived</span>');
+      if (g.has_payments) badges.push('<span class="grp-badge">Has payments</span>');
+      if (g.is_billing_unit) badges.push('<span class="grp-badge">Billing</span>');
+      return `<div class="grp-card ${g.is_active ? '' : 'archived'}">
+        <div style="min-width:0">
+          <div class="grp-card__name">${esc(g.name)} ${badges.join(' ')}</div>
+          <div class="grp-card__meta">${esc(g.group_type || '')} ·
+            ${g.member_count} member${g.member_count === 1 ? '' : 's'}${
+              g.primary_member_id ? '' : ' · <strong>no primary contact</strong>'}</div>
+          <div class="grp-members">${chips}</div>
+        </div>
+        ${CAN_MANAGE && g.is_active
+          ? `<button class="btn btn-secondary btn-sm" onclick="openGroupModal(${g.id})">Edit</button>` : ''}
+      </div>`;
+    }).join('');
+    refreshIcons();
+  }
+
+  async function openGroupModal(id){
+    await loadTypes();
+    editingId = id || null;
+    const g = id ? GROUPS.find(x => x.id === id) : null;
+    draftMembers = g ? [...(g.members || [])] : [];
+
+    document.getElementById('group-modal-title').textContent = g ? `Edit ${LABEL}` : `New ${LABEL}`;
+    document.getElementById('g-name').value  = g ? g.name : '';
+    document.getElementById('g-notes').value = g ? (g.notes || '') : '';
+    document.getElementById('g-type').innerHTML = TYPES.filter(t => t.active).map(t =>
+      `<option value="${t.id}">${esc(t.name)}${t.is_billing_unit ? ' (billing)' : ''}</option>`).join('');
+    if (g) document.getElementById('g-type').value = g.group_type_id;
+    document.getElementById('g-type').disabled = !!g;
+
+    document.getElementById('g-members-wrap').style.display = g ? 'block' : 'none';
+    document.getElementById('g-retire').style.display = (g && CAN_MANAGE) ? 'inline-flex' : 'none';
+    document.getElementById('g-add-search').value = '';
+    document.getElementById('g-search-results').innerHTML = '';
+    document.getElementById('group-modal-err').style.display = 'none';
+    renderDraftMembers();
+    document.getElementById('group-modal').classList.add('open');
+    refreshIcons();
+  }
+  function closeGroupModal(){
+    document.getElementById('group-modal').classList.remove('open');
+    editingId = null;
+  }
+  function showErr(msg){
+    const el = document.getElementById('group-modal-err');
+    el.textContent = msg; el.style.display = 'block';
+  }
+
+  function renderDraftMembers(){
+    const g = GROUPS.find(x => x.id === editingId);
+    const primary = g ? g.primary_member_id : null;
+    document.getElementById('g-members').innerHTML = draftMembers.length
+      ? draftMembers.map(m => `<div class="mem-row">
+          <span>${esc(memberName(m))}${m.id === primary ? ' <strong>★ primary</strong>' : ''}</span>
+          <span class="mem-row__actions">
+            ${m.id !== primary ? `<button class="btn btn-ghost btn-sm" onclick="setPrimary(${m.id})">Make primary</button>` : ''}
+            <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeMember(${m.id})">Remove</button>
+          </span></div>`).join('')
+      : `<p style="font-size:12px;color:var(--muted);margin:0">No members yet.</p>`;
+  }
+
+  let searchTimer = null;
+  function searchMembers(){
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      const q = document.getElementById('g-add-search').value.trim();
+      const box = document.getElementById('g-search-results');
+      if (q.length < 2){ box.innerHTML = ''; return; }
+      let rows = [];
+      try { rows = await apiFetch('/api/members?status=all'); } catch(e){ return; }
+      const have = new Set(draftMembers.map(m => m.id));
+      const hits = rows.filter(m => !have.has(m.id) &&
+        `${m.first_name} ${m.surname}`.toLowerCase().includes(q.toLowerCase())).slice(0, 6);
+      box.innerHTML = hits.length
+        ? hits.map(m => `<div class="srch-row" onclick="addMember(${m.id})">${esc(memberName(m))}</div>`).join('')
+        : `<p style="font-size:12px;color:var(--muted);margin:8px 0 0">No matches.</p>`;
+    }, 220);
+  }
+
+  async function addMember(id){
+    try {
+      await apiFetch(`/api/groups/${editingId}/members`, {
+        method:'POST', body: JSON.stringify({ member_id: id }) });
+    } catch(e){ showErr(e.message || 'Could not add that member.'); return; }
+    await loadGroups();
+    const g = GROUPS.find(x => x.id === editingId);
+    draftMembers = g ? [...(g.members || [])] : [];
+    document.getElementById('g-add-search').value = '';
+    document.getElementById('g-search-results').innerHTML = '';
+    renderDraftMembers();
+  }
+
+  async function removeMember(id){
+    try {
+      const res = await apiFetch(`/api/groups/${editingId}/members/${id}`, { method:'DELETE' });
+      if (res.outcome === 'archived' || res.outcome === 'deleted'){
+        showToast(`${LABEL} ${res.outcome} — it had no members left.`);
+        closeGroupModal(); loadGroups(); return;
+      }
+    } catch(e){ showErr(e.message || 'Could not remove that member.'); return; }
+    await loadGroups();
+    const g = GROUPS.find(x => x.id === editingId);
+    draftMembers = g ? [...(g.members || [])] : [];
+    renderDraftMembers();
+  }
+
+  async function setPrimary(id){
+    try {
+      await apiFetch(`/api/groups/${editingId}`, {
+        method:'PUT', body: JSON.stringify({ primary_member_id: id }) });
+    } catch(e){ showErr(e.message || 'Could not set the primary contact.'); return; }
+    await loadGroups(); renderDraftMembers();
+  }
+
+  async function saveGroup(){
+    const name = document.getElementById('g-name').value.trim();
+    if (!name){ showErr('Enter a name.'); return; }
+    const payload = {
+      name,
+      notes: document.getElementById('g-notes').value.trim() || null,
+      group_type_id: parseInt(document.getElementById('g-type').value) || null,
+    };
+    const btn = document.getElementById('g-save'); btn.disabled = true;
+    try {
+      if (editingId) await apiFetch(`/api/groups/${editingId}`, { method:'PUT', body: JSON.stringify(payload) });
+      else           await apiFetch('/api/groups', { method:'POST', body: JSON.stringify(payload) });
+      closeGroupModal(); showToast(`${LABEL} saved.`); loadGroups();
+    } catch(e){ showErr(e.message || 'Could not save.'); }
+    finally { btn.disabled = false; }
+  }
+
+  async function retireGroup(){
+    const g = GROUPS.find(x => x.id === editingId);
+    if (!g) return;
+    const msg = g.has_payments
+      ? `${g.name} has payment history, so it will be archived rather than deleted — the payments are kept. Continue?`
+      : `${g.name} has no payment history and will be deleted permanently. Continue?`;
+    if (!confirm(msg)) return;
+    try {
+      const res = await apiFetch(`/api/groups/${editingId}`, { method:'DELETE' });
+      closeGroupModal(); showToast(`${LABEL} ${res.outcome}.`); loadGroups();
+    } catch(e){ showErr(e.message || 'Could not remove.'); }
+  }
+
+  loadGroups();
+</script>
+{% endblock %}

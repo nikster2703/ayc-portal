@@ -171,6 +171,16 @@
       <div class="settings-card__desc">Manage member types (icons, colours, registration access) and configure the custom fields that appear on registration forms, member cards, and the register.</div>
     </a>
 
+    {% if 'groups.view' in user_permissions %}
+    <a href="/admin/groups" class="settings-card">
+      <div class="settings-card__icon">
+        <i data-lucide="home"></i><span class="ico-emoji">🏠</span>
+      </div>
+      <div class="settings-card__title">Households &amp; Groups</div>
+      <div class="settings-card__desc">Group members who are billed together, so one payment covers the whole household and reminders go to a single primary contact.</div>
+    </a>
+    {% endif %}
+
     {% if 'alerts.view' in user_permissions %}
     <a href="/admin/alerts" class="settings-card">
       <div class="settings-card__icon">

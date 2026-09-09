@@ -14,6 +14,7 @@ from helpers import (
     get_member_session_names, get_sessions_for_members, set_member_sessions,
     member_in_scope,
 )
+import groups
 from config import GETADDRESS_KEY
 
 import urllib.request
@@ -135,6 +136,15 @@ def api_members():
             elif pr['session_name']:
                 session_paid.setdefault(pr['member_id'], set()).add(pr['session_name'])
 
+        # v12.78: a payment made against a GROUP covers every member of it.
+        # Merged into the same two structures rather than reworking the query
+        # above, so per-member coverage is untouched. Returns nothing at all
+        # when groups are disabled, which is every install until it is enabled.
+        _g_whole, _g_sessions = groups.group_payment_coverage(db, member_ids, current_period)
+        whole_club_paid |= _g_whole
+        for _mid, _names in _g_sessions.items():
+            session_paid.setdefault(_mid, set()).update(_names)
+
     if member_ids:
         placeholders = ','.join('?' * len(member_ids))
         cfv_rows = db.execute(
@@ -201,6 +211,15 @@ def api_member_detail(member_id):
     member = db.execute('SELECT * FROM members WHERE id = ?', (member_id,)).fetchone()
     if not member:
         return jsonify({'error': 'Not found'}), 404
+
+    # v12.78: a billing group must always have a primary contact. Retiring the
+    # primary — in particular marking them deceased — is BLOCKED until someone
+    # else is nominated. This is the guard that stops next year's renewal
+    # reminder being addressed to somebody who has died; the demographic of a
+    # residents association makes that a when, not an if.
+    _blocked, _msg = groups.blocks_on_primary_contact(db, member_id, new_status=new_status)
+    if _blocked:
+        return jsonify({'error': _msg}), 409
 
     if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403

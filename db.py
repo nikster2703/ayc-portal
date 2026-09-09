@@ -302,6 +302,62 @@ def ensure_tables():
             sort_order  INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_rule_conditions_rule ON rule_conditions(rule_id);
+        -- v12.78 (Phase 1a): member groups. A group relates members to each
+        -- other with structure a tag cannot carry — a primary member, its own
+        -- metadata, and the ability to own a payment. Household is one group
+        -- type among several; exactly one type per org is the BILLING unit.
+        CREATE TABLE IF NOT EXISTS group_types (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT    NOT NULL UNIQUE,
+            slug            TEXT    NOT NULL UNIQUE,
+            is_billing_unit INTEGER NOT NULL DEFAULT 0,
+            icon            TEXT    NOT NULL DEFAULT '🏠',
+            colour          TEXT    NOT NULL DEFAULT '#3b6fde',
+            active          INTEGER NOT NULL DEFAULT 1,
+            sort_order      INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT    DEFAULT (datetime('now'))
+        );
+        -- At most ONE billing group type. A partial unique index enforces this
+        -- in the database rather than by convention.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_group_types_one_billing
+            ON group_types(is_billing_unit) WHERE is_billing_unit = 1;
+        CREATE TABLE IF NOT EXISTS member_groups (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            name              TEXT    NOT NULL,
+            group_type_id     INTEGER NOT NULL REFERENCES group_types(id),
+            primary_member_id INTEGER REFERENCES members(id),
+            notes             TEXT,
+            -- is_active = 0 means ARCHIVED. A group that has ever taken a
+            -- payment is archived, never deleted: it owns that history and the
+            -- treasurer must still be able to answer what an address paid.
+            is_active         INTEGER NOT NULL DEFAULT 1,
+            archived_at       TEXT,
+            archived_by       INTEGER REFERENCES users(id),
+            created_at        TEXT    DEFAULT (datetime('now')),
+            created_by        INTEGER REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS member_group_members (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id  INTEGER NOT NULL REFERENCES member_groups(id) ON DELETE CASCADE,
+            member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+            added_at  TEXT    DEFAULT (datetime('now')),
+            UNIQUE(group_id, member_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mgm_group  ON member_group_members(group_id);
+        CREATE INDEX IF NOT EXISTS idx_mgm_member ON member_group_members(member_id);
+        CREATE INDEX IF NOT EXISTS idx_member_groups_type ON member_groups(group_type_id);
+        -- v12.78: membership periods as first-class rows, replacing the free-text
+        -- member_payments.period plus the current_membership_period settings.
+        -- Rollover becomes "add the next period, mark it current".
+        CREATE TABLE IF NOT EXISTS membership_periods (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL UNIQUE,
+            start_date TEXT    NOT NULL,
+            end_date   TEXT    NOT NULL,
+            is_current INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT    DEFAULT (datetime('now'))
+        );
         -- v8.2: Notifications system
         CREATE TABLE IF NOT EXISTS notifications (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -531,6 +587,22 @@ def ensure_tables():
         # drives the derived sessions_remaining field the rule engine exposes.
         # NULL = this payment type does not grant sessions (every existing row).
         "ALTER TABLE payment_types ADD COLUMN sessions_granted INTEGER",
+        # v12.78 (Phase 1a): a payment may belong to a GROUP rather than an
+        # individual. NULL = an individual payment, which is every row recorded
+        # before this migration, so nobody's paid status changes.
+        "ALTER TABLE member_payments ADD COLUMN group_id INTEGER REFERENCES member_groups(id)",
+        # v12.78: flagged rather than matched on a literal status name, so an org
+        # can rename it. Drives the comms exclusion and the primary-contact
+        # reassignment guard.
+        "ALTER TABLE member_statuses ADD COLUMN is_deceased INTEGER NOT NULL DEFAULT 0",
+        # v12.78: member types that do not participate in billing (honorary
+        # members, staff). They need no billing group and the unpaid rule
+        # must never chase them.
+        "ALTER TABLE member_types ADD COLUMN billing_exempt INTEGER NOT NULL DEFAULT 0",
+        # v12.78: rows created together by one advance payment share this token,
+        # so voiding any of them voids the whole payment. NULL = an ordinary
+        # single-period payment, which is every existing row.
+        "ALTER TABLE member_payments ADD COLUMN advance_ref TEXT",
     ]
     for stmt in alter_stmts:
         try:
@@ -546,6 +618,109 @@ def ensure_tables():
                 raise
 
     db.commit()
+
+    # v12.78: indexed AFTER the ALTER above — on a fresh install the column does
+    # not exist while the CREATE TABLE block runs, so indexing it there fails.
+    try:
+        db.execute('CREATE INDEX IF NOT EXISTS idx_member_payments_advance '
+                   'ON member_payments(advance_ref)')
+        db.commit()
+    except sqlite3.OperationalError as _ix_exc:
+        logger.warning('advance_ref index not created: %s', _ix_exc)
+
+    # ── v12.78 (Phase 1a): member groups + membership periods ────────────────
+    # Every part of this is guarded and idempotent, and the whole block is
+    # wrapped so a failure can never block boot.
+    try:
+        # 1. Seed the default billing group type. INSERT OR IGNORE keeps this a
+        #    no-op on every boot after the first, and never fights an org that
+        #    has renamed it (the name is what the UI shows: Household, Family,
+        #    Company ...). The partial unique index guarantees only one type
+        #    can ever carry is_billing_unit = 1.
+        if not db.execute('SELECT 1 FROM group_types LIMIT 1').fetchone():
+            db.execute(
+                "INSERT INTO group_types (name, slug, is_billing_unit, icon, sort_order) "
+                "VALUES ('Household', 'household', 1, '🏠', 0)"
+            )
+
+        # 2. Settings. groups_enabled defaults to OFF so an existing install
+        #    sees no change at all until it is switched on deliberately —
+        #    unlike Phase 0 there is no legacy fallback path here.
+        for k, v in (('groups_enabled', '0'), ('renewal_anchor', 'anniversary')):
+            db.execute(
+                "INSERT OR IGNORE INTO settings (key, value, updated_at) "
+                "VALUES (?, ?, datetime('now'))", (k, v)
+            )
+
+        # 3. Migrate the existing current_membership_period settings into the
+        #    first membership_periods row. Guarded by a marker; skipped entirely
+        #    if periods already exist, so a re-run cannot duplicate them.
+        if not db.execute(
+            "SELECT value FROM settings WHERE key = 'migration_membership_periods_v1278'"
+        ).fetchone():
+            vals = {r['key']: (r['value'] or '').strip() for r in db.execute(
+                "SELECT key, value FROM settings WHERE key IN "
+                "('current_membership_period','current_period_start','current_period_end')"
+            ).fetchall()}
+            name = vals.get('current_membership_period', '')
+            if name and not db.execute(
+                'SELECT 1 FROM membership_periods WHERE name = ?', (name,)
+            ).fetchone():
+                db.execute(
+                    'INSERT INTO membership_periods (name, start_date, end_date, '
+                    'is_current, sort_order) VALUES (?,?,?,1,0)',
+                    (name,
+                     vals.get('current_period_start') or '',
+                     vals.get('current_period_end') or '')
+                )
+                logger.info('v12.78: migrated membership period %r into membership_periods', name)
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+                "VALUES ('migration_membership_periods_v1278', 'done', datetime('now'))"
+            )
+        db.commit()
+    except Exception as _mg_exc:
+        logger.error('v12.78 member-groups migration failed (non-fatal): %s', _mg_exc)
+
+    # ── v12.78: self-healing reconcile — at most ONE billing group per member ──
+    # This invariant cannot be expressed as a table constraint (it spans the
+    # junction and group_types), so it is enforced in application code and
+    # repaired here on every boot, exactly as member_sessions does. Deliberately
+    # NOT enforced by echoing the group onto the members row: a value living in
+    # two places and quietly diverging is the bug class the July audits found.
+    try:
+        dupes = db.execute('''
+            SELECT mgm.member_id, COUNT(*) AS n
+            FROM member_group_members mgm
+            JOIN member_groups   mg ON mg.id = mgm.group_id
+            JOIN group_types     gt ON gt.id = mg.group_type_id
+            WHERE gt.is_billing_unit = 1 AND mg.is_active = 1
+            GROUP BY mgm.member_id HAVING COUNT(*) > 1
+        ''').fetchall()
+        for row in dupes:
+            keep = db.execute('''
+                SELECT mgm.id FROM member_group_members mgm
+                JOIN member_groups mg ON mg.id = mgm.group_id
+                JOIN group_types   gt ON gt.id = mg.group_type_id
+                WHERE gt.is_billing_unit = 1 AND mg.is_active = 1
+                  AND mgm.member_id = ?
+                ORDER BY mgm.added_at DESC, mgm.id DESC LIMIT 1
+            ''', (row['member_id'],)).fetchone()
+            db.execute('''
+                DELETE FROM member_group_members
+                WHERE member_id = ? AND id != ?
+                  AND group_id IN (SELECT mg.id FROM member_groups mg
+                                   JOIN group_types gt ON gt.id = mg.group_type_id
+                                   WHERE gt.is_billing_unit = 1 AND mg.is_active = 1)
+            ''', (row['member_id'], keep['id']))
+            logger.warning('v12.78 reconcile: member %s was in %s billing groups '
+                           '- kept the most recent', row['member_id'], row['n'])
+        if dupes:
+            db.commit()
+            print(f'member_groups reconcile: repaired {len(dupes)} member(s) '
+                  f'in more than one billing group')
+    except Exception as _rec_exc:
+        logger.error('v12.78 billing-group reconcile failed (non-fatal): %s', _rec_exc)
 
     # v12.77 (Automations Phase 0): migrate legacy single-condition alert rules
     # into rule_conditions rows so the new engine can evaluate them. Guarded by a
@@ -839,6 +1014,10 @@ def ensure_tables():
             ('Active',   'active',   '#22c55e', 0,    1,          1),
             ('Inactive', 'inactive', '#f59e0b', 1,    0,          0),
             ('Leaver',   'leaver',   '#ef4444', 2,    0,          1),
+            # v12.78: behaviour 'leaver' so every existing active-member query
+            # excludes them without change; the is_deceased flag set below is
+            # what drives the comms exclusion and the reassignment guard.
+            ('Deceased', 'leaver',   '#6b7280', 3,    0,          1),
         ]
         for name, behaviour, colour, sort_order, is_default, is_protected in _default_statuses:
             # INSERT OR IGNORE so the loop is idempotent on repeated startups
@@ -853,6 +1032,17 @@ def ensure_tables():
                 'UPDATE member_statuses SET behaviour = ?, is_protected = ? WHERE name = ?',
                 (behaviour, is_protected, name),
             )
+        # v12.78: mark the seeded Deceased status. Guarded so an org that has
+        # renamed or re-flagged it is not overwritten on every boot.
+        try:
+            if not seed.execute(
+                'SELECT 1 FROM member_statuses WHERE is_deceased = 1'
+            ).fetchone():
+                seed.execute(
+                    "UPDATE member_statuses SET is_deceased = 1 WHERE name = 'Deceased'"
+                )
+        except sqlite3.OperationalError:
+            pass   # column not present yet on a very old schema
         seed.commit()
 
         # ── Seed permissions catalogue ─────────────────────────────────────────────
