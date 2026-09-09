@@ -662,22 +662,32 @@ def ensure_tables():
                 "SELECT key, value FROM settings WHERE key IN "
                 "('current_membership_period','current_period_start','current_period_end')"
             ).fetchall()}
-            name = vals.get('current_membership_period', '')
-            if name and not db.execute(
+            name   = vals.get('current_membership_period', '')
+            _start = vals.get('current_period_start', '')
+            _end   = vals.get('current_period_end', '')
+            # v12.80: a period with no dates is not usable — it cannot bound
+            # sessions_remaining or anchor a renewal. Rather than create a broken
+            # row, leave it and DO NOT set the marker, so this retries on the next
+            # boot once an admin has filled the dates in.
+            if name and (not _start or not _end):
+                logger.warning(
+                    'v12.78: membership period %r not migrated — it has no start/end '
+                    'date. Set them in Payment Settings and they will migrate on the '
+                    'next restart.', name)
+            elif name and not db.execute(
                 'SELECT 1 FROM membership_periods WHERE name = ?', (name,)
             ).fetchone():
                 db.execute(
                     'INSERT INTO membership_periods (name, start_date, end_date, '
                     'is_current, sort_order) VALUES (?,?,?,1,0)',
-                    (name,
-                     vals.get('current_period_start') or '',
-                     vals.get('current_period_end') or '')
+                    (name, _start, _end)
                 )
                 logger.info('v12.78: migrated membership period %r into membership_periods', name)
-            db.execute(
-                "INSERT OR REPLACE INTO settings (key, value, updated_at) "
-                "VALUES ('migration_membership_periods_v1278', 'done', datetime('now'))"
-            )
+            if not name or (_start and _end):
+                db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+                    "VALUES ('migration_membership_periods_v1278', 'done', datetime('now'))"
+                )
         db.commit()
     except Exception as _mg_exc:
         logger.error('v12.78 member-groups migration failed (non-fatal): %s', _mg_exc)

@@ -15,7 +15,9 @@
   <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
     This controls the "Paid / Unpaid" badge shown on member cards. Set it to the
     membership year you're currently collecting for — e.g. <strong>2026/27</strong>.
-    The date range is optional and intended for future automations.
+    The start and end dates are <strong>required</strong>: they define what counts as
+    inside the period, which is what bounds "paid sessions remaining" and what
+    period-aligned renewals resolve against.
   </p>
 
   <div class="form-group" style="margin-bottom:14px">
@@ -29,11 +31,11 @@
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
     <div class="form-group" style="margin-bottom:0">
-      <label class="form-label">Period start <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <label class="form-label">Period start <span style="color:var(--red)">*</span></label>
       <input id="period-start" class="form-input" type="date">
     </div>
     <div class="form-group" style="margin-bottom:0">
-      <label class="form-label">Period end <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <label class="form-label">Period end <span style="color:var(--red)">*</span></label>
       <input id="period-end" class="form-input" type="date">
     </div>
   </div>
@@ -272,6 +274,10 @@
     const msgEl       = document.getElementById('period-msg');
     msgEl.style.display = 'none';
     if (!period) { msgEl.textContent = 'Please enter a period title.'; msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return; }
+    if (!periodStart || !periodEnd) {
+      msgEl.textContent = 'A start date and an end date are both required — they define what counts as inside this period.';
+      msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return;
+    }
     if (periodStart && periodEnd && periodEnd < periodStart) {
       msgEl.textContent = 'Period end cannot be before period start.';
       msgEl.style.display = ''; msgEl.style.color = 'var(--red)'; return;

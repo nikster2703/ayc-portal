@@ -3,6 +3,18 @@
 Release history, newest first. Moved out of `config.py`'s `APP_VERSION` comment in v12.68 —
 add new entries HERE and keep only a one-line pointer comment in `config.py`.
 
+## v12.80
+
+BUG (spotted by Nik) — the current membership period's start and end dates were optional, and one feature was silently WRONG without them rather than merely unavailable.
+
+`_sessions_remaining_map` bounds its attendance count by the period's dates. With the dates blank the date filter was simply omitted, so EVERY session the member had ever attended counted against the block of sessions they had just bought. A member with three years of history who bought a block of 10 would show as nearly out of sessions, and a rule such as "paid sessions remaining is under 2" would flag exactly the people who had just paid. Nothing errored; the numbers were just quietly wrong. It now refuses to compute without both bounds and logs why — a member with no value for the field matches no numeric condition, which is the safe direction. It logs with print() rather than current_app.logger, because this runs under the nightly scheduler where there is no app context.
+
+The dates are consequently REQUIRED, not optional: they define what counts as inside the period, which is also what period-aligned renewal anchoring resolves against. `POST /api/payments/current-period` rejects a missing start or end with a message saying why; the admin form marks both fields required, states the reason, and validates before submitting.
+
+Also fixed in the v12.78 migration: it would happily create a `membership_periods` row with empty start and end dates if the old settings had none — a period that cannot bound anything. It now skips such a period, logs a warning naming it, and deliberately does NOT set its completion marker, so the migration retries on the next restart and self-heals the moment an admin fills the dates in.
+
+Verified: 122 checks — the 110 from v12.79 unchanged, plus 12 new (sessions_remaining returning nothing rather than a wrong number when dates are missing, and the correct 8 once they are set, with pre-period attendance proven not to count; the four API rejection paths; the migration refusing to create a dateless period, leaving its marker unset, and then migrating correctly once the dates exist). blueprints/alerts.py, blueprints/payments.py, db.py, templates/admin/payments.html, config.py.
+
 ## v12.79
 
 UI for the member groups feature shipped in v12.78, which was API-only. No Python changed — three templates.

@@ -426,7 +426,14 @@ def api_current_period_set():
 
     if not period:
         return jsonify({'error': 'period is required'}), 400
-    if period_start and period_end and period_end < period_start:
+    # v12.80: the dates are REQUIRED, not optional. They bound the derived
+    # sessions_remaining field and are what period-aligned renewal anchoring
+    # resolves against; without them those features are quietly wrong rather
+    # than merely unavailable, which is the worse failure.
+    if not period_start or not period_end:
+        return jsonify({'error': 'A start date and an end date are both required — '
+                                 'they define what counts as inside this period'}), 400
+    if period_end < period_start:
         return jsonify({'error': 'period_end cannot be before period_start'}), 400
 
     db      = get_db()

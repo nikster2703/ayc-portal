@@ -69,6 +69,18 @@ def _sessions_remaining_map(db, member_ids):
         return {}
     p_start = (get_setting('current_period_start', '') or '').strip()
     p_end   = (get_setting('current_period_end', '') or '').strip()
+    # v12.80: without BOTH bounds this cannot be computed. Before this guard the
+    # date filter was simply omitted, so every session the member had ever
+    # attended counted against the block they just bought — silently producing a
+    # far-too-low "remaining" and flagging people who are nowhere near running
+    # out. Returning nothing means those members have no value for the field and
+    # therefore match no numeric condition, which is the safe direction.
+    if not p_start or not p_end:
+        # print(), not current_app.logger — this runs under the nightly scheduler
+        # as well as in a request, and there is no app context there.
+        print('[alerts] sessions_remaining not computed: the current membership '
+              'period has no start and end date. Set them in Payment Settings.')
+        return {}
 
     ph = ','.join('?' * len(member_ids))
     granted = {}
