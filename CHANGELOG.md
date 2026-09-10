@@ -3,6 +3,18 @@
 Release history, newest first. Moved out of `config.py`'s `APP_VERSION` comment in v12.68 —
 add new entries HERE and keep only a one-line pointer comment in `config.py`.
 
+## v12.81
+
+Three fixes from the first human-run test pass against a live instance. Two were mine and both were invisible to 122 automated tests.
+
+BLOCKER — **the member groups feature could not be turned on.** `groups_enabled` was read in five places and written in none. The admin page told people to "turn it on in Settings", and there was no such control there or anywhere else, so the only way to enable the feature was to edit the database. This blocked every group test in the pass, including the primary-contact-deceased guard, which is the one that stops a renewal reminder reaching someone who has died. New `POST /api/groups/enabled` (permission `groups.manage`, audited) plus a toggle on the groups page itself, and the banner now points at that button instead of at a page that never had one. Switching OFF is deliberately non-destructive and says so: groups, memberships and group payments are all kept and simply stop being consulted, so paid status reverts to per member and turning it back on restores the previous state exactly.
+
+BUG — **two sources of truth for "which period is current".** `POST /api/payments/current-period` wrote only the settings, while the Membership Periods list carried its own `is_current` flag, so after using the Save Period box the list would keep showing a superseded period as current. Paid status read the correct value throughout, so this was cosmetic — but it is exactly the divergent-duplicate-state bug class this project keeps stamping out, and it was introduced by v12.78 adding the periods table alongside the existing settings. Settings is now the driver and the table follows: saving clears every `is_current`, then updates the matching row or CREATES it if the name is new, so the list is always a complete and consistent picture. The other route (Make current) already synced settings, so the two now converge from either direction.
+
+MINOR (not fixed, flagged) — the void confirmation says a payment "remains in the history for audit purposes", but the payments panel hides voided rows by default (`include_voided=0`), so it appears to vanish. The copy and the default view disagree; worth deciding whether voided rows should show behind a toggle rather than changing the copy.
+
+Verified: 15 new checks — the toggle round-tripping on/off with an audit entry, and the period sync seeded with the exact divergence the tester hit (a period row flagged current while the settings box pointed elsewhere), proving one and only one period ends up current, that a period saved through the legacy box gets a row created rather than going missing from the list, that flipping back and forth creates no duplicates, and that both routes converge. Existing 122 checks unaffected. blueprints/groups.py, blueprints/payments.py, templates/admin/groups.html, config.py.
+
 ## v12.80
 
 BUG (spotted by Nik) — the current membership period's start and end dates were optional, and one feature was silently WRONG without them rather than merely unavailable.

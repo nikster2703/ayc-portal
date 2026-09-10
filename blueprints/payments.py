@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 import uuid
 import sqlcipher3 as sqlite3
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, current_app, jsonify, request, session
 
 from helpers import (
     get_db, get_setting, log_action, permission_required, _assigned_session,
@@ -447,6 +447,37 @@ def api_current_period_set():
     db.execute(upsert, ('current_membership_period', period, now, user_id))
     db.execute(upsert, ('current_period_start', period_start or '', now, user_id))
     db.execute(upsert, ('current_period_end',   period_end   or '', now, user_id))
+
+    # v12.81: keep membership_periods in step. Until now this endpoint wrote ONLY
+    # the settings, while the Membership Periods list carried its own is_current
+    # flag — so the two could disagree and the list would keep showing a period
+    # as current after it had been superseded here. Two sources of truth for the
+    # same fact is the bug class this project keeps stamping out; settings is the
+    # driver and the table now follows it.
+    try:
+        db.execute('UPDATE membership_periods SET is_current = 0')
+        existing = db.execute(
+            'SELECT id FROM membership_periods WHERE name = ?', (period,)
+        ).fetchone()
+        if existing:
+            db.execute(
+                'UPDATE membership_periods SET start_date = ?, end_date = ?, '
+                'is_current = 1 WHERE id = ?',
+                (period_start, period_end, existing['id'])
+            )
+        else:
+            # Saving a period that has no row yet creates one, so the list is
+            # always a complete picture rather than missing whatever was set
+            # through this box.
+            db.execute(
+                'INSERT INTO membership_periods (name, start_date, end_date, is_current, '
+                'sort_order) VALUES (?,?,?,1,COALESCE((SELECT MAX(sort_order)+1 '
+                'FROM membership_periods),0))',
+                (period, period_start, period_end)
+            )
+    except sqlite3.OperationalError as _mp_exc:
+        current_app.logger.warning('membership_periods not synced: %s', _mp_exc)
+
     db.commit()
 
     log_action('setting_change', 'settings', None, {

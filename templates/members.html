@@ -515,8 +515,13 @@
       if (sel && memberStatuses.length) {
         sel.innerHTML =
           `<option value="all"${current === 'all' ? ' selected' : ''}>All Members</option>` +
+          // v12.81: value is the status NAME, not the behaviour. Statuses are
+          // unique by name but NOT by behaviour — Deceased and Leaver both
+          // behave as 'leaver' — so keying on behaviour produced two options
+          // that looked different and filtered identically, with no way to see
+          // deceased members on their own.
           memberStatuses.map(s =>
-            `<option value="${esc(s.behaviour)}"${s.behaviour === current ? ' selected' : ''}>${esc(s.name)}</option>`
+            `<option value="${esc(s.name)}"${s.name === current ? ' selected' : ''}>${esc(s.name)}</option>`
           ).join('');
       }
 
@@ -622,7 +627,9 @@
       } else if (statusFilter === 'all') {
         statusOk = true;
       } else {
-        statusOk = ms.behaviour === statusFilter;
+        // Match on the status NAME; fall back to behaviour so anything still
+        // passing 'active'/'inactive'/'leaver' keeps working.
+        statusOk = (m.status === statusFilter) || (ms.behaviour === statusFilter);
       }
 
       let sessOk;

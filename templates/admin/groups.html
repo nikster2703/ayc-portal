@@ -19,18 +19,29 @@
   </div>
 </div>
 
-{% if not groups_enabled %}
-<div class="card" style="border-left:4px solid #f59e0b;margin-bottom:16px">
-  <div style="padding:14px 16px">
-    <strong>{{ group_label_plural }} are switched off.</strong>
-    <p style="margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.6">
-      Nothing on this page affects members until the feature is enabled, and paid status is
-      calculated per member exactly as before. Turn it on in
-      <a href="/admin/settings">Settings</a> when you are ready to bill by {{ group_label|lower }}.
-    </p>
+<div class="card" style="border-left:4px solid {{ '#22c55e' if groups_enabled else '#f59e0b' }};margin-bottom:16px">
+  <div style="padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div style="min-width:0;flex:1 1 380px">
+      <strong>{{ group_label_plural }} are {{ 'ON' if groups_enabled else 'switched off' }}.</strong>
+      <p style="margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.6">
+        {% if groups_enabled %}
+          One payment against a {{ group_label|lower }} covers everyone in it, and reminders go to
+          the primary contact. Switching this off again is safe — {{ group_label_plural|lower }} and
+          their payments are kept, they simply stop being consulted.
+        {% else %}
+          Nothing on this page affects members until this is on, and paid status is calculated per
+          member exactly as before.
+        {% endif %}
+      </p>
+    </div>
+    {% if 'groups.manage' in user_permissions %}
+    <button class="btn {{ 'btn-secondary' if groups_enabled else 'btn-primary' }}"
+            id="groups-toggle" onclick="toggleGroups({{ (not groups_enabled) | tojson }})">
+      {{ 'Switch off' if groups_enabled else 'Turn on ' ~ group_label_plural|lower }}
+    </button>
+    {% endif %}
   </div>
 </div>
-{% endif %}
 
 <p style="font-size:13px;color:var(--muted);max-width:70ch;line-height:1.6;margin-bottom:16px">
   A {{ group_label|lower }} groups members who are billed together. One payment against the
@@ -367,6 +378,28 @@
   }
 
   loadTypesPanel();
+
+
+  // v12.81: the master switch. Until now groups_enabled was read everywhere and
+  // set nowhere, so the feature could not be turned on from the UI at all.
+  async function toggleGroups(enable){
+    if (enable === false && !confirm(
+        'Switch ' + LABEL.toLowerCase() + 's off?\n\n' +
+        'Nothing is deleted — groups and their payments are kept and simply stop being ' +
+        'consulted, so paid status goes back to being per member. You can switch it on again ' +
+        'at any time.')) return;
+    const btn = document.getElementById('groups-toggle');
+    if (btn) btn.disabled = true;
+    try {
+      await apiFetch('/api/groups/enabled', {
+        method:'POST', body: JSON.stringify({ enabled: !!enable }) });
+    } catch(e){
+      if (btn) btn.disabled = false;
+      showToast(e.message || 'Could not change that setting.', true);
+      return;
+    }
+    location.reload();
+  }
 
 </script>
 {% endblock %}

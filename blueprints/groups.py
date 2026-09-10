@@ -454,6 +454,35 @@ def api_periods_set_current(period_id):
     return jsonify({'success': True})
 
 
+@bp.route('/api/groups/enabled', methods=['POST'])
+@permission_required('groups.manage')
+def api_groups_set_enabled():
+    """Turn the whole member-groups feature on or off.
+
+    v12.81: this existed only as a setting with no way to change it. The admin
+    page told people to "turn it on in Settings" and there was no control there
+    or anywhere else, so the feature could not be enabled at all without editing
+    the database — which blocked every group test.
+
+    Switching OFF is deliberately non-destructive: groups, memberships and any
+    payments recorded against a group are all left alone, and simply stop being
+    consulted. Turning it back on restores exactly the previous state.
+    """
+    data = request.get_json() or {}
+    enabled = '1' if data.get('enabled') else '0'
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value, updated_at, updated_by) VALUES ('groups_enabled',?,datetime('now'),?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, "
+        "updated_by=excluded.updated_by",
+        (enabled, session.get('user_id'))
+    )
+    db.commit()
+    log_action('setting_change', 'settings', None,
+               {'key': 'groups_enabled', 'value': enabled})
+    return jsonify({'success': True, 'enabled': enabled == '1'})
+
+
 # ── Admin page ────────────────────────────────────────────────────────────────
 
 @bp.route('/admin/groups')
