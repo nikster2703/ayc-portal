@@ -3,6 +3,22 @@
 Release history, newest first. Moved out of `config.py`'s `APP_VERSION` comment in v12.68 —
 add new entries HERE and keep only a one-line pointer comment in `config.py`.
 
+## v12.83
+
+The MAJOR failure from the second human-run test pass, the reason 122 automated tests and a code review all walked past it, and a repair for the state the previous fix left behind.
+
+MAJOR (found by the test pass, D3) — **a household's primary contact could be marked Deceased with no block, no warning and no reassignment prompt.** `POST /api/members/<id>/status` returned 200, the audit log recorded an ordinary status change, and the Households page went on showing a deceased member as the ★ primary contact — the person next year's renewal reminder is addressed to. This is the single invariant this whole feature exists to protect.
+
+The guard itself was never wrong. `groups.blocks_on_primary_contact()` has been correct since v12.78 and passes every case put to it. v12.78 simply pasted the CALL into the wrong function: `api_member_detail()`, a GET route that reads a member and has no `new_status` in scope. So it guarded nothing on the status route, and on the detail route it was an unconditional `NameError` — which nobody ever saw, because the members UI does not call `GET /api/members/<id>` at all. A guard in dead code, protecting nothing, for five releases. Moved to `api_member_status_change()`, immediately before the UPDATE.
+
+TOOLING — **`scripts/check_undefined_names.py`**, because the above should never have needed a human tester. `new_status` was undefined at the point it was read; pyflakes finds that in a second, but this box has no network and no linter, so this is a stdlib-only equivalent: it reports any name a function READS that is bound nowhere reachable — not locally, not in an enclosing function, not at module level, not imported, not a builtin. Verified both ways: it flags `members.py:220` on the v12.82 tree and reports nothing on the whole codebase after the fix. Run it before a release, or in CI: `python3 scripts/check_undefined_names.py .` (exit 1 on any finding).
+
+BUG — **v12.81's current-period fix repaired the writer but not the data.** The v2 test report carried "stale CURRENT badge" forward as still-broken, and was right to: v12.81 stopped settings and `membership_periods` diverging from that point on, but any database that had ALREADY diverged stayed wrong until somebody happened to re-save the period. New self-healing reconcile in `ensure_tables()`, following the v12.78 billing-group one: on every boot, settings is asserted as the single driver and the table is made to match. It never invents a period — if the settings name has no row, the v12.78 migration owns creating it and this leaves the table alone rather than guessing dates.
+
+Verified: 13 checks. Seven against the real `blocks_on_primary_contact` with the tester's exact fixture (Bob primary, Ann second, "14 Acacia Avenue") — the block firing with the right message, a non-primary member allowed, a non-death status allowed, the sole-member case allowed (nobody to nominate; archival owns it), the block clearing after Make primary, and no block at all when groups are off or the household is archived. Six on the reconcile — the exact F-2 divergence repaired, idempotence on the second boot, every-row-flagged collapsing to one, and three no-op cases where the setting is missing, empty, or names a period with no row. blueprints/members.py, db.py, scripts/check_undefined_names.py, config.py.
+
+OPEN for Nik — whether removing a household's last member should confirm BEFORE deleting (F-5). Note that a native `confirm()` makes the flow untestable by any agent, so this trades a safety net for a permanent hole in the automated pass.
+
 ## v12.82
 
 Two config-integrity fixes behind a question the test pass raised, plus one display decision from Nik.

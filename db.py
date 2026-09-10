@@ -732,6 +732,48 @@ def ensure_tables():
     except Exception as _rec_exc:
         logger.error('v12.78 billing-group reconcile failed (non-fatal): %s', _rec_exc)
 
+    # ── v12.83: self-healing reconcile — settings is the ONLY current period ───
+    # v12.81 made POST /api/payments/current-period clear every is_current and
+    # set the matching row, so the two can no longer diverge going forward. But
+    # that is a WRITE-PATH fix: a database that had already diverged stayed
+    # wrong until somebody happened to re-save the period, which is why the
+    # v12.80 test re-run still saw "2027/28 CURRENT" against a 2026/27 setting
+    # and reasonably reported the bug as unfixed. Fixing the writer without
+    # repairing the existing state is half a fix.
+    #
+    # Settings is the driver, the table follows, and this asserts that on every
+    # boot. It never invents a period: if the settings name has no row, the
+    # v12.78 migration above owns creating it, and this leaves the table alone
+    # rather than guessing dates.
+    try:
+        _cur = db.execute(
+            "SELECT value FROM settings WHERE key = 'current_membership_period'"
+        ).fetchone()
+        _cur_name = (_cur['value'] or '').strip() if _cur else ''
+        if _cur_name:
+            _target = db.execute(
+                'SELECT id FROM membership_periods WHERE name = ?', (_cur_name,)
+            ).fetchone()
+            if _target:
+                _wrong = db.execute(
+                    'SELECT id, name FROM membership_periods '
+                    'WHERE (is_current = 1 AND id != ?) OR (is_current = 0 AND id = ?)',
+                    (_target['id'], _target['id'])
+                ).fetchall()
+                if _wrong:
+                    db.execute('UPDATE membership_periods SET is_current = 0')
+                    db.execute('UPDATE membership_periods SET is_current = 1 WHERE id = ?',
+                               (_target['id'],))
+                    db.commit()
+                    logger.warning(
+                        'v12.83 reconcile: membership_periods disagreed with the '
+                        'current period setting (%r); repaired %s row(s).',
+                        _cur_name, len(_wrong))
+                    print(f'membership_periods reconcile: current period is now '
+                          f'{_cur_name!r} ({len(_wrong)} row(s) repaired)')
+    except Exception as _per_exc:
+        logger.error('v12.83 current-period reconcile failed (non-fatal): %s', _per_exc)
+
     # v12.77 (Automations Phase 0): migrate legacy single-condition alert rules
     # into rule_conditions rows so the new engine can evaluate them. Guarded by a
     # settings marker so it runs exactly once; a rule that already has conditions

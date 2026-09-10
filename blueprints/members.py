@@ -212,15 +212,6 @@ def api_member_detail(member_id):
     if not member:
         return jsonify({'error': 'Not found'}), 404
 
-    # v12.78: a billing group must always have a primary contact. Retiring the
-    # primary — in particular marking them deceased — is BLOCKED until someone
-    # else is nominated. This is the guard that stops next year's renewal
-    # reminder being addressed to somebody who has died; the demographic of a
-    # residents association makes that a when, not an if.
-    _blocked, _msg = groups.blocks_on_primary_contact(db, member_id, new_status=new_status)
-    if _blocked:
-        return jsonify({'error': _msg}), 409
-
     if not member_in_scope(member_id):   # v12.50: any-session intersection
         return jsonify({'error': 'Forbidden'}), 403
 
@@ -496,6 +487,26 @@ def api_member_status_change(member_id):
 
     if old_status == new_status:
         return jsonify({'error': f'Member already has status "{new_status}"'}), 400
+
+    # v12.83: a billing group must always have a primary contact. Marking the
+    # primary deceased is BLOCKED until someone else is nominated — this is the
+    # guard that stops next year's renewal reminder being addressed to somebody
+    # who has died, and the demographic of a residents association makes that a
+    # when, not an if.
+    #
+    # v12.78 introduced this guard and pasted the call into api_member_detail —
+    # a GET that reads a member and has no new_status in scope — so it guarded
+    # nothing here and would have raised NameError there had the members UI ever
+    # called that endpoint. It didn't, so nothing failed loudly and the status
+    # route shipped unguarded for five versions. Found by the v12.80 test pass
+    # (D3), which marked a household's primary contact deceased and got 200 OK.
+    #
+    # Only blocks when the group has OTHER members: if the deceased person is
+    # the group's last member there is nobody to nominate, and their status
+    # already takes them out of the chasing rules.
+    blocked, msg = groups.blocks_on_primary_contact(db, member_id, new_status=new_status)
+    if blocked:
+        return jsonify({'error': msg}), 409
 
     db.execute(
         "UPDATE members SET status = ?, status_note = ?, "
