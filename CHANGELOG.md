@@ -3,6 +3,20 @@
 Release history, newest first. Moved out of `config.py`'s `APP_VERSION` comment in v12.68 —
 add new entries HERE and keep only a one-line pointer comment in `config.py`.
 
+## v12.82
+
+Two config-integrity fixes behind a question the test pass raised, plus one display decision from Nik.
+
+BUG — **the app minted indistinguishable duplicate fields on request.** The tester found "Sent Welcome" listed twice in the alert rule builder, as `sent_welcome` and `sent_welcome_1`. Neither is seeded anywhere in code: both were created by hand through the Custom Fields page, and `POST /api/admin/field-definitions` accepted the second one, silently uniquified the key and returned 201. Two fields carrying the same label are indistinguishable in every picker in the app, so whoever records the data has no way to know which of the pair they are filling in, and the answers split across both. The label collision IS the error, so it now returns 409 naming the existing field, and `PUT` refuses a rename onto another field's label for the same reason. The key uniquifier stays as a backstop for distinct labels that slugify the same ("E-mail" / "E mail").
+
+BUG — **deleting a custom field could erase recorded member data with no warning.** The delete guard counted only `member_type_fields`, i.e. whether the field was still ASSIGNED to a member type. But `member_field_values.field_id` is `ON DELETE CASCADE` and `get_db()` sets `PRAGMA foreign_keys = ON`, so the DELETE takes every recorded value with it. A field detached from its type but still holding a year of answers — exactly the state of a duplicate someone is about to tidy up — passed the guard and deleted silently. It now counts non-blank values too and refuses with 409 stating how many members would lose data; `?force=1` overrides deliberately, and the audit entry records the count erased and whether it was forced. The field list and the field builder now report `values_recorded` alongside `assigned_to`, the Delete button is hidden while a field holds values, and where a duplicate label already exists the picker shows each one's key and value count so the pair can be told apart.
+
+CHANGE (Nik's decision) — voided payments stay visible in the member payment history, greyed, without strikethrough. They were already shown; the row carried both 45% opacity and a line-through, which made the amount hard to read for no gain, since the VOID badge already says what happened.
+
+Verified: 5 checks against the real schema — `values_recorded` ignoring NULL and whitespace-only values, the create guard matching across case and surrounding whitespace while leaving a near-miss label alone, the rename guard excluding the field's own row, the precise hole (`assigned_to = 0` with values recorded, which the old guard passed and the new one refuses), and that the cascade really does destroy the values with foreign keys on. blueprints/admin.py, templates/admin/field_builder.html, templates/members.html, config.py.
+
+OPEN — which of the two "Sent Welcome" fields to keep is a data question, answerable from the Custom Fields page once this is deployed: the picker now shows the value count against each.
+
 ## v12.81
 
 Three fixes from the first human-run test pass against a live instance. Two were mine and both were invisible to 122 automated tests.
@@ -11,7 +25,7 @@ BLOCKER — **the member groups feature could not be turned on.** `groups_enable
 
 BUG — **two sources of truth for "which period is current".** `POST /api/payments/current-period` wrote only the settings, while the Membership Periods list carried its own `is_current` flag, so after using the Save Period box the list would keep showing a superseded period as current. Paid status read the correct value throughout, so this was cosmetic — but it is exactly the divergent-duplicate-state bug class this project keeps stamping out, and it was introduced by v12.78 adding the periods table alongside the existing settings. Settings is now the driver and the table follows: saving clears every `is_current`, then updates the matching row or CREATES it if the name is new, so the list is always a complete and consistent picture. The other route (Make current) already synced settings, so the two now converge from either direction.
 
-MINOR (not fixed, flagged) — the void confirmation says a payment "remains in the history for audit purposes", but the payments panel hides voided rows by default (`include_voided=0`), so it appears to vanish. The copy and the default view disagree; worth deciding whether voided rows should show behind a toggle rather than changing the copy.
+MINOR (flagged, and the flag was WRONG — corrected in v12.82) — this entry originally claimed the payments panel hid voided rows because the API defaults to `include_voided=0`. It does default to 0, but the members panel has always passed `include_voided=1` explicitly, so voided rows were showing all along. The real complaint was legibility, not visibility. Read the call site, not just the default.
 
 Verified: 15 new checks — the toggle round-tripping on/off with an audit entry, and the period sync seeded with the exact divergence the tester hit (a period row flagged current while the settings box pointed elsewhere), proving one and only one period ends up current, that a period saved through the legacy box gets a row created rather than going missing from the list, that flipping back and forth creates no duplicates, and that both routes converge. Existing 122 checks unaffected. blueprints/groups.py, blueprints/payments.py, templates/admin/groups.html, config.py.
 

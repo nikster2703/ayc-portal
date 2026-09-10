@@ -1427,7 +1427,10 @@ def api_admin_field_definitions_list():
     db   = get_db()
     rows = db.execute('''
         SELECT fd.*,
-               (SELECT COUNT(*) FROM member_type_fields mtf WHERE mtf.field_id = fd.id) AS assigned_to
+               (SELECT COUNT(*) FROM member_type_fields  mtf WHERE mtf.field_id = fd.id) AS assigned_to,
+               (SELECT COUNT(*) FROM member_field_values mfv
+                 WHERE mfv.field_id = fd.id
+                   AND mfv.value IS NOT NULL AND TRIM(mfv.value) <> '')      AS values_recorded
         FROM   field_definitions fd
         ORDER  BY fd.sort_order, fd.label
     ''').fetchall()
@@ -1451,10 +1454,28 @@ def api_admin_field_definitions_create():
     if not key:
         return jsonify({'error': 'Could not generate a valid key from the label'}), 400
 
-    db        = get_db()
+    db = get_db()
+
+    # v12.82: refuse a duplicate label outright.
+    #
+    # This endpoint used to accept a second "Sent Welcome", quietly mint the key
+    # sent_welcome_1 and return 201. The two are then indistinguishable in every
+    # picker in the app — the alert rule builder lists "Sent Welcome" twice —
+    # and half the data lands in each. Two fields that a human cannot tell apart
+    # are not a feature; the collision is the error.
+    dupe = db.execute(
+        'SELECT id, key FROM field_definitions WHERE LOWER(TRIM(label)) = ?',
+        (label.lower(),)
+    ).fetchone()
+    if dupe:
+        return jsonify({'error': f'A field called "{label}" already exists. '
+                                 f'Rename it or edit the existing one.',
+                        'existing_id': dupe['id'], 'existing_key': dupe['key']}), 409
+
     max_order = db.execute('SELECT COALESCE(MAX(sort_order), -1) FROM field_definitions').fetchone()[0]
 
-    # Ensure key uniqueness
+    # Distinct labels can still slugify to the same key ("E-mail" / "E mail"),
+    # so the uniquifier stays as a backstop.
     base_key = key
     suffix   = 1
     while db.execute('SELECT id FROM field_definitions WHERE key = ?', (key,)).fetchone():
@@ -1508,6 +1529,15 @@ def api_admin_field_definitions_update(field_id):
     if not label:
         return jsonify({'error': 'label is required'}), 400
 
+    # v12.82: renaming a field onto another one's label makes the same
+    # indistinguishable pair the create guard now refuses.
+    dupe = db.execute(
+        'SELECT id FROM field_definitions WHERE LOWER(TRIM(label)) = ? AND id <> ?',
+        (label.lower(), field_id)
+    ).fetchone()
+    if dupe:
+        return jsonify({'error': f'Another field is already called "{label}".'}), 409
+
     db.execute(
         '''UPDATE field_definitions
            SET label=?, field_type=?, placeholder=?, help_text=?, options=?, active=?, use_lookup=?
@@ -1541,9 +1571,29 @@ def api_admin_field_definitions_delete(field_id):
     if usage:
         return jsonify({'error': f'Cannot delete — this field is assigned to {usage} member type(s)'}), 409
 
+    # v12.82: member_field_values cascades on field_definitions, and get_db()
+    # turns foreign keys ON, so this DELETE destroys every recorded value for
+    # the field. The guard above only ever counted TYPE ASSIGNMENTS, so a field
+    # detached from its type but still holding a year of answers deleted
+    # silently. Refuse, and say how much would go.
+    recorded = db.execute(
+        "SELECT COUNT(*) FROM member_field_values "
+        "WHERE field_id = ? AND value IS NOT NULL AND TRIM(value) <> ''",
+        (field_id,)
+    ).fetchone()[0]
+    force = (request.args.get('force') or '').strip() in ('1', 'true', 'True')
+    if recorded and not force:
+        return jsonify({
+            'error': f'Cannot delete — {recorded} member(s) have a value recorded '
+                     f'for this field. Deleting it erases those values.',
+            'values_recorded': recorded,
+            'requires_force': True,
+        }), 409
+
     db.execute('DELETE FROM field_definitions WHERE id = ?', (field_id,))
     db.commit()
-    log_action('delete_field_definition', 'field_definitions', field_id, {'key': row['key']})
+    log_action('delete_field_definition', 'field_definitions', field_id,
+               {'key': row['key'], 'values_erased': recorded, 'forced': bool(force)})
     return jsonify({'success': True})
 
 

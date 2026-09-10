@@ -1434,7 +1434,12 @@
             ${payments.map(p => {
               const voided = !!p.voided_at;
               const hasActions = !voided && (CAN_RECORD || CAN_MANAGE);
-              const rowStyle = voided ? 'opacity:.45;text-decoration:line-through' : '';
+              // v12.82: a voided payment stays in the history — it is part of the
+              // financial record and a treasurer reconciling a statement has to
+              // see it. Greyed, but not struck through: the VOID badge already
+              // says what happened, and strikethrough on top of 45% opacity made
+              // the amount genuinely hard to read.
+              const rowStyle = voided ? 'color:var(--muted)' : '';
               const amtStr = p.amount != null ? `£${parseFloat(p.amount).toFixed(2)}` : '—';
               const voidBadge = voided
                 ? `<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;

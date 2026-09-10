@@ -477,7 +477,14 @@
     const custom = available.filter(f => !f.system_field);
 
     function optionHtml(f) {
-      return `<option value="${f.id}">${esc(f.label)} (${esc(f.field_type)})</option>`;
+      // v12.82: two fields may legitimately share a label only as legacy data
+      // (the API now refuses new collisions). Where that has already happened,
+      // show the key and how many members hold a value, so whoever is cleaning
+      // up can tell which of the pair is the real one.
+      const dupe = _allFields.filter(x => x.label === f.label).length > 1;
+      const n    = f.values_recorded || 0;
+      const tail = dupe ? ` — ${esc(f.key)}, ${n} value${n === 1 ? '' : 's'}` : '';
+      return `<option value="${f.id}">${esc(f.label)} (${esc(f.field_type)})${tail}</option>`;
     }
 
     let html = '<option value="">— select a field —</option>';
@@ -530,7 +537,8 @@
     }
 
     // Delete button: only for non-system fields with no assignments anywhere
-    const canDelete = !f.system_field && (f.assigned_to === 0);
+    // and no recorded values — deleting cascades member_field_values away.
+    const canDelete = !f.system_field && (f.assigned_to === 0) && !(f.values_recorded > 0);
     const delBtn    = document.getElementById('cp-delete-btn');
     delBtn.style.display = canDelete ? '' : 'none';
 
