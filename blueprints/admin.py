@@ -33,6 +33,7 @@ from config import (
     ROLE_DISPLAY_NAMES,
 )
 from extensions import csrf
+from events import suppressed_import, current_suppression
 from helpers import (
     get_db, log_action, permission_required, has_permission, club_slug,
     _assigned_session, _connect_db, _validate_hex_colour, _invalidate_brand_cache,
@@ -2265,6 +2266,7 @@ def api_import_fields(type_id):
 
 
 @bp.route('/api/admin/import/run', methods=['POST'])
+@suppressed_import('member import')
 @csrf.exempt
 @permission_required('admin.maintenance')
 def api_import_run():
@@ -2614,10 +2616,15 @@ def api_import_run():
             for rec in not_imported:
                 writer.writerow([rec['row'], rec['name'], rec['reason']])
 
+    # v12.85: record what the suppression boundary actually caught. An import
+    # reporting "0 automation events" is auditable; one that reports nothing is
+    # indistinguishable from an import where suppression silently failed.
+    _sup = current_suppression()
     log_action('import.run', 'members', None, {
         'imported': imported, 'skipped': skipped, 'merged': merged,
         'errors':   len(errors), 'member_type': mt['slug'],
         'multi_session': multi_session, 'match_fields': match_fields,
+        'events_suppressed': _sup.count if _sup else None,
     })
     return jsonify({
         'imported':  imported,
@@ -2626,6 +2633,8 @@ def api_import_run():
         'warnings':  warnings,
         'errors':    errors,
         'report_id': report_id,
+        'events_suppressed': _sup.count if _sup else None,
+        'events_note':       _sup.summary() if _sup else None,
     })
 
 
@@ -3253,6 +3262,7 @@ def _ayc_import_payments(db, save_path, file_ext):
 
 
 @bp.route('/api/admin/import/run-ayc', methods=['POST'])
+@suppressed_import('AYC register import')
 @csrf.exempt
 @permission_required('admin.maintenance')
 def api_import_run_ayc():
@@ -3347,6 +3357,7 @@ def api_import_history_analyse():
 
 
 @bp.route('/api/admin/import/history/run', methods=['POST'])
+@suppressed_import('attendance history import')
 @csrf.exempt
 @permission_required('admin.maintenance')
 def api_import_history_run():

@@ -200,15 +200,25 @@
         if (d.role_hint) bits.push(`<em>${esc(d.role_hint)}</em>`);
         dateLine = `<div class="iw-col__meta">${bits.join(' · ')}</div>`;
       }
-      const opts = Object.entries(SCAN.roles_available).map(([k, label]) =>
+      const opts = SCAN.roles_available.map(([k, label]) =>
         `<option value="${k}" ${ROLES[c.column] === k ? 'selected' : ''}>${esc(label)}</option>`).join('');
+      // A calculated column is a trap: importing it stores a value that will
+      // disagree with its own sources the moment either changes.
+      const formulaLine = c.is_formula
+        ? `<div class="iw-col__meta" style="color:var(--red)">⚠ calculated column —
+             import the columns it is built from, not this one
+             <br><code style="font-size:11px">${esc(c.formula_sample || '')}</code>${
+             (c.overtyped_rows || []).length
+               ? `<br>${c.overtyped_rows.length} row(s) have been typed over the formula:
+                  ${c.overtyped_rows.slice(0,8).join(', ')}` : ''}</div>` : '';
       return `<div class="iw-col">
         <div class="iw-col__hdr">${esc(c.column)} · ${esc(c.header || '(no header)')}</div>
         <div class="iw-col__meta">${c.filled} filled · ${c.distinct_count} distinct</div>
+        ${formulaLine}
         ${dateLine}
         <select class="form-input" style="margin-top:7px;font-size:12px"
                 onchange="setRole('${c.column}', this.value)">
-          <option value="">— choose a role —</option>${opts}
+          <option value="">— ${c.is_formula ? 'calculated — leave alone' : 'choose a role'} —</option>${opts}
         </select>
       </div>`;
     }).join('');
@@ -271,10 +281,16 @@
   function renderHouseholds() {
     const h = HH, el = document.getElementById('iw-households');
     if (!h) { el.innerHTML = '<p class="iw-muted">Set a Surname column to see proposals.</p>'; return; }
-    if (h.note) { el.innerHTML = `<p class="iw-muted">${esc(h.note)}</p>`; return; }
+    // Assigning one role to two columns is usually a mistake and used to be
+    // silently collapsed to the first. Say so where it matters.
+    const warn = (h.warnings || []).length
+      ? `<div class="iw-mark" style="border-color:#f59e0b60;background:#f59e0b12">
+           <span class="iw-badge warn">check</span>
+           <div style="flex:1">${h.warnings.map(esc).join('<br>')}</div></div>` : '';
+    if (h.note) { el.innerHTML = warn + `<p class="iw-muted">${esc(h.note)}</p>`; return; }
     if (!h.proposals.length) { el.innerHTML = '<p class="iw-muted">No households proposed yet.</p>'; return; }
     const s = h.stats;
-    el.innerHTML = `<p class="iw-muted"><strong>${s.proposals}</strong> proposed households covering
+    el.innerHTML = warn + `<p class="iw-muted"><strong>${s.proposals}</strong> proposed households covering
       <strong>${s.members_in_proposals}</strong> of ${s.members} members;
       ${s.single_member_households} people live alone, which is a household of one.</p>` +
       h.proposals.map((p, i) => {

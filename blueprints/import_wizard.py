@@ -40,6 +40,28 @@ bp = Blueprint('import_wizard', __name__)
 # Column roles a person can assign. The role decides how a column is READ, which
 # is why the date parser needs it: a future date in a payment column is a
 # finding, and in a renewal column it is the column doing its job.
+# An ORDERED list, not a dict: Flask sorts JSON object keys, which turned a
+# deliberately grouped menu (names, then address, then dates, then money) into
+# an alphabetical one where "Membership fee" sat between "Email" and "First
+# name". Order is part of the design here.
+COLUMN_ROLES_ORDERED = [
+    ('ignore',       'Ignore this column'),
+    ('first_name',   'First name'),
+    ('surname',      'Surname'),
+    ('full_name',    'Full name (split into first/surname)'),
+    ('road',         'Road name'),
+    ('postcode',     'Postcode'),
+    ('email',        'Email address'),
+    ('mobile',       'Phone'),
+    ('member_no',    'Member number'),
+    ('joined',       'Date joined'),
+    ('paid_date',    'Membership payment date'),
+    ('renewal_date', 'Renewal / expiry date'),
+    ('fee',          'Membership fee'),
+    ('donation',     'Donation'),
+    ('notes',        'Notes'),
+    ('custom',       'Custom field'),
+]
 COLUMN_ROLES = {
     'ignore':        'Ignore this column',
     'first_name':    'First name',
@@ -85,22 +107,50 @@ def _load_sheet(file_id, file_ext, sheet_name):
     return (wb_v[name], wb_f[name]), None
 
 
+# Roles that can legitimately appear on SEVERAL columns. A membership sheet
+# keeps one payment-date column per year, and the RA's has two.
+_MULTI_ROLES = {'paid_date', 'fee', 'donation', 'notes', 'custom'}
+
+
 def _rows_for_signals(ws, bounds, roles):
     """Turn the sheet into the dicts household_signals wants, using the roles
-    a person assigned. Without roles we cannot know which column is a road."""
-    col = {}
+    a person assigned.
+
+    v12.87.1: roles map to a LIST of columns, not one. The first version kept
+    only the first column per role, so assigning both the 25/26 and 26/27
+    payment columns silently dropped the second — a member who paid only this
+    year looked unpaid to the zero-fee signal. Where several columns share a
+    role the first non-empty value wins, and roles that cannot sensibly repeat
+    are reported rather than quietly collapsed.
+    """
+    by_role = {}
     for letter, role in (roles or {}).items():
-        col.setdefault(role, letter)
-    if not col.get('surname'):
-        return [], 'Assign a Surname column before proposing households'
+        if role and role != 'ignore':
+            by_role.setdefault(role, []).append(letter)
+    for cols in by_role.values():
+        cols.sort()
+
+    if not by_role.get('surname'):
+        return [], None, 'Assign a Surname column before proposing households'
+
+    warnings = [
+        f'{len(cols)} columns ({", ".join(cols)}) are both set to '
+        f'"{COLUMN_ROLES.get(role, role)}" — only {cols[0]} will be used.'
+        for role, cols in by_role.items()
+        if len(cols) > 1 and role not in _MULTI_ROLES
+    ]
 
     first_row, last_row = bounds['first_row'], bounds['last_row']
     if not first_row or not last_row or last_row < first_row:
-        return [], 'This sheet has no data rows'
+        return [], warnings, 'This sheet has no data rows'
 
     def val(r, role):
-        letter = col.get(role)
-        return ws[f'{letter}{r}'].value if letter else None
+        """First non-empty value across every column holding this role."""
+        for letter in by_role.get(role, ()):
+            v = ws[f'{letter}{r}'].value
+            if v not in (None, ''):
+                return v
+        return None
 
     rows = []
     for r in range(first_row, last_row + 1):
@@ -117,7 +167,7 @@ def _rows_for_signals(ws, bounds, roles):
             'fee':        val(r, 'fee'),
             'notes':      val(r, 'notes'),
         })
-    return rows, None
+    return rows, warnings, None
 
 
 @bp.route('/api/admin/import/scan', methods=['POST'])
@@ -138,10 +188,10 @@ def api_import_scan():
     )
     if err:
         return jsonify({'error': err}), 400
-    _ws_values, ws_formats = sheets
+    ws_values, ws_formats = sheets
     header_row = int(data.get('header_row') or 1)
     try:
-        scan = sheetscan.scan_sheet(ws_formats, header_row=header_row)
+        scan = sheetscan.scan_sheet(ws_formats, ws_values=ws_values, header_row=header_row)
     except Exception as exc:
         return jsonify({'error': f'Could not scan the sheet: {exc}'}), 400
 
@@ -158,7 +208,7 @@ def api_import_scan():
             'font_colours':  scan['font_colours'],
             'house_style':   scan['house_style'],
         },
-        'roles_available': COLUMN_ROLES,
+        'roles_available': COLUMN_ROLES_ORDERED,
     })
 
 
@@ -200,10 +250,10 @@ def api_import_households():
         summary['role_applied'] = role
         dates[letter] = summary
 
-    rows, why = _rows_for_signals(ws_values, bounds, roles)
+    rows, warnings, why = _rows_for_signals(ws_values, bounds, roles)
     if why:
         return jsonify({'proposals': [], 'blind_spots': {}, 'stats': {},
-                        'dates': dates, 'note': why})
+                        'dates': dates, 'warnings': warnings or [], 'note': why})
 
     props, blind, stats = HS.propose_households(rows, flagged_rows=set(struck))
     return jsonify({
@@ -211,6 +261,7 @@ def api_import_households():
         'blind_spots': blind,
         'stats':       stats,
         'dates':       dates,
+        'warnings':    warnings,
         'note':        None,
     })
 
