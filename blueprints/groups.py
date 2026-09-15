@@ -48,6 +48,20 @@ def _group_row(db, r):
         WHERE mgm.group_id = ?
         ORDER BY mgm.added_at, mgm.id
     ''', (r['id'],)).fetchall()
+    # v12.84: a household whose primary contact has died looks completely
+    # ordinary on the Households page — the D3 test run ended with "Household ·
+    # 1 member / Bob Smith ★" and no indication whatever that Bob was deceased.
+    # The status guard deliberately allows the change when there is nobody left
+    # to hand over to, and archive_or_delete_group() only fires when a member is
+    # REMOVED from a group, so dying leaves the record sitting there indefinitely
+    # with nothing to prompt anyone to deal with it. Flag it instead.
+    _dead = G.deceased_status_names(db)
+    members = [dict(m) for m in members]
+    for m in members:
+        m['is_deceased'] = m['status'] in _dead
+    primary_deceased = any(
+        m['is_deceased'] and m['id'] == r['primary_member_id'] for m in members
+    )
     return {
         'id':                r['id'],
         'name':              r['name'],
@@ -59,8 +73,9 @@ def _group_row(db, r):
         'is_active':         bool(r['is_active']),
         'archived_at':       r['archived_at'],
         'member_count':      len(members),
-        'members':           [dict(m) for m in members],
+        'members':           members,
         'has_payments':      G.group_has_payments(db, r['id']),
+        'primary_deceased':  primary_deceased,
     }
 
 

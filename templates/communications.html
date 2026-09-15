@@ -250,6 +250,11 @@
         <div>
           <div id="recipient-count" class="recip-count-num">—</div>
           <div class="recip-count-label">selected recipients</div>
+          <!-- v12.84: the deceased exclusion is absolute and applies to every
+               filter, so say so here. An invisible rule is how "why didn't they
+               get it?" turns into someone re-adding the address by hand. -->
+          <div class="recip-count-label" style="margin-top:3px;font-style:italic">
+            Deceased members are never included.</div>
         </div>
         <div style="margin-left:auto;display:flex;flex-direction:column;gap:5px">
           <button class="btn btn-ghost btn-sm" onclick="selectAll()">

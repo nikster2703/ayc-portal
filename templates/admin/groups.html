@@ -131,6 +131,10 @@
   .grp-chip.primary { border-color:var(--accent); font-weight:600; }
   .grp-badge { font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; padding:2px 7px;
                border-radius:999px; background:var(--surface-2); color:var(--muted); }
+  /* v12.84: this one is a call to action, not a label — it must not read as
+     quietly as "Has payments" sitting beside it. */
+  .grp-badge.alert { background:#ef444420; color:var(--red); border:1px solid #ef444440; }
+  .grp-chip.deceased { color:var(--muted); border-style:dashed; }
   .mem-row { display:flex; align-items:center; justify-content:space-between; gap:8px;
              padding:7px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; font-size:13px; }
   .mem-row__actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
@@ -170,10 +174,15 @@
     }
     wrap.innerHTML = GROUPS.map(g => {
       const chips = (g.members || []).map(m =>
-        `<span class="grp-chip ${m.id === g.primary_member_id ? 'primary' : ''}">${esc(memberName(m))}${
+        `<span class="grp-chip ${m.id === g.primary_member_id ? 'primary' : ''} ${
+          m.is_deceased ? 'deceased' : ''}" ${m.is_deceased ? 'title="Deceased"' : ''}>${esc(memberName(m))}${
           m.id === g.primary_member_id ? ' ★' : ''}</span>`).join('');
       const badges = [];
       if (!g.is_active)   badges.push('<span class="grp-badge">Archived</span>');
+      // v12.84: put this FIRST. A household whose primary contact has died is
+      // the one thing on this page somebody needs to act on.
+      if (g.primary_deceased && g.is_active)
+        badges.push('<span class="grp-badge alert">Primary contact deceased</span>');
       if (g.has_payments) badges.push('<span class="grp-badge">Has payments</span>');
       if (g.is_billing_unit) badges.push('<span class="grp-badge">Billing</span>');
       return `<div class="grp-card ${g.is_active ? '' : 'archived'}">
@@ -181,7 +190,9 @@
           <div class="grp-card__name">${esc(g.name)} ${badges.join(' ')}</div>
           <div class="grp-card__meta">${esc(g.group_type || '')} ·
             ${g.member_count} member${g.member_count === 1 ? '' : 's'}${
-              g.primary_member_id ? '' : ' · <strong>no primary contact</strong>'}</div>
+              g.primary_member_id ? '' : ' · <strong>no primary contact</strong>'}${
+              g.primary_deceased && g.is_active
+                ? ' · <strong>choose a new primary contact</strong>' : ''}</div>
           <div class="grp-members">${chips}</div>
         </div>
         ${CAN_MANAGE && g.is_active

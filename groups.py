@@ -161,6 +161,19 @@ def status_is_deceased(db, status_name):
     return bool(row['d']) if row else False
 
 
+def deceased_status_names(db):
+    """Set of status names flagged as recording a death.
+
+    A set rather than a single name: an organisation may rename the status or
+    add its own. Callers compare against this instead of hard-coding 'Deceased'.
+    """
+    return {
+        r['name'] for r in db.execute(
+            'SELECT name FROM member_statuses WHERE COALESCE(is_deceased, 0) = 1'
+        ).fetchall()
+    }
+
+
 def blocks_on_primary_contact(db, member_id, new_status=None, leaving_group_id=None):
     """(blocked, message) — would this change strand a group without a primary?
 

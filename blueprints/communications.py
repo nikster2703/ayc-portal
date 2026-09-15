@@ -329,13 +329,39 @@ def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_ty
     Editors are automatically scoped to their own session.
 
     member_type_filter : slug string | 'all'  (default: all types)
-    status_filter      : 'Active' | 'Inactive' | 'Leaver' | 'all'  (default: Active only)
+    status_filter      : 'Active' | 'Inactive' | 'Leaver' | 'all' | None.
+                         None or 'all' applies NO status restriction. It does not
+                         mean "Active only" — the docstring claimed that for
+                         several versions while the code did the opposite.
     flag_rule_ids      : list of int alert-rule IDs — when provided, only members
                         with at least one active flag for ANY of those rules are included.
+
+    DECEASED MEMBERS ARE ALWAYS EXCLUDED, whatever the filters say. See below.
     """
     db         = get_db()
     conditions = []
     params     = []
+
+    # ── v12.84: deceased members are excluded from every outbound message ─────
+    #
+    # This is a HARD exclusion, not a filter. Every other status is an
+    # administrative state somebody might legitimately want to mail — a leaver
+    # can be invited back, an inactive member can be chased. This one is not,
+    # and the cost of getting it wrong is a letter to a bereaved household.
+    #
+    # Before this, deceased members were excluded only as a side effect of
+    # their behaviour being 'leaver', so "Active" dropped them by accident while
+    # "Leaver" and "all" both included them. A win-back mailshot to lapsed
+    # members — an obvious thing for a residents association to send — reached
+    # the dead. v12.78 seeded the is_deceased flag with a comment claiming it
+    # "drives the comms exclusion"; nothing read it outside the group guard.
+    #
+    # If there is ever a real reason to contact an estate, a person does it
+    # directly. The system does not.
+    conditions.append(
+        'NOT EXISTS (SELECT 1 FROM member_statuses ms_d '
+        '            WHERE ms_d.name = m.status AND COALESCE(ms_d.is_deceased, 0) = 1)'
+    )
 
     # Member type filter
     if member_type_filter and member_type_filter != 'all':
@@ -344,7 +370,7 @@ def _get_recipients(session_filter, status_filter, flag_rule_ids=None, member_ty
 
     # Status — use behaviour-based query throughout for consistency with dashboard
     if not status_filter or status_filter == 'all':
-        pass  # no status restriction
+        pass  # no status restriction (the deceased exclusion above still applies)
     elif status_filter in ('Active', 'Inactive', 'Leaver'):
         # Map legacy display names to behaviour values
         _beh_map = {'Active': 'active', 'Inactive': 'inactive', 'Leaver': 'leaver'}
@@ -514,8 +540,17 @@ def api_mailshots_send():
             current_app.logger.warning(
                 'Mailshot: dropped %d recipient(s) not in the allowed contact list', dropped)
     else:
-        session_filter = data.get('session_filter', 'all')
-        recipients = _get_recipients(session_filter, status_filter=None)  # defaults to active behaviour
+        # v12.84: this previously passed status_filter=None under a comment
+        # claiming it "defaults to active behaviour" — it does not, it applies no
+        # status restriction at all — and silently dropped member_type_filter and
+        # flag_rule_ids, so a send through this branch could reach a wider
+        # audience than the preview that produced it. Honour what was asked for.
+        recipients = _get_recipients(
+            data.get('session_filter', 'all'),
+            data.get('status_filter'),
+            data.get('flag_rule_ids'),
+            data.get('member_type_filter'),
+        )
 
     if not recipients:
         return jsonify({'error': 'No recipients selected'}), 400
