@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+{% block title %}{{ club_short_name }} Portal — Import wizard{% endblock %}
+
+{% block content %}
+<style>
+  .iw-step { margin-bottom:18px; }
+  .iw-step__num { display:inline-flex; align-items:center; justify-content:center;
+                  width:22px; height:22px; border-radius:50%; background:var(--accent);
+                  color:#fff; font-size:12px; font-weight:700; margin-right:8px; }
+  .iw-muted { color:var(--muted); font-size:13px; line-height:1.6; }
+  .iw-grid  { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:10px; }
+  .iw-col   { border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .iw-col__hdr { font-weight:600; font-size:13px; margin-bottom:2px; }
+  .iw-col__meta { font-size:11.5px; color:var(--muted); }
+  .iw-swatch { display:inline-block; width:14px; height:14px; border-radius:3px;
+               border:1px solid var(--border); vertical-align:-2px; margin-right:6px; }
+  .iw-mark  { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+              border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .iw-prop  { border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .iw-prop.rejected { opacity:.45; }
+  .iw-chip  { font-size:12px; padding:2px 8px; border-radius:999px;
+              border:1px solid var(--border); margin-right:4px; }
+  .iw-chip.flagged { border-style:dashed; color:var(--muted); }
+  .iw-badge { font-size:10.5px; text-transform:uppercase; letter-spacing:.6px;
+              padding:2px 7px; border-radius:999px; background:var(--surface-2); color:var(--muted); }
+  .iw-badge.warn { background:#f59e0b20; color:#b45309; border:1px solid #f59e0b40; }
+  .iw-ev { font-size:12px; color:var(--muted); margin:3px 0 0 2px; }
+</style>
+
+<div class="page-header">
+  <a href="/admin/settings" class="btn btn-ghost btn-sm" style="text-decoration:none">← Settings</a>
+  <h1 style="margin-top:4px"><i data-lucide="wand-2"></i><span class="ico-emoji">🪄</span> Import wizard</h1>
+  <p class="iw-muted" style="max-width:70ch">
+    Reads a membership spreadsheet <strong>including its formatting</strong> — shaded rows,
+    crossings-out, coloured cells — and shows you what it found. Nothing is imported from
+    this page, and no household is created without you confirming it.
+  </p>
+</div>
+
+<!-- 1. file -->
+<div class="card iw-step">
+  <div style="padding:14px 16px">
+    <div class="iw-col__hdr"><span class="iw-step__num">1</span>Choose the spreadsheet</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <input type="file" id="iw-file" accept=".xlsx,.xlsm" class="form-input" style="max-width:340px">
+      <select id="iw-sheet" class="form-input" style="max-width:260px;display:none"
+              onchange="runScan()"></select>
+      <label class="iw-muted" style="display:flex;align-items:center;gap:6px">
+        Header row <input type="number" id="iw-header" value="1" min="1" max="20"
+          class="form-input" style="width:70px" onchange="runScan()">
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="uploadFile()">Scan</button>
+    </div>
+    <div id="iw-file-msg" class="iw-muted" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div id="iw-results" style="display:none">
+
+  <!-- 2. columns -->
+  <div class="card iw-step">
+    <div style="padding:14px 16px">
+      <div class="iw-col__hdr"><span class="iw-step__num">2</span>What is in each column?</div>
+      <p class="iw-muted">Set a role for the columns you want. The role changes how a column is
+        read — a date in the future is a problem in a payment column and completely normal in a
+        renewal column.</p>
+      <div id="iw-columns" class="iw-grid" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- 3. markings -->
+  <div class="card iw-step">
+    <div style="padding:14px 16px">
+      <div class="iw-col__hdr"><span class="iw-step__num">3</span>What does the formatting mean?</div>
+      <p class="iw-muted">These are conventions a normal import throws away. Only you know what
+        they mean — say here, and it is saved for next time.</p>
+      <div id="iw-markings" style="margin-top:10px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <input type="text" id="iw-profile-name" class="form-input" style="max-width:240px"
+               placeholder="Save these as, e.g. “RA register”">
+        <button class="btn btn-secondary btn-sm" onclick="saveProfile()">Save meanings</button>
+        <select id="iw-profile-load" class="form-input" style="max-width:220px"
+                onchange="loadProfile()"><option value="">Load saved meanings…</option></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. households -->
+  <div class="card iw-step">
+    <div style="padding:14px 16px">
+      <div class="iw-col__hdr"><span class="iw-step__num">4</span>Proposed households</div>
+      <p class="iw-muted">Nothing here is created until you confirm it. Each proposal shows how
+        many independent signals agree and what they were.</p>
+      <div id="iw-households" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- 5. blind spots -->
+  <div class="card iw-step">
+    <div style="padding:14px 16px">
+      <div class="iw-col__hdr"><span class="iw-step__num">5</span>Things the wizard could not work out</div>
+      <p class="iw-muted">Listed rather than guessed. These need a person.</p>
+      <div id="iw-blind" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let FILE = null, SCAN = null, HH = null, ROLES = {}, MEANINGS = {}, REJECTED = new Set();
+
+  const MEANING_OPTIONS = [
+    ['',                 '— not decided —'],
+    ['ignore',           'Nothing / decorative'],
+    ['no_comms',         'Do not email these members'],
+    ['lapsed',           'Lapsed / not renewed'],
+    ['deceased',         'Deceased'],
+    ['duplicate',        'Duplicate row — skip'],
+    ['left',             'Left / resigned'],
+    ['new_unpaid',       'New member, payment still to come'],
+    ['exempt',           'Exempt from payment (honorary)'],
+    ['needs_review',     'Send these to the review list'],
+  ];
+
+  async function uploadFile() {
+    const f = document.getElementById('iw-file').files[0];
+    const msg = document.getElementById('iw-file-msg');
+    if (!f) { msg.textContent = 'Choose a .xlsx file first.'; return; }
+    msg.textContent = 'Uploading…';
+    const fd = new FormData(); fd.append('file', f);
+    try {
+      const res = await fetch('/api/admin/import/analyse', { method:'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Upload failed');
+      FILE = { file_id: d.file_id, file_ext: d.file_ext };
+      const sel = document.getElementById('iw-sheet');
+      sel.innerHTML = (d.sheet_names || []).map(s =>
+        `<option ${s === d.active_sheet ? 'selected' : ''}>${esc(s)}</option>`).join('');
+      sel.style.display = (d.sheet_names || []).length ? '' : 'none';
+      msg.textContent = `${esc(f.name)} — ${d.total_rows} rows.`;
+      await loadProfiles();
+      runScan();
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  // The sheet scan is expensive and role-independent, so it runs once per
+  // file/sheet/header change. Role changes only re-run the household pass.
+  async function runScan() {
+    if (!FILE) return;
+    const msg = document.getElementById('iw-file-msg');
+    msg.textContent = 'Reading the sheet, including its formatting…';
+    try {
+      SCAN = await apiFetch('/api/admin/import/scan', { method:'POST', body: JSON.stringify({
+        ...FILE,
+        sheet_name: document.getElementById('iw-sheet').value || null,
+        header_row: parseInt(document.getElementById('iw-header').value, 10) || 1,
+      })});
+      msg.textContent = `${SCAN.sheet} — ${SCAN.data_rows} data rows.`;
+      document.getElementById('iw-results').style.display = '';
+      renderColumns(); renderMarkings();
+      await runHouseholds();
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  let _hhTimer = null;
+  function runHouseholdsSoon() {
+    clearTimeout(_hhTimer);
+    _hhTimer = setTimeout(runHouseholds, 250);
+  }
+
+  async function runHouseholds() {
+    if (!SCAN) return;
+    REJECTED.clear();
+    try {
+      HH = await apiFetch('/api/admin/import/households', { method:'POST', body: JSON.stringify({
+        ...FILE,
+        sheet_name:    document.getElementById('iw-sheet').value || null,
+        first_row:     SCAN.first_row,
+        last_row:      SCAN.last_row,
+        roles:         ROLES,
+        strikethrough: SCAN.markings.strikethrough,
+      })});
+      // Fold the role-aware date summaries back into the column cards.
+      Object.entries(HH.dates || {}).forEach(([letter, summary]) => {
+        const c = SCAN.columns.find(x => x.column === letter);
+        if (c) c.dates = summary;
+      });
+      renderColumns(); renderHouseholds(); renderBlind();
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  function renderColumns() {
+    document.getElementById('iw-columns').innerHTML = SCAN.columns.map(c => {
+      const d = c.dates;
+      let dateLine = '';
+      if (d) {
+        const bits = [`dates, read as ${d.convention === 'dmy' ? 'day/month' :
+                       d.convention === 'mdy' ? 'month/day' : 'no clear order'}`];
+        if (d.needs_review) bits.push(`<strong>${d.needs_review} need checking</strong>`);
+        if (d.role_hint) bits.push(`<em>${esc(d.role_hint)}</em>`);
+        dateLine = `<div class="iw-col__meta">${bits.join(' · ')}</div>`;
+      }
+      const opts = Object.entries(SCAN.roles_available).map(([k, label]) =>
+        `<option value="${k}" ${ROLES[c.column] === k ? 'selected' : ''}>${esc(label)}</option>`).join('');
+      return `<div class="iw-col">
+        <div class="iw-col__hdr">${esc(c.column)} · ${esc(c.header || '(no header)')}</div>
+        <div class="iw-col__meta">${c.filled} filled · ${c.distinct_count} distinct</div>
+        ${dateLine}
+        <select class="form-input" style="margin-top:7px;font-size:12px"
+                onchange="setRole('${c.column}', this.value)">
+          <option value="">— choose a role —</option>${opts}
+        </select>
+      </div>`;
+    }).join('');
+  }
+
+  function setRole(col, role) {
+    if (role) ROLES[col] = role; else delete ROLES[col];
+    runHouseholdsSoon();
+  }
+
+  function renderMarkings() {
+    const m = SCAN.markings, out = [];
+    const opts = sel => MEANING_OPTIONS.map(([v, l]) =>
+      `<option value="${v}" ${sel === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+
+    function row(key, swatchCss, label, count, rows) {
+      return `<div class="iw-mark">
+        <span class="iw-swatch" style="${swatchCss}"></span>
+        <div style="flex:1 1 260px;min-width:0">
+          <div style="font-size:13px"><strong>${esc(label)}</strong> — ${count} row${count === 1 ? '' : 's'}</div>
+          <div class="iw-col__meta">rows ${rows.slice(0, 12).join(', ')}${rows.length > 12 ? '…' : ''}</div>
+        </div>
+        <select class="form-input" style="max-width:250px;font-size:12px"
+                onchange="MEANINGS['${key}']=this.value">${opts(MEANINGS[key])}</select>
+      </div>`;
+    }
+
+    Object.entries(m.row_fills || {}).forEach(([k, v]) =>
+      out.push(row('fill:' + k, swatch(k), 'Shaded rows', v.count, v.rows)));
+    Object.entries(m.font_colours || {}).forEach(([k, v]) =>
+      out.push(row('font:' + k, `background:${k}`, 'Coloured text', v.count, v.rows)));
+    if ((m.strikethrough || []).length)
+      out.push(row('strike', 'background:var(--surface-2)', 'Crossed-out rows',
+                   m.strikethrough.length, m.strikethrough));
+
+    SCAN.columns.forEach(c => Object.entries(c.cell_fills || {}).forEach(([k, v]) => {
+      if ((m.row_fills || {})[k]) return;           // already shown as a row marking
+      out.push(row(`cell:${c.column}:${k}`, swatch(k),
+                   `Shaded cells in ${c.column} (${c.header || ''})`, v.count, v.rows));
+    }));
+
+    const hs = (m.house_style || {});
+    const ignored = [...(hs.row_fills || []), ...(hs.font_colours || [])];
+    if (ignored.length)
+      out.push(`<p class="iw-muted" style="margin:6px 0 0">Ignored as the sheet's own style
+        (applied to nearly every row): ${ignored.map(esc).join(', ')}.</p>`);
+
+    document.getElementById('iw-markings').innerHTML =
+      out.length ? out.join('') : '<p class="iw-muted">No formatting conventions found in this sheet.</p>';
+  }
+
+  function swatch(key) {
+    if (key.startsWith('#')) return `background:${key}`;
+    const m = /tint(-?[\d.]+)/.exec(key);
+    const t = m ? parseFloat(m[1]) : 0;
+    const v = Math.round(255 * (1 + Math.min(0, t)));
+    return `background:rgb(${v},${v},${v})`;
+  }
+
+  function renderHouseholds() {
+    const h = HH, el = document.getElementById('iw-households');
+    if (!h) { el.innerHTML = '<p class="iw-muted">Set a Surname column to see proposals.</p>'; return; }
+    if (h.note) { el.innerHTML = `<p class="iw-muted">${esc(h.note)}</p>`; return; }
+    if (!h.proposals.length) { el.innerHTML = '<p class="iw-muted">No households proposed yet.</p>'; return; }
+    const s = h.stats;
+    el.innerHTML = `<p class="iw-muted"><strong>${s.proposals}</strong> proposed households covering
+      <strong>${s.members_in_proposals}</strong> of ${s.members} members;
+      ${s.single_member_households} people live alone, which is a household of one.</p>` +
+      h.proposals.map((p, i) => {
+        const rej = REJECTED.has(i);
+        const chips = p.member_rows.map(r =>
+          `<span class="iw-chip ${p.flagged_rows.includes(r) ? 'flagged' : ''}">row ${r}${
+            r === p.suggested_primary ? ' ★' : ''}</span>`).join('');
+        return `<div class="iw-prop ${rej ? 'rejected' : ''}">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <div style="min-width:0">
+              <strong>${esc(p.suggested_name || 'Household')}</strong>
+              <span class="iw-badge">${p.signal_count} signal${p.signal_count === 1 ? '' : 's'}</span>
+              ${p.suggested_primary === null
+                ? '<span class="iw-badge warn">no primary contact can be suggested</span>' : ''}
+              <div style="margin-top:5px">${chips}</div>
+              ${p.evidence.map(e => `<div class="iw-ev">· ${esc(e)}</div>`).join('')}
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="toggleProposal(${i})">
+              ${rej ? 'Include' : 'Not a household'}</button>
+          </div>
+        </div>`;
+      }).join('');
+  }
+
+  function toggleProposal(i) {
+    REJECTED.has(i) ? REJECTED.delete(i) : REJECTED.add(i);
+    renderHouseholds();
+  }
+
+  function renderBlind() {
+    const b = (HH || {}).blind_spots || {};
+    const titles = {
+      notes_naming_someone_absent: 'A note mentions somebody who is not in this sheet',
+      zero_fee_not_grouped:        'No fee recorded, and no signal found who paid for them',
+      no_road_name:                'No road name, so they cannot be clustered by address',
+    };
+    const out = Object.entries(b).filter(([, v]) => v.length).map(([k, v]) =>
+      `<div style="margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600">${esc(titles[k] || k)}
+          <span class="iw-badge">${v.length}</span></div>
+        <div class="iw-col__meta" style="margin-top:4px">${
+          v.slice(0, 15).map(i => `row ${i.row} ${esc(i.name || '')}${
+            i.note ? ' — ' + esc(i.note) : ''}`).join('<br>')}${
+          v.length > 15 ? `<br>… and ${v.length - 15} more` : ''}</div>
+      </div>`).join('');
+    document.getElementById('iw-blind').innerHTML =
+      out || '<p class="iw-muted">Nothing unresolved.</p>';
+  }
+
+  async function loadProfiles() {
+    try {
+      const ps = await apiFetch('/api/admin/import/profiles');
+      document.getElementById('iw-profile-load').innerHTML =
+        '<option value="">Load saved meanings…</option>' +
+        ps.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+      window._PROFILES = ps;
+    } catch (e) { /* non-fatal */ }
+  }
+
+  function loadProfile() {
+    const id = parseInt(document.getElementById('iw-profile-load').value, 10);
+    const p = (window._PROFILES || []).find(x => x.id === id);
+    if (!p) return;
+    MEANINGS = { ...(p.config.meanings || {}) };
+    ROLES    = { ...(p.config.roles || {}) };
+    document.getElementById('iw-profile-name').value = p.name;
+    runScan();
+  }
+
+  async function saveProfile() {
+    const name = document.getElementById('iw-profile-name').value.trim();
+    if (!name) { showToast('Give these meanings a name first.', true); return; }
+    try {
+      await apiFetch('/api/admin/import/profiles', { method:'POST', body: JSON.stringify({
+        name, source_hint: SCAN ? SCAN.sheet : null,
+        config: { meanings: MEANINGS, roles: ROLES },
+      })});
+      showToast('Saved.');
+      loadProfiles();
+    } catch (e) { showToast(e.message, true); }
+  }
+</script>
+{% endblock %}

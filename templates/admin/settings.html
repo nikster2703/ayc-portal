@@ -181,6 +181,16 @@
     </a>
     {% endif %}
 
+    {% if 'admin.maintenance' in user_permissions %}
+    <a href="/admin/import-wizard" class="settings-card">
+      <div class="settings-card__icon">
+        <i data-lucide="wand-2"></i><span class="ico-emoji">🪄</span>
+      </div>
+      <div class="settings-card__title">Import wizard</div>
+      <div class="settings-card__desc">Read a membership spreadsheet including its shading, crossings-out and coloured cells, say what those markings mean, and review proposed households before anything is created.</div>
+    </a>
+    {% endif %}
+
     {% if 'alerts.view' in user_permissions %}
     <a href="/admin/alerts" class="settings-card">
       <div class="settings-card__icon">

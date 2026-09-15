@@ -358,6 +358,20 @@ def ensure_tables():
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT    DEFAULT (datetime('now'))
         );
+        -- v12.87 (Phase 1b): what a spreadsheet's FORMATTING means, declared by
+        -- a person and kept so next year's import does not redo the work.
+        -- Deliberately configuration rather than code: grey means "removed from
+        -- the mailing list" at the Residents Association and could mean
+        -- anything at the next organisation, and a rule inferred from
+        -- correlation was wrong the first time it was tried.
+        CREATE TABLE IF NOT EXISTS import_profiles (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            source_hint TEXT,
+            config      TEXT    NOT NULL DEFAULT '{}',
+            created_at  TEXT    DEFAULT (datetime('now')),
+            updated_at  TEXT    DEFAULT (datetime('now'))
+        );
         -- v8.2: Notifications system
         CREATE TABLE IF NOT EXISTS notifications (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,

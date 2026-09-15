@@ -206,6 +206,7 @@ from blueprints.notifications import bp as notifications_bp
 from blueprints.qr_signin     import bp as qr_signin_bp
 from blueprints.payments      import bp as payments_bp
 from blueprints.groups        import bp as groups_bp
+from blueprints.import_wizard import bp as import_wizard_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pages_bp)
@@ -222,6 +223,7 @@ app.register_blueprint(notifications_bp)
 app.register_blueprint(qr_signin_bp)
 app.register_blueprint(payments_bp)
 app.register_blueprint(groups_bp)
+app.register_blueprint(import_wizard_bp)
 
 
 # ── Database initialisation ───────────────────────────────────────────────────

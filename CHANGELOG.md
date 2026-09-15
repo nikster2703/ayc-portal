@@ -3,6 +3,24 @@
 Release history, newest first. Moved out of `config.py`'s `APP_VERSION` comment in v12.68 —
 add new entries HERE and keep only a one-line pointer comment in `config.py`.
 
+## v12.87
+
+Phase 1b — the import wizard's first three steps, wired to the library work of v12.85/86. **Nothing is imported from this page yet**: it reads, reports and lets a person declare what they are looking at. `/admin/import-wizard`, linked from Settings.
+
+NEW — **`blueprints/import_wizard.py`** and **`templates/admin/import_wizard.html`**. Upload reuses the existing `/api/admin/import/analyse` step, then:
+
+* **Step 2 — column roles.** Every column with its type mix, distinct count, and for date columns the convention that was inferred and how many values cannot be resolved without help. Assigning a role changes how the column is READ, which is the point: a future date is a finding in a payment column and completely ordinary in a renewal column.
+* **Step 3 — what the formatting means.** Fill clusters, crossings-out, coloured text and column-specific cell fills, each with a swatch, a row count, and a dropdown. The wizard does not guess. It reports that 105 rows are grey; a person says whether that means "do not email these", "lapsed", "deceased" or nothing at all. Declarations save as a named PROFILE (`import_profiles`) so next year's import does not redo the work, and so the next organisation's yellow costs nobody a code change. The sheet's own house style is shown as explicitly ignored rather than silently dropped.
+* **Step 4/5 — proposed households and blind spots.** Each proposal shows its evidence, how many independent signals agree, which rows are struck through or marked deceased (dashed, and excluded from the primary-contact suggestion), and a ★ on the suggested primary. A proposal whose every member is flagged says so instead of nominating somebody. Blind spots are listed in full — notes naming somebody absent, £0-fee members nothing reached, and members with no road name.
+
+DESIGN — **the scan and the household pass are separate endpoints.** Scanning reads every cell twice, once for values and once for formatting, and the result does not depend on what a person has called the columns. Built as one endpoint, the page re-scanned the whole workbook on every dropdown change and took about a second per selection with eighteen columns to set. `/scan` now runs once per file, sheet or header-row change; `/households` runs on role changes, needs only the values workbook, and is debounced.
+
+Schema: `import_profiles` (name unique, source_hint, config JSON). Saving by name updates rather than creating a second profile somebody then has to choose between.
+
+blueprints/import_wizard.py, templates/admin/import_wizard.html, templates/admin/settings.html, db.py, app.py, config.py.
+
+STILL TO COME in Phase 1b: applying the declared meanings and confirmed households on the import run itself, and advance-payment splitting on the import path.
+
 ## v12.86
 
 Phase 1b continued — **`household_signals.py`**, which proposes household groupings from a spreadsheet and merges nothing.
