@@ -3,6 +3,7 @@ AYC Portal — Attendance blueprint.
 Routes: /api/attendance/*, /api/display/*, /api/activities/*, /api/register/notes
 """
 
+import json
 import time
 from datetime import datetime
 
@@ -582,7 +583,7 @@ def api_notes_get(session_type, date):
 
     rows = db.execute('''
         SELECT  sn.id, sn.note_type, sn.title, sn.details, sn.created_at,
-                sn.member_id, sn.notified_at,
+                sn.member_id, sn.notified_at, sn.form_data,
                 sn.resolution_method, sn.resolution_note,
                 u.username   AS added_by_name,
                 un.username  AS notified_by_name,
@@ -597,6 +598,73 @@ def api_notes_get(session_type, date):
     return jsonify([dict(r) for r in rows])
 
 
+# v12.88: the two structured note types behind the Add Note modal's Accident
+# Report Form / Incident Report Form options. Anything else keeps the
+# original free-text title+details behaviour untouched.
+STRUCTURED_NOTE_TYPES = {'Accident Report Form', 'Incident Report Form'}
+
+
+def _compose_structured_note(db, note_type, member_id, fd):
+    """Turn a structured Accident/Incident Report Form submission into a
+    plain title + details pair, so every existing reader of session_notes
+    (comms notification emails, the member Activity tab, the register's own
+    note list, print_register) keeps working unchanged — form_data is
+    additional, not a replacement for details.
+    """
+    person_name = None
+    if member_id:
+        m = db.execute('SELECT first_name, surname FROM members WHERE id = ?', (member_id,)).fetchone()
+        if m:
+            person_name = f"{m['first_name']} {m['surname']}"
+    if not person_name:
+        person_name = (fd.get('person_name') or '').strip() or 'Unnamed person'
+
+    lines = []
+    if note_type == 'Accident Report Form':
+        title = f"Accident report — {person_name}"
+        when = ' '.join(x for x in [fd.get('accident_date'), fd.get('accident_time')] if x)
+        if when:
+            lines.append(f"When: {when}")
+        if fd.get('location'):
+            lines.append(f"Where: {fd['location']}")
+        if fd.get('how_it_happened'):
+            lines.append(f"How it happened: {fd['how_it_happened']}")
+        if fd.get('injury_details'):
+            lines.append(f"Injury: {fd['injury_details']}")
+        lines.append(f"First aid / medical attention given: {'Yes' if fd.get('first_aid_given') else 'No'}")
+        lines.append(f"Parent / next of kin contacted: {'Yes' if fd.get('parent_contacted') else 'No'}")
+        if fd.get('riddor_reportable'):
+            lines.append('Reportable under RIDDOR: Yes')
+        for key, label in (('person_address', 'Address'), ('person_postcode', 'Postcode'),
+                            ('person_occupation', 'Occupation')):
+            if fd.get(key):
+                lines.append(f"{label}: {fd[key]}")
+        if fd.get('filled_in_by'):
+            lines.append(f"Filled in by: {fd['filled_in_by']}")
+    else:  # Incident Report Form
+        title = f"Incident report — {person_name}"
+        when = ' '.join(x for x in [fd.get('incident_date'), fd.get('incident_time')] if x)
+        if when:
+            lines.append(f"When: {when}")
+        if fd.get('location'):
+            lines.append(f"Where: {fd['location']}")
+        types = fd.get('incident_types') or []
+        if types:
+            lines.append(f"Type: {', '.join(types)}")
+        if fd.get('description'):
+            lines.append(f"What happened: {fd['description']}")
+        if fd.get('witnesses'):
+            lines.append(f"Witnesses: {fd['witnesses']}")
+        lines.append(f"First aid / medical attention needed: {'Yes' if fd.get('first_aid_given') else 'No'}")
+        lines.append(f"Parents contacted: {'Yes' if fd.get('parents_contacted') else 'No'}")
+        if fd.get('action_taken'):
+            lines.append(f"Action taken: {fd['action_taken']}")
+        if fd.get('reported_by'):
+            lines.append(f"Reported by: {fd['reported_by']}")
+
+    return title, '\n'.join(lines)
+
+
 @bp.route('/api/register/notes', methods=['POST'])
 @permission_required('register.notes')
 def api_notes_create():
@@ -604,25 +672,39 @@ def api_notes_create():
     session_type = data.get('session_type', '').strip()
     session_date = data.get('session_date', '').strip()
     note_type    = data.get('note_type', 'General').strip()
-    title        = data.get('title', '').strip() or None
-    details      = data.get('details', '').strip() or None
     member_id    = data.get('member_id') or None
+    form_data_in = data.get('form_data')
 
     if not session_type or not session_date:
         return jsonify({'error': 'session_type and session_date are required'}), 400
-    if not details and not title:
-        return jsonify({'error': 'At least a title or details must be provided'}), 400
+
+    db = get_db()
+    form_data_json = None
+
+    if note_type in STRUCTURED_NOTE_TYPES:
+        if not isinstance(form_data_in, dict):
+            return jsonify({'error': 'form_data is required for this note type'}), 400
+        if not member_id and not (form_data_in.get('person_name') or '').strip():
+            return jsonify({'error': 'Enter the name of the person involved, or link an existing member'}), 400
+        title, details = _compose_structured_note(db, note_type, member_id, form_data_in)
+        if not details:
+            return jsonify({'error': 'Please fill in at least the description'}), 400
+        form_data_json = json.dumps(form_data_in)
+    else:
+        title   = (data.get('title') or '').strip() or None
+        details = (data.get('details') or '').strip() or None
+        if not details and not title:
+            return jsonify({'error': 'At least a title or details must be provided'}), 400
 
     scoped = _assigned_session()
     if scoped is not None and session_type not in (scoped or []):
         return jsonify({'error': 'Access denied for this session'}), 403
 
-    db  = get_db()
     cur = db.execute(
         '''INSERT INTO session_notes
-               (session_date, session_type, member_id, note_type, title, details, added_by)
-           VALUES (?,?,?,?,?,?,?)''',
-        (session_date, session_type, member_id, note_type, title, details, session['user_id'])
+               (session_date, session_type, member_id, note_type, title, details, added_by, form_data)
+           VALUES (?,?,?,?,?,?,?,?)''',
+        (session_date, session_type, member_id, note_type, title, details, session['user_id'], form_data_json)
     )
     db.commit()
 

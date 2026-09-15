@@ -160,36 +160,161 @@
 <!-- ── Add Note / Incident modal ─────────────────────────────── -->
 {% if 'register.notes' in user_permissions %}
 <div class="modal-overlay" id="add-note-modal">
-  <div class="modal" style="max-width:520px">
+  <div class="modal" style="max-width:560px">
     <h2><span class="ico-emoji">📝 </span>Add Session Note</h2>
     <div class="form-group" style="margin-bottom:12px">
       <label>Type</label>
-      <select id="note-type-select" class="form-input">
+      <select id="note-type-select" class="form-input" onchange="onNoteTypeChange()">
         <option value="General">General</option>
         <option value="Medical">🩺 Medical</option>
         <option value="Safeguarding">🛡 Safeguarding</option>
         <option value="Behaviour">⚠️ Behaviour</option>
         <option value="Accident">🚨 Accident</option>
+        <option value="Accident Report Form">🚑 Accident Report Form</option>
+        <option value="Incident Report Form">📋 Incident Report Form</option>
         <option value="Other">Other</option>
       </select>
     </div>
-    <div class="form-group" style="margin-bottom:12px">
+
+    <div class="form-group" id="note-member-group" style="margin-bottom:8px">
       <label>Linked to member <span style="color:var(--muted);font-weight:400">(optional)</span></label>
       <select id="note-member-select" class="form-input">
         <option value="">— Not linked to a specific member —</option>
       </select>
     </div>
-    <div class="form-group" style="margin-bottom:12px">
-      <label>Short title</label>
-      <input id="note-title-input" type="text" class="form-input"
-             placeholder="e.g. Head bump during football" maxlength="120">
+
+    <!-- Only shown for the two structured form types -->
+    <div class="form-group" id="note-not-listed-group" style="margin-bottom:12px;display:none">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+        <input type="checkbox" id="note-not-listed-check" onchange="onNoteTypeChange()">
+        Not an existing member — visitor / contractor / not on file
+      </label>
+      <div id="note-person-name-group" style="margin-top:8px;display:none">
+        <input id="note-person-name-input" type="text" class="form-input" placeholder="Full name">
+      </div>
+      <div id="note-person-extra-group" style="margin-top:8px;display:none">
+        <input id="note-person-address-input" type="text" class="form-input"
+               placeholder="Address (optional)" style="margin-bottom:6px">
+        <input id="note-person-postcode-input" type="text" class="form-input"
+               placeholder="Postcode (optional)" style="margin-bottom:6px">
+        <input id="note-person-occupation-input" type="text" class="form-input"
+               placeholder="Occupation (optional)">
+      </div>
     </div>
-    <div class="form-group" style="margin-bottom:16px">
-      <label>Full details</label>
-      <textarea id="note-details-input" class="form-input" rows="4"
-                placeholder="Describe what happened, when, who was involved, and any action taken…"
-                style="resize:vertical"></textarea>
+
+    <!-- General / Medical / Safeguarding / Behaviour / Accident / Other -->
+    <div id="note-generic-fields">
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Short title</label>
+        <input id="note-title-input" type="text" class="form-input"
+               placeholder="e.g. Head bump during football" maxlength="120">
+      </div>
+      <div class="form-group" style="margin-bottom:16px">
+        <label>Full details</label>
+        <textarea id="note-details-input" class="form-input" rows="4"
+                  placeholder="Describe what happened, when, who was involved, and any action taken…"
+                  style="resize:vertical"></textarea>
+      </div>
     </div>
+
+    <!-- Accident Report Form -->
+    <div id="note-accident-fields" style="display:none">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div class="form-group" style="flex:1">
+          <label>Date of accident</label>
+          <input id="accf-date" type="date" class="form-input">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Time</label>
+          <input id="accf-time" type="time" class="form-input">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Where it happened</label>
+        <input id="accf-location" type="text" class="form-input" placeholder="e.g. Main hall, by the fire exit">
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>How it happened <span style="color:var(--muted);font-weight:400">(and the cause, if known)</span></label>
+        <textarea id="accf-how" class="form-input" rows="3" style="resize:vertical"></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Injury details</label>
+        <textarea id="accf-injury" class="form-input" rows="2" style="resize:vertical"></textarea>
+      </div>
+      <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+          <input type="checkbox" id="accf-firstaid"> First aid / medical attention given
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+          <input type="checkbox" id="accf-parent-contacted"> Parent / next of kin contacted
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+          <input type="checkbox" id="accf-riddor"> Reportable under RIDDOR
+        </label>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Filled in by <span style="color:var(--muted);font-weight:400">(if different to whoever's logged in)</span></label>
+        <input id="accf-filled-by" type="text" class="form-input" placeholder="Name of staff member who dealt with this">
+      </div>
+    </div>
+
+    <!-- Incident Report Form -->
+    <div id="note-incident-fields" style="display:none">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div class="form-group" style="flex:1">
+          <label>Date</label>
+          <input id="incf-date" type="date" class="form-input">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Time</label>
+          <input id="incf-time" type="time" class="form-input">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Location</label>
+        <input id="incf-location" type="text" class="form-input" placeholder="e.g. Main hall">
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Type of incident <span style="color:var(--muted);font-weight:400">(tick all that apply)</span></label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+            <input type="checkbox" class="incf-type" value="Aggressive Behaviour"> Aggressive Behaviour</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+            <input type="checkbox" class="incf-type" value="Physical Injury"> Physical Injury</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+            <input type="checkbox" class="incf-type" value="Bullying"> Bullying</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+            <input type="checkbox" class="incf-type" value="Property Damage"> Property Damage</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+            <input type="checkbox" class="incf-type" value="Other"> Other</label>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>What happened</label>
+        <textarea id="incf-description" class="form-input" rows="3" style="resize:vertical"></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Witnesses <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <input id="incf-witnesses" type="text" class="form-input" placeholder="Names of anyone who saw what happened">
+      </div>
+      <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+          <input type="checkbox" id="incf-firstaid"> First aid / medical attention needed
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+          <input type="checkbox" id="incf-parents-contacted"> Parents contacted
+        </label>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Disciplinary / admin action taken <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <input id="incf-action" type="text" class="form-input">
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Reported by <span style="color:var(--muted);font-weight:400">(if different to whoever's logged in)</span></label>
+        <input id="incf-reported-by" type="text" class="form-input" placeholder="Name of staff member reporting this">
+      </div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeAddNoteModal()">Cancel</button>
       <button class="btn" id="note-submit-btn" onclick="submitNote()"
@@ -1577,6 +1702,8 @@
       Safeguarding:  '#7c3aed',
       Behaviour:     '#b45309',
       Accident:      '#dc2626',
+      'Accident Report Form': '#dc2626',
+      'Incident Report Form': '#c2410c',
       Other:         '#475569',
     };
 
@@ -1638,6 +1765,28 @@
     if (toggle)  toggle.textContent    = _logVisible ? 'Hide' : 'Show';
   }
 
+  // v12.88: the Accident Report Form / Incident Report Form types swap the
+  // generic title+details boxes for structured fields, matching the club's
+  // paper accident book / incident report pads.
+  const STRUCTURED_NOTE_TYPES = ['Accident Report Form', 'Incident Report Form'];
+
+  function onNoteTypeChange() {
+    const type = document.getElementById('note-type-select').value;
+    const isAccidentForm = type === 'Accident Report Form';
+    const isIncidentForm = type === 'Incident Report Form';
+    const isStructured   = isAccidentForm || isIncidentForm;
+
+    document.getElementById('note-generic-fields').style.display   = isStructured ? 'none' : '';
+    document.getElementById('note-accident-fields').style.display  = isAccidentForm ? '' : 'none';
+    document.getElementById('note-incident-fields').style.display  = isIncidentForm ? '' : 'none';
+    document.getElementById('note-not-listed-group').style.display = isStructured ? '' : 'none';
+
+    const notListed = isStructured && document.getElementById('note-not-listed-check').checked;
+    document.getElementById('note-member-group').style.display      = notListed ? 'none' : '';
+    document.getElementById('note-person-name-group').style.display = notListed ? '' : 'none';
+    document.getElementById('note-person-extra-group').style.display = (notListed && isAccidentForm) ? '' : 'none';
+  }
+
   function openAddNoteModal() {
     const sess = document.getElementById('session-picker').value;
     const date = document.getElementById('date-picker').value;
@@ -1658,11 +1807,39 @@
       });
     }
 
-    // Reset form
-    document.getElementById('note-type-select').value = 'General';
-    document.getElementById('note-title-input').value  = '';
+    // Reset form — generic fields
+    document.getElementById('note-type-select').value   = 'General';
+    document.getElementById('note-title-input').value   = '';
     document.getElementById('note-details-input').value = '';
 
+    // Reset form — not-listed / person identity fields
+    document.getElementById('note-not-listed-check').checked = false;
+    document.getElementById('note-person-name-input').value = '';
+    document.getElementById('note-person-address-input').value = '';
+    document.getElementById('note-person-postcode-input').value = '';
+    document.getElementById('note-person-occupation-input').value = '';
+
+    // Reset form — Accident Report Form fields (date defaults to the register date)
+    ['accf-location', 'accf-how', 'accf-injury', 'accf-filled-by'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('accf-date').value = date;
+    document.getElementById('accf-time').value = '';
+    document.getElementById('accf-firstaid').checked = false;
+    document.getElementById('accf-parent-contacted').checked = false;
+    document.getElementById('accf-riddor').checked = false;
+
+    // Reset form — Incident Report Form fields
+    ['incf-location', 'incf-description', 'incf-witnesses', 'incf-action', 'incf-reported-by'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('incf-date').value = date;
+    document.getElementById('incf-time').value = '';
+    document.getElementById('incf-firstaid').checked = false;
+    document.getElementById('incf-parents-contacted').checked = false;
+    document.querySelectorAll('.incf-type').forEach(cb => { cb.checked = false; });
+
+    onNoteTypeChange();
     document.getElementById('add-note-modal').classList.add('open');
   }
 
@@ -1671,16 +1848,67 @@
   }
 
   async function submitNote() {
-    const sess    = document.getElementById('session-picker').value;
-    const date    = document.getElementById('date-picker').value;
-    const type    = document.getElementById('note-type-select').value;
-    const title   = document.getElementById('note-title-input').value.trim();
-    const details = document.getElementById('note-details-input').value.trim();
+    const sess = document.getElementById('session-picker').value;
+    const date = document.getElementById('date-picker').value;
+    const type = document.getElementById('note-type-select').value;
     const memberSel = document.getElementById('note-member-select');
-    const memberId  = memberSel ? (memberSel.value || null) : null;
+    const notListed = document.getElementById('note-not-listed-check').checked;
+    const isAccidentForm = type === 'Accident Report Form';
+    const isIncidentForm = type === 'Incident Report Form';
+    const isStructured   = isAccidentForm || isIncidentForm;
 
-    if (!title && !details) {
-      showToast('Please enter at least a title or some details.', true); return;
+    let title = '', details = '', formData = null;
+    let memberId = (!isStructured || !notListed) && memberSel && memberSel.value
+      ? parseInt(memberSel.value) : null;
+
+    if (isAccidentForm) {
+      formData = {
+        person_name:       notListed ? document.getElementById('note-person-name-input').value.trim() : '',
+        person_address:    notListed ? document.getElementById('note-person-address-input').value.trim() : '',
+        person_postcode:   notListed ? document.getElementById('note-person-postcode-input').value.trim() : '',
+        person_occupation: notListed ? document.getElementById('note-person-occupation-input').value.trim() : '',
+        accident_date:     document.getElementById('accf-date').value,
+        accident_time:     document.getElementById('accf-time').value,
+        location:          document.getElementById('accf-location').value.trim(),
+        how_it_happened:   document.getElementById('accf-how').value.trim(),
+        injury_details:    document.getElementById('accf-injury').value.trim(),
+        first_aid_given:   document.getElementById('accf-firstaid').checked,
+        parent_contacted:  document.getElementById('accf-parent-contacted').checked,
+        riddor_reportable: document.getElementById('accf-riddor').checked,
+        filled_in_by:      document.getElementById('accf-filled-by').value.trim(),
+      };
+      if (notListed && !formData.person_name) {
+        showToast('Please enter the name of the person involved.', true); return;
+      }
+      if (!formData.how_it_happened && !formData.injury_details) {
+        showToast('Please describe how it happened, or the injury.', true); return;
+      }
+    } else if (isIncidentForm) {
+      formData = {
+        person_name:        notListed ? document.getElementById('note-person-name-input').value.trim() : '',
+        incident_date:      document.getElementById('incf-date').value,
+        incident_time:      document.getElementById('incf-time').value,
+        location:           document.getElementById('incf-location').value.trim(),
+        incident_types:     Array.from(document.querySelectorAll('.incf-type:checked')).map(cb => cb.value),
+        description:        document.getElementById('incf-description').value.trim(),
+        witnesses:          document.getElementById('incf-witnesses').value.trim(),
+        first_aid_given:    document.getElementById('incf-firstaid').checked,
+        parents_contacted:  document.getElementById('incf-parents-contacted').checked,
+        action_taken:       document.getElementById('incf-action').value.trim(),
+        reported_by:        document.getElementById('incf-reported-by').value.trim(),
+      };
+      if (notListed && !formData.person_name) {
+        showToast('Please enter the name of the person involved.', true); return;
+      }
+      if (!formData.description) {
+        showToast('Please describe what happened.', true); return;
+      }
+    } else {
+      title   = document.getElementById('note-title-input').value.trim();
+      details = document.getElementById('note-details-input').value.trim();
+      if (!title && !details) {
+        showToast('Please enter at least a title or some details.', true); return;
+      }
     }
 
     const btn = document.getElementById('note-submit-btn');
@@ -1694,9 +1922,10 @@
           session_date: date,
           session_type: sess,
           note_type:    type,
-          title:        title,
-          details:      details,
-          member_id:    memberId ? parseInt(memberId) : null,
+          title:        isStructured ? null : title,
+          details:      isStructured ? null : details,
+          member_id:    memberId,
+          form_data:    formData,
         }),
       });
       closeAddNoteModal();

@@ -202,7 +202,9 @@ def ensure_tables():
             added_by     INTEGER REFERENCES users(id),
             created_at   TEXT    DEFAULT (datetime('now')),
             notified_at  TEXT,                              -- v12.56: incident→comms send receipt
-            notified_by  INTEGER REFERENCES users(id)
+            notified_by  INTEGER REFERENCES users(id),
+            form_data    TEXT                               -- v12.88: structured answers (JSON) for
+                                                              -- Accident/Incident Report Form note types
         );
         CREATE INDEX IF NOT EXISTS idx_session_notes_date_type ON session_notes(session_date, session_type);
         CREATE INDEX IF NOT EXISTS idx_session_notes_member    ON session_notes(member_id);
@@ -617,6 +619,13 @@ def ensure_tables():
         # so voiding any of them voids the whole payment. NULL = an ordinary
         # single-period payment, which is every existing row.
         "ALTER TABLE member_payments ADD COLUMN advance_ref TEXT",
+        # v12.88: structured answers (JSON) behind the Accident Report Form /
+        # Incident Report Form note types. NULL for every other note_type and
+        # every pre-v12.88 row — title/details stay the source of truth for
+        # every existing reader (comms emails, member Activity tab, register
+        # note list, print register); this column is additional, not a
+        # replacement.
+        "ALTER TABLE session_notes ADD COLUMN form_data TEXT",
     ]
     for stmt in alter_stmts:
         try:
